@@ -61,6 +61,29 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         };
     }
 
+    public async Task<BeadsIssue?> GetIssueAsync(
+        string workspace,
+        string agentName,
+        string issueId,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunWithActorAsync(
+            workspace,
+            agentName,
+            ["show", issueId, "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(result, $"read issue '{issueId}'");
+
+        var issues = ParseIssues(result.StandardOutput, "issue result");
+        return issues.Count switch
+        {
+            0 => null,
+            1 when string.Equals(issues[0].Id, issueId, StringComparison.Ordinal) => issues[0],
+            1 => throw new BeadsException($"bd show returned unexpected issue '{issues[0].Id}'"),
+            _ => throw new BeadsException($"bd show returned more than one issue for '{issueId}'"),
+        };
+    }
+
     public Task<CommandResult> PullAsync(
         string workspace,
         string agentName,

@@ -25,8 +25,9 @@ public static class Program
             {
                 var runner = new CommandRunner(Console.Error);
                 var preflight = new Preflight(runner);
-                await preflight.RunAsync(parsed.Value!, cancellation.Token);
-                // The orchestration loop is added in the following phases.
+                var validated = await preflight.RunAsync(parsed.Value!, cancellation.Token);
+                await new AbacusApplication(runner, Console.Error)
+                    .RunAsync(validated, cancellation.Token);
                 return 0;
             }
             finally

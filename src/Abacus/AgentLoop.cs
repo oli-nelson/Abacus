@@ -5,6 +5,7 @@ public sealed record PreparedClaim(BeadsIssue Issue, string Branch);
 public sealed class ClaimCoordinator(
     Beads beads,
     Git git,
+    TicketRecovery recovery,
     TextWriter log,
     TimeSpan? pollingInterval = null)
 {
@@ -18,6 +19,11 @@ public sealed class ClaimCoordinator(
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!Directory.Exists(agent.WorkspacePath))
+            {
+                throw new StartupInvariantException(
+                    $"[{agent.Name}] workspace disappeared: '{agent.WorkspacePath}'");
+            }
 
             if (singleAgentMode && agent.HasRemote)
             {
@@ -57,29 +63,20 @@ public sealed class ClaimCoordinator(
                     cancellationToken);
                 return new PreparedClaim(issue, branch);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                await recovery.ReopenKnownClaimAsync(
+                    agent,
+                    issue.Id,
+                    $"Abacus shut down while preparing the workspace for {agent.Name}",
+                    CancellationToken.None);
+                throw;
+            }
+            catch (Exception exception)
             {
                 var note = $"Abacus could not prepare the workspace for {agent.Name}: {exception.Message}";
                 await WarnAsync(agent.Name, note);
-                var reopen = await beads.ReopenAsync(
-                    agent.WorkspacePath,
-                    agent.Name,
-                    issue.Id,
-                    note,
-                    cancellationToken);
-                if (!reopen.Succeeded)
-                {
-                    await WarnAsync(agent.Name, $"failed to reopen {issue.Id}: {Beads.FailureDetail(reopen)}");
-                }
-
-                if (agent.HasRemote)
-                {
-                    var push = await beads.PushAsync(agent.WorkspacePath, agent.Name, cancellationToken);
-                    if (!push.Succeeded)
-                    {
-                        await WarnAsync(agent.Name, $"failed to push reopened ticket: {Beads.FailureDetail(push)}");
-                    }
-                }
+                await recovery.ReopenKnownClaimAsync(agent, issue.Id, note, cancellationToken);
 
                 await Task.Delay(PollingInterval, cancellationToken);
             }
@@ -89,3 +86,72 @@ public sealed class ClaimCoordinator(
     private Task WarnAsync(string agentName, string message) =>
         log.WriteLineAsync($"[{agentName}] warning: {message}");
 }
+
+public sealed class AgentLoop(
+    ValidatedAgent agent,
+    bool singleAgentMode,
+    string model,
+    string? serverUrl,
+    ClaimCoordinator claims,
+    Tmux tmux,
+    TicketSupervisor supervisor,
+    TicketRecovery recovery,
+    TextWriter log)
+{
+    public async Task RunAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var claim = await claims.WaitForPreparedClaimAsync(agent, singleAgentMode, cancellationToken);
+                OpenCodeRun run;
+                try
+                {
+                    run = await tmux.StartOpenCodeAsync(
+                        agent,
+                        claim.Issue,
+                        model,
+                        serverUrl,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    await recovery.ReopenKnownClaimAsync(
+                        agent,
+                        claim.Issue.Id,
+                        $"Abacus shut down before OpenCode started for {agent.Name}",
+                        CancellationToken.None);
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    await recovery.ReopenKnownClaimAsync(
+                        agent,
+                        claim.Issue.Id,
+                        $"Abacus could not start OpenCode for {agent.Name}: {exception.Message}",
+                        CancellationToken.None);
+                    throw;
+                }
+
+                await supervisor.SuperviseAsync(agent, claim.Issue, run, cancellationToken);
+            }
+            catch (StartupInvariantException)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                await log.WriteLineAsync($"[{agent.Name}] warning: agent loop failed: {exception.Message}");
+                await Task.Delay(claims.PollingInterval, cancellationToken);
+            }
+        }
+    }
+}
+
+public sealed class StartupInvariantException(string message) : Exception(message);
