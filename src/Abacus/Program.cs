@@ -23,9 +23,10 @@ public static class Program
             Console.CancelKeyPress += cancelHandler;
             try
             {
-                // The orchestration loop is added in the following phases. Keeping the
-                // cancellation boundary here ensures every later child shares one token.
-                await Task.CompletedTask;
+                var runner = new CommandRunner(Console.Error);
+                var preflight = new Preflight(runner);
+                await preflight.RunAsync(parsed.Value!, cancellation.Token);
+                // The orchestration loop is added in the following phases.
                 return 0;
             }
             finally
