@@ -38,22 +38,26 @@ Start agents in an existing tmux session:
 
 ```sh
 abacus --tmux-session <session_name> \
+  --model <provider/model> \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
 
-Each agent runs in its own tmux pane as an OpenCode instance, using its assigned Git workspace.
+`--model` is required. Its OpenCode model ID is used for every agent started by that Abacus instance.
+
+Each agent runs in its own tmux pane as an OpenCode instance, using its assigned Git workspace and the requested model.
 
 To connect the agents to an existing OpenCode server:
 
 ```sh
 abacus --tmux-session <session_name> \
+  --model <provider/model> \
   --opencode-server 127.0.0.1:1234 \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
 
-The OpenCode instances still run in separate tmux panes, but each starts a new client session connected to the specified server.
+The OpenCode instances still run in separate tmux panes, but each starts a new client session connected to the specified server and uses the model passed to Abacus.
 
 ## Agent workflow
 
@@ -68,7 +72,7 @@ Each Abacus agent follows this loop:
 
 3. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
 4. Make sure the workspace has no local changes before starting OpenCode.
-5. Start OpenCode with `BEADS_ACTOR=<agent_name>` and a prompt describing the issue and its ticket-state responsibilities.
+5. Start OpenCode with `BEADS_ACTOR=<agent_name>`, the required Abacus `--model` value, and a prompt describing the issue and its ticket-state responsibilities.
 6. While OpenCode is running, Abacus monitors the ticket status through Beads.
 7. The OpenCode agent does the work and changes the ticket status when it is finished:
 
