@@ -1,0 +1,8 @@
+[
+  {
+    "name": "origin",
+    "url": "https://example.invalid/abacus",
+    "sql_url": "https://example.invalid/abacus",
+    "status": "ok"
+  }
+]

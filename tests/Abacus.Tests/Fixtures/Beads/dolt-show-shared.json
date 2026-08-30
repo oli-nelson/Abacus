@@ -1,0 +1,11 @@
+{
+  "backend": "dolt",
+  "connection_ok": true,
+  "database": "abc",
+  "embedded": false,
+  "host": "127.0.0.1",
+  "port": 45724,
+  "schema_version": 1,
+  "shared_server": false,
+  "user": "root"
+}

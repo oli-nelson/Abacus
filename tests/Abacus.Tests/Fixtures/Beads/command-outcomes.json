@@ -1,0 +1,37 @@
+[
+  {
+    "name": "ready-none",
+    "command": ["bd", "ready", "--claim", "--json"],
+    "exitCode": 0,
+    "stdout": "[]\n",
+    "stderr": ""
+  },
+  {
+    "name": "pull-no-remote",
+    "command": ["bd", "dolt", "pull", "--json"],
+    "exitCode": 1,
+    "stdout": "Pulling from Dolt remote...\n",
+    "stderr": "Error: fetch from origin/main: Error 1105: no remote\n"
+  },
+  {
+    "name": "pull-unreachable",
+    "command": ["bd", "dolt", "pull", "--json"],
+    "exitCode": 1,
+    "stdout": "Pulling from Dolt remote...\n",
+    "stderr": "Error: fetch from origin/main: remote is unreachable\n"
+  },
+  {
+    "name": "push-no-remote",
+    "command": ["bd", "dolt", "push", "--json"],
+    "exitCode": 0,
+    "stdout": "Pushing to Dolt remote...\nNo remote is configured — skipping.\n",
+    "stderr": ""
+  },
+  {
+    "name": "push-unreachable",
+    "command": ["bd", "dolt", "push", "--json"],
+    "exitCode": 1,
+    "stdout": "Pushing to Dolt remote...\n",
+    "stderr": "Error: push to origin/main: remote is unreachable\n"
+  }
+]

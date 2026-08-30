@@ -1,0 +1,7 @@
+{
+  "backend": "dolt",
+  "data_dir": "/tmp/fixture/.beads/embeddeddolt",
+  "database": "abc",
+  "embedded": true,
+  "schema_version": 1
+}

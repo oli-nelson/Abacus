@@ -1,0 +1,18 @@
+[
+  {
+    "id": "abc-123",
+    "title": "Contract fixture",
+    "status": "in_progress",
+    "priority": 2,
+    "issue_type": "task",
+    "assignee": "alice",
+    "owner": "abacus@example.invalid",
+    "created_at": "2026-08-30T21:32:04Z",
+    "created_by": "Abacus Contract Test",
+    "updated_at": "2026-08-30T21:32:04Z",
+    "started_at": "2026-08-30T21:32:04Z",
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  }
+]
