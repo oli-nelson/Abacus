@@ -98,7 +98,7 @@ public sealed class Tmux(
                     ShellQuote(wrapperPath),
                 ],
                 agent.WorkspacePath,
-                AgentName: agent.Name), cancellationToken);
+                AgentName: agent.Name), CancellationToken.None);
             if (!result.Succeeded)
             {
                 throw new TmuxException($"could not create OpenCode pane: {Beads.FailureDetail(result)}");
@@ -110,7 +110,14 @@ public sealed class Tmux(
                 throw new TmuxException("tmux did not return the created pane ID");
             }
 
-            return new OpenCodeRun(paneId, runDirectory, promptPath, wrapperPath, markerPath, logPath);
+            var run = new OpenCodeRun(paneId, runDirectory, promptPath, wrapperPath, markerPath, logPath);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                await StopAndCleanupAsync(run, CancellationToken.None);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            return run;
         }
         catch
         {

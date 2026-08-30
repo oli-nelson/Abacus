@@ -37,9 +37,17 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
 
         var git = new Git(runner, tools.Git);
         var beads = new Beads(runner, tools.Bd);
-        var resolvedAgents = options.Agents
+        var existingAgents = options.Agents
             .Select(static agent => new AgentOptions(agent.Name, ResolveWorkspace(agent.WorkspacePath)))
             .ToArray();
+        var resolvedAgents = new List<AgentOptions>(existingAgents.Length);
+        foreach (var agent in existingAgents)
+        {
+            resolvedAgents.Add(new AgentOptions(
+                agent.Name,
+                await git.ResolveWorkspaceRootAsync(agent.WorkspacePath, agent.Name, cancellationToken)));
+        }
+
         RejectDuplicateResolvedWorkspaces(resolvedAgents);
 
         var validated = new List<ValidatedAgent>(options.Agents.Count);
@@ -72,6 +80,7 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
             || server.Any(char.IsWhiteSpace)
             || !Uri.TryCreate($"http://{server}", UriKind.Absolute, out var uri)
             || string.IsNullOrWhiteSpace(uri.Host)
+            || !string.IsNullOrEmpty(uri.UserInfo)
             || uri.Port is <= 0 or > 65535
             || !HasExplicitPort(server))
         {

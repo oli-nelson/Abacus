@@ -2,6 +2,24 @@ namespace Abacus;
 
 public sealed class Git(CommandRunner runner, string executable = "git")
 {
+    public async Task<string> ResolveWorkspaceRootAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(
+            workspace,
+            agentName,
+            ["-C", workspace, "rev-parse", "--show-toplevel"],
+            cancellationToken);
+        if (!result.Succeeded || string.IsNullOrWhiteSpace(result.StandardOutput))
+        {
+            throw new PreflightException($"[{agentName}] '{workspace}' is not a Git worktree");
+        }
+
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(result.StandardOutput.Trim()));
+    }
+
     public static bool IsValidIssueId(string issueId)
     {
         if (string.IsNullOrWhiteSpace(issueId)

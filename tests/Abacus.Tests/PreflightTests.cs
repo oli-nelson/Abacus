@@ -137,6 +137,30 @@ public sealed class PreflightTests
         Assert.Contains("does not exist", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task IntermediateSymlinkAliasesCannotAssignOneWorktreeTwice()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await PreflightFixture.CreateAsync();
+        var workspace = await fixture.AddWorkspaceAsync("real/workspace", EmbeddedIdentity, "[]");
+        var realParent = Directory.GetParent(workspace)!.FullName;
+        var aliasParent = Path.Combine(Directory.GetParent(realParent)!.FullName, "alias");
+        Directory.CreateSymbolicLink(aliasParent, realParent);
+        var aliasWorkspace = Path.Combine(aliasParent, "workspace");
+
+        var exception = await Assert.ThrowsAsync<PreflightException>(() => fixture.RunAsync(new Options(
+            "workers",
+            "provider/model",
+            null,
+            [new("alice", workspace), new("bob", aliasWorkspace)])));
+
+        Assert.Contains("same workspace", exception.Message, StringComparison.Ordinal);
+    }
+
     private sealed class PreflightFixture : IDisposable
     {
         private readonly DirectoryInfo root;
@@ -160,7 +184,7 @@ public sealed class PreflightTests
                 case "$3" in
                   rev-parse)
                     test -f "$workspace/.git-invalid" && exit 1
-                    printf 'true\n'
+                    test "$4" = --show-toplevel && { cd "$workspace" && pwd -P; } || printf 'true\n'
                     ;;
                   status)
                     test -f "$workspace/.git-status" && cat "$workspace/.git-status"

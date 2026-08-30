@@ -22,4 +22,8 @@
     <ProjectReference Include="..\..\src\Abacus\Abacus.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
