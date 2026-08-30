@@ -50,7 +50,7 @@ Waiting -> Claimed -> PreparingWorkspace -> RunningOpenCode -> Finalizing -> Wai
 ```
 
 1. In single-agent mode, pull Beads before looking for work when a Dolt remote exists.
-2. Run `bd ready --claim --json` in the agent workspace with `BEADS_ACTOR=<agent name>`.
+2. Run `bd ready --claim --exclude-label gt:slot --json` in the agent workspace with `BEADS_ACTOR=<agent name>`.
 3. If no issue is ready, sleep for a small fixed interval and try again.
 4. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
 5. Verify that the workspace is clean before OpenCode starts.
@@ -70,7 +70,7 @@ Before building the loop, capture the exact behavior of the locally supported co
 
 - Record the minimum supported versions of `dotnet`, `bd`, `git`, `opencode`, and `tmux` in the README. Initial development can use the currently installed tools: .NET 10.0.101, Beads 1.2.2, OpenCode 1.17.10, tmux 3.6a, and Git 2.55.0.
 - In a disposable Beads repository, save representative outputs and exit codes for:
-  - `bd ready --claim --json` with and without ready work.
+  - `bd ready --claim --exclude-label gt:slot --json` with and without ready work.
   - `bd show <id> --json` for `in_progress`, `open`, `blocked`, and `closed` issues.
   - `bd dolt show --json` and `bd dolt remote list --json` with and without a remote.
   - failed pulls and pushes.
@@ -145,7 +145,7 @@ All checks happen before any ticket is claimed or pane is created.
 - Implement `Beads.TryClaimReadyAsync` as a thin call to:
 
   ```sh
-  BEADS_ACTOR=<agent_name> bd ready --claim --json
+  BEADS_ACTOR=<agent_name> bd ready --claim --exclude-label gt:slot --json
   ```
 
 - In single-agent mode only, run `bd dolt pull` immediately before each claim attempt when a remote exists. A pull failure should log and delay the next attempt rather than claim against stale data.
@@ -156,7 +156,7 @@ All checks happen before any ticket is claimed or pane is created.
   - otherwise create `abacus/<issue_id>` from the workspace's current HEAD;
   - verify the resulting branch name and cleanliness.
 - Sanitize/validate issue IDs before using them in a branch name. Never interpolate an issue ID into a shell command.
-- If branch preparation fails, reopen the claimed issue with `bd update <id> --status open --append-notes <reason> --json`, push if configured, and return to waiting.
+- If branch preparation fails, reopen and unassign the claimed issue with `bd update <id> --status open --assignee "" --append-notes <reason> --json`, push if configured, and return to waiting.
 
 ### Exit criteria
 

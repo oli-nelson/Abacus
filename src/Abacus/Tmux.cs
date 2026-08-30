@@ -71,6 +71,7 @@ public sealed class Tmux(
         var promptPath = Path.Combine(runDirectory, "prompt.txt");
         var wrapperPath = Path.Combine(runDirectory, "run.sh");
         var markerPath = Path.Combine(runDirectory, "exit-code");
+        var processStatusPath = markerPath + ".opencode";
         var logPath = Path.Combine(runDirectory, "opencode.log");
 
         try
@@ -81,7 +82,7 @@ public sealed class Tmux(
                 cancellationToken);
             await File.WriteAllTextAsync(
                 wrapperPath,
-                RenderWrapper(agent, model, serverUrl, promptPath, markerPath, logPath),
+                RenderWrapper(agent, model, serverUrl, promptPath, markerPath, processStatusPath, logPath),
                 cancellationToken);
             File.SetUnixFileMode(
                 wrapperPath,
@@ -185,6 +186,7 @@ public sealed class Tmux(
         string? serverUrl,
         string promptPath,
         string markerPath,
+        string processStatusPath,
         string logPath)
     {
         var arguments = new List<string>
@@ -211,8 +213,18 @@ public sealed class Tmux(
             if cd {ShellQuote(agent.WorkspacePath)}; then
               prompt=$(cat {ShellQuote(promptPath)})
               if test $? -eq 0; then
-                {string.Join(' ', arguments)} >{ShellQuote(logPath)} 2>&1
-                code=$?
+                process_status={ShellQuote(processStatusPath)}
+                process_status_tmp={ShellQuote(processStatusPath)}.tmp
+                (
+                  {string.Join(' ', arguments)}
+                  opencode_code=$?
+                  printf '%s\n' "$opencode_code" >"$process_status_tmp"
+                  mv "$process_status_tmp" "$process_status"
+                ) 2>&1 | tee {ShellQuote(logPath)}
+                if test -f "$process_status"; then
+                  code=$(cat "$process_status")
+                  rm -f "$process_status"
+                fi
               fi
             fi
             marker_tmp={ShellQuote(markerPath)}.tmp.$$
@@ -236,6 +248,8 @@ public sealed class Tmux(
         TryDeleteFile(run.PromptPath);
         TryDeleteFile(run.WrapperPath);
         TryDeleteFile(run.MarkerPath);
+        TryDeleteFile(run.MarkerPath + ".opencode");
+        TryDeleteFile(run.MarkerPath + ".opencode.tmp");
 
         if (exitCode == 0)
         {

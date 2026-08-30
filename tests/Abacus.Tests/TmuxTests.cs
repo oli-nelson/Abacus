@@ -29,6 +29,7 @@ public sealed class TmuxTests
         {
             WorkingDirectory = workspace,
             UseShellExecute = false,
+            RedirectStandardOutput = true,
         };
         using var wrapper = Process.Start(startInfo)!;
         await WaitForFileAsync(run.MarkerPath);
@@ -41,6 +42,8 @@ public sealed class TmuxTests
         Assert.Equal(
             ["--model", "provider/model", "--attach", "http://127.0.0.1:1234", "--dir", workspace],
             await File.ReadAllLinesAsync(Path.Combine(workspace, "received-arguments")));
+        Assert.Equal("visible OpenCode output", await wrapper.StandardOutput.ReadLineAsync());
+        Assert.Contains("visible OpenCode output", await File.ReadAllTextAsync(run.LogPath), StringComparison.Ordinal);
 
         wrapper.Kill(entireProcessTree: true);
         await wrapper.WaitForExitAsync();
@@ -173,6 +176,7 @@ public sealed class TmuxTests
                 printf '%s\n' "$@" > received-arguments
                 printf '%s' "$BEADS_ACTOR" > received-actor
                 pwd | tr -d '\n' > received-directory
+                printf 'visible OpenCode output\n'
                 exit 7
                 """);
             var mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;

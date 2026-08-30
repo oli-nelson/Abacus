@@ -67,7 +67,7 @@ Each Abacus agent follows this loop:
 2. Abacus atomically claims a ready task using the agent name as the actor:
 
    ```sh
-   BEADS_ACTOR=<agent_name> bd ready --claim --json
+   BEADS_ACTOR=<agent_name> bd ready --claim --exclude-label gt:slot --json
    ```
 
 3. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
@@ -107,7 +107,7 @@ When you are completely finished, update the ticket:
 - Success:
     bd close <issue_id> --reason "<summary of completed work>" --json
 - Work should be retried:
-    bd update <issue_id> --status open --append-notes "<reason>" --json
+    bd update <issue_id> --status open --assignee "" --append-notes "<reason>" --json
 - Work is blocked:
     bd update <issue_id> --status blocked --append-notes "<blocker>" --json
 

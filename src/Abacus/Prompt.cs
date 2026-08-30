@@ -20,7 +20,7 @@ public static class Prompt
         - Success:
             bd close {{issueId}} --reason "<summary of completed work>" --json
         - Work should be retried:
-            bd update {{issueId}} --status open --append-notes "<reason>" --json
+            bd update {{issueId}} --status open --assignee "" --append-notes "<reason>" --json
         - Work is blocked:
             bd update {{issueId}} --status blocked --append-notes "<blocker>" --json
 

@@ -8,9 +8,10 @@ All commands run with the agent workspace as the working directory. Agent-owned 
 
 | Operation | Invocation | Successful stdout | Exit behavior |
 | --- | --- | --- | --- |
-| Atomic claim | `bd ready --claim --json` | A JSON array containing zero or one issue. A claim changes its status to `in_progress` and sets `assignee` to `BEADS_ACTOR`. | Both no ready work (`[]`) and a claim exit 0. Invalid/missing projects exit nonzero, so empty stdout is not treated as idle. |
+| Atomic claim | `bd ready --claim --exclude-label gt:slot --json` | A JSON array containing zero or one issue. A claim changes its status to `in_progress` and sets `assignee` to `BEADS_ACTOR`. | Both no ready work (`[]`) and a claim exit 0. Invalid/missing projects exit nonzero, so empty stdout is not treated as idle. Merge-slot coordination beads are excluded from the work queue. |
+| Assigned retry lookup | `bd ready --assignee <agent> --exclude-label gt:slot --json` | Ready issues already assigned to this agent. | Used only when the atomic claim returns no issue, to recover retries left assigned by older Abacus versions. The selected issue is reclaimed with `bd update <id> --claim --json`. |
 | Read issue | `bd show <id> --json` | A one-element JSON array. `id` and `status` are the only required fields. | Missing issues and command failures exit nonzero. |
-| Reopen | `bd update <id> --status open --append-notes <reason> --json` | Updated issue JSON. | Nonzero means the issue was not reliably reopened. |
+| Reopen | `bd update <id> --status open --assignee "" --append-notes <reason> --json` | Updated issue JSON. | Nonzero means the issue was not reliably reopened. Clearing the assignee returns the issue to the atomic claim queue. |
 | Dolt identity | `bd dolt show --json` | Embedded mode includes `embedded: true`, `database`, and `data_dir`. Server mode includes `embedded: false`, `host`, `port`, and `database`; `user` is not part of database identity. | Unavailable/malformed configuration exits nonzero. Multi-agent mode accepts only non-embedded identities with equal normalized host, port, and database. |
 | List remotes | `bd dolt remote list --json` | `[]` or an array with `name`, `url`, `sql_url`, and `status`. | Exit 0 for either presence or absence; malformed output/failure is an error. |
 | Pull | `bd dolt pull --json` | Human-readable progress (despite `--json`). | With no remote this version exits 1 (`no remote`). Unreachable/invalid remotes also exit 1. Abacus invokes pull only after a successful remote-list result says a remote exists. |

@@ -1,7 +1,7 @@
 [
   {
     "name": "ready-none",
-    "command": ["bd", "ready", "--claim", "--json"],
+    "command": ["bd", "ready", "--claim", "--exclude-label", "gt:slot", "--json"],
     "exitCode": 0,
     "stdout": "[]\n",
     "stderr": ""

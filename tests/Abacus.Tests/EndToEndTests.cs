@@ -54,7 +54,7 @@ public sealed class EndToEndTests
             Assert.Equal(
                 ["--model", "provider/exact-model", "--dir", workspace],
                 await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
-            Assert.Contains("ready --claim --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
+            Assert.Contains("ready --claim --exclude-label gt:slot --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
             Assert.Contains("send-keys -t %1 C-c", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Empty(await stdout);
             Assert.Contains("[alice]", await stderr, StringComparison.Ordinal);

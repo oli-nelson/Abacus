@@ -47,6 +47,149 @@ dotnet publish src/Abacus -c Release -r osx-arm64 \
 ./artifacts/publish/abacus --help
 ```
 
+## Single-agent walkthrough
+
+The walkthroughs below assume `abacus` is installed on `PATH`. If you are running the executable directly from this repository, replace `abacus` with `/path/to/abacus/artifacts/publish/abacus`.
+
+### 1. Initialize Beads in a Git repository
+
+Choose the repository, agent name, tmux session, and OpenCode model. `MODEL` must be an exact model ID reported by `opencode models`.
+
+```sh
+export REPO=/path/to/your/repository
+export AGENT=alice
+export SESSION=abacus-work
+export MODEL=provider/model
+
+opencode models
+cd "$REPO"
+git rev-parse --show-toplevel
+```
+
+Initialize Beads. `--init-if-missing` makes this safe to repeat when the repository is already initialized.
+
+```sh
+bd init --init-if-missing --non-interactive
+bd dolt show --json
+bd dolt remote list --json
+```
+
+Make sure the repository's agent instructions define how an issue branch is serialized and merged into `main`. Abacus tells the agent to follow that process, but does not perform the merge itself.
+
+Create at least one ready ticket. Give it enough detail for the OpenCode agent to complete without further input.
+
+```sh
+bd create "Add a hello-world file" \
+  --description "Create HELLO.md with a short hello-world message, test or verify the change, commit it, and use the repository's serialized merge process." \
+  --acceptance "HELLO.md is committed and merged into main." \
+  --json
+
+bd ready --json
+```
+
+Abacus refuses to start with local Git changes. Confirm this prints nothing:
+
+```sh
+git status --porcelain
+```
+
+If it prints files created by repository or Beads setup, review and commit those files according to the repository's normal policy, then run the cleanliness check again.
+
+### 2. Start the tmux session
+
+Abacus requires an existing session and will not create one. Start it detached so the current terminal remains available:
+
+```sh
+tmux new-session -d -s "$SESSION"
+tmux has-session -t "$SESSION"
+```
+
+You can inspect the session at any time, then detach with `Ctrl-b d`:
+
+```sh
+tmux attach-session -t "$SESSION"
+```
+
+### 3. Run Abacus with one local OpenCode agent
+
+From any terminal, start Abacus with the repository as the agent's workspace:
+
+```sh
+abacus \
+  --tmux-session "$SESSION" \
+  --model "$MODEL" \
+  -a "$AGENT" "$REPO"
+```
+
+Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch a new local `opencode run` in an Abacus-owned pane. The pane shows the command's streaming output; it is not the interactive OpenCode TUI. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
+
+Useful commands from another terminal are:
+
+```sh
+cd "$REPO"
+bd list --all
+bd show <issue-id> --json
+tmux list-panes -t "$SESSION"
+```
+
+Press `Ctrl-C` in the Abacus terminal to stop it cleanly. Abacus interrupts its active pane and attempts to reopen any ticket that is still `in_progress`. When finished with the tmux session, remove it yourself:
+
+```sh
+tmux kill-session -t "$SESSION"
+```
+
+## Single-agent walkthrough with an OpenCode server
+
+The repository, Beads ticket, clean-workspace check, and tmux setup are identical to the preceding walkthrough. The difference is that you start the server yourself and pass its address to Abacus.
+
+### 1. Start the OpenCode server
+
+In a dedicated terminal, run:
+
+```sh
+opencode serve --hostname 127.0.0.1 --port 4096
+```
+
+Leave that command running. Its output should report that the server is listening on `http://127.0.0.1:4096`.
+
+### 2. Start tmux and Abacus
+
+In another terminal:
+
+```sh
+export REPO=/path/to/your/repository
+export AGENT=alice
+export SESSION=abacus-work
+export MODEL=provider/model
+
+cd "$REPO"
+bd ready --json
+git status --porcelain
+
+tmux new-session -d -s "$SESSION"
+
+abacus \
+  --tmux-session "$SESSION" \
+  --model "$MODEL" \
+  --opencode-server 127.0.0.1:4096 \
+  -a "$AGENT" "$REPO"
+```
+
+The value passed to `--opencode-server` is `host:port`, without an `http://` prefix. Abacus normalizes it and launches each agent through:
+
+```sh
+opencode run <prompt> \
+  --model "$MODEL" \
+  --attach http://127.0.0.1:4096 \
+  --dir "$REPO"
+```
+
+Abacus does not start, stop, or directly query the server. Stop Abacus with `Ctrl-C`, stop the OpenCode server with `Ctrl-C` in its terminal, and remove the tmux session when it is no longer needed:
+
+```sh
+tmux kill-session -t "$SESSION"
+```
+
 ## Usage
 
 Start agents in an existing tmux session:
@@ -77,7 +220,7 @@ Run `abacus --help` for the short prerequisite list and examples.
 Each agent has one asynchronous loop:
 
 1. In single-agent mode, pull Dolt before claiming when a remote exists.
-2. Atomically claim with `BEADS_ACTOR=<agent> bd ready --claim --json`.
+2. Atomically claim with `BEADS_ACTOR=<agent> bd ready --claim --exclude-label gt:slot --json`. If an older run left ready work assigned to that same agent, reclaim it without taking another agent's work. Merge-slot beads are never dispatched as coding work.
 3. Create or reuse `abacus/<issue-id>` and verify the workspace is clean.
 4. Start `opencode run` in a dedicated Abacus-owned tmux pane.
 5. Watch both the Beads status and the OpenCode exit marker.
@@ -104,7 +247,7 @@ When you are completely finished, update the ticket:
 - Success:
     bd close <issue_id> --reason "<summary of completed work>" --json
 - Work should be retried:
-    bd update <issue_id> --status open --append-notes "<reason>" --json
+    bd update <issue_id> --status open --assignee "" --append-notes "<reason>" --json
 - Work is blocked:
     bd update <issue_id> --status blocked --append-notes "<blocker>" --json
 

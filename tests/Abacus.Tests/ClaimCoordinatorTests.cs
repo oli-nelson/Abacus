@@ -22,7 +22,7 @@ public sealed class ClaimCoordinatorTests
         Assert.Equal("abacus/abc-good", claim.Branch);
         Assert.Equal("3", await fixture.ReadAsync("pull-count"));
         Assert.Equal("2", await fixture.ReadAsync("ready-count"));
-        Assert.Equal(["alice", "alice"], await File.ReadAllLinesAsync(fixture.PathOf("actors")));
+        Assert.Equal(["alice", "alice", "alice"], await File.ReadAllLinesAsync(fixture.PathOf("actors")));
         Assert.Contains("pull failed", fixture.Log.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
@@ -41,7 +41,7 @@ public sealed class ClaimCoordinatorTests
             CancellationToken.None);
 
         Assert.Equal("abc-good", claim.Issue.Id);
-        Assert.Contains("abc-bad --status open --append-notes", await fixture.ReadAsync("updates"), StringComparison.Ordinal);
+        Assert.Contains("abc-bad --status open --assignee  --append-notes", await fixture.ReadAsync("updates"), StringComparison.Ordinal);
         Assert.Equal("1", await fixture.ReadAsync("push-count"));
         Assert.False(File.Exists(fixture.PathOf("pull-count")));
     }
@@ -102,8 +102,11 @@ public sealed class ClaimCoordinatorTests
                   test "$count" -eq 1 && { printf 'pull failed\n' >&2; exit 1; }
                   exit 0
                 elif test "$1" = ready; then
-                  count=$(cat "$root/ready-count"); count=$((count + 1)); printf '%s' "$count" > "$root/ready-count"
                   printf '%s\n' "$BEADS_ACTOR" >> "$root/actors"
+                  if test "$2" = --assignee; then
+                    printf '[]\n'
+                  else
+                    count=$(cat "$root/ready-count"); count=$((count + 1)); printf '%s' "$count" > "$root/ready-count"
                   if test {{(recoverFirstClaim ? "1" : "0")}} -eq 1; then
                     test "$count" -eq 1 && id=abc-bad || id=abc-good
                     printf '[{"id":"%s","status":"in_progress"}]\n' "$id"
@@ -111,6 +114,7 @@ public sealed class ClaimCoordinatorTests
                     printf '[]\n'
                   else
                     printf '[{"id":"abc-good","status":"in_progress"}]\n'
+                  fi
                   fi
                 elif test "$1" = update; then
                   printf '%s\n' "$*" >> "$root/updates"

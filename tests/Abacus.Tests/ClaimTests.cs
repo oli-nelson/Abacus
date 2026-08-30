@@ -75,4 +75,55 @@ public sealed class ClaimTests
             root.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public async Task ReclaimsReadyWorkAlreadyAssignedToTheSameAgent()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-reclaim-");
+        try
+        {
+            var calls = Path.Combine(root.FullName, "calls");
+            var script = Path.Combine(root.FullName, "bd");
+            await File.WriteAllTextAsync(script, $$"""
+                #!/bin/sh
+                printf '%s actor=%s\n' "$*" "$BEADS_ACTOR" >> {{Q(calls)}}
+                if test "$1" = ready && test "$2" = --claim; then
+                  printf '[]\n'
+                elif test "$1" = ready && test "$2" = --assignee; then
+                  printf '[{"id":"abc-retry","status":"open","assignee":"alice"}]\n'
+                elif test "$1" = update && test "$2" = abc-retry && test "$3" = --claim; then
+                  printf '[{"id":"abc-retry","status":"in_progress","assignee":"alice"}]\n'
+                else
+                  exit 2
+                fi
+                """);
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var result = await new Beads(new CommandRunner(TextWriter.Null), script)
+                .TryClaimReadyAsync(root.FullName, "alice", CancellationToken.None);
+
+            Assert.NotNull(result);
+            Assert.Equal("abc-retry", result.Id);
+            Assert.Equal(IssueStatus.InProgress, result.Status);
+            var invocations = await File.ReadAllLinesAsync(calls);
+            Assert.Equal(
+                [
+                    "ready --claim --exclude-label gt:slot --json actor=alice",
+                    "ready --assignee alice --exclude-label gt:slot --json actor=alice",
+                    "update abc-retry --claim --json actor=alice",
+                ],
+                invocations);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    private static string Q(string value) => "'" + value.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
 }

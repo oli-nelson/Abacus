@@ -39,6 +39,8 @@ public sealed record BeadsIssue(string Id, IssueStatus Status);
 
 public sealed class Beads(CommandRunner runner, string executable = "bd")
 {
+    private const string MergeSlotLabel = "gt:slot";
+
     public async Task<BeadsIssue?> TryClaimReadyAsync(
         string workspace,
         string agentName,
@@ -47,17 +49,57 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         var result = await RunWithActorAsync(
             workspace,
             agentName,
-            ["ready", "--claim", "--json"],
+            ["ready", "--claim", "--exclude-label", MergeSlotLabel, "--json"],
             cancellationToken);
         EnsureCommandSuccess(result, "claim ready work");
 
-        var issues = ParseIssues(result.StandardOutput, "claim result");
+        var claim = ParseSingleClaim(result.StandardOutput, "claim result");
+        if (claim is not null)
+        {
+            return claim;
+        }
+
+        // Reopened work created by older Abacus versions can remain assigned to
+        // this agent. It is invisible to bd ready --claim, so resume only work
+        // already owned by this identity and leave other agents' work alone.
+        var assignedResult = await RunWithActorAsync(
+            workspace,
+            agentName,
+            ["ready", "--assignee", agentName, "--exclude-label", MergeSlotLabel, "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(assignedResult, "find ready work assigned to this agent");
+
+        var assignedIssues = ParseIssues(assignedResult.StandardOutput, "assigned ready result");
+        if (assignedIssues.Count is 0)
+        {
+            return null;
+        }
+
+        var assignedIssue = assignedIssues[0];
+        if (assignedIssue.Status is not IssueStatus.Open)
+        {
+            throw new BeadsException($"ready issue '{assignedIssue.Id}' was not open");
+        }
+
+        var reclaimResult = await RunWithActorAsync(
+            workspace,
+            agentName,
+            ["update", assignedIssue.Id, "--claim", "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(reclaimResult, $"reclaim ready work '{assignedIssue.Id}'");
+        return ParseSingleClaim(reclaimResult.StandardOutput, "reclaim result")
+            ?? throw new BeadsException($"bd update --claim returned no issue for '{assignedIssue.Id}'");
+    }
+
+    private static BeadsIssue? ParseSingleClaim(string json, string context)
+    {
+        var issues = ParseIssues(json, context);
         return issues.Count switch
         {
             0 => null,
             1 when issues[0].Status is IssueStatus.InProgress => issues[0],
             1 => throw new BeadsException($"claimed issue '{issues[0].Id}' was not in_progress"),
-            _ => throw new BeadsException("bd ready --claim returned more than one issue"),
+            _ => throw new BeadsException("Beads returned more than one claimed issue"),
         };
     }
 
@@ -105,7 +147,7 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         await RunWithActorAsync(
             workspace,
             agentName,
-            ["update", issueId, "--status", "open", "--append-notes", reason, "--json"],
+            ["update", issueId, "--status", "open", "--assignee", "", "--append-notes", reason, "--json"],
             cancellationToken);
 
     public async Task<DoltIdentity> ReadDoltIdentityAsync(

@@ -25,7 +25,7 @@ public sealed class PromptTests
             - Success:
                 bd close abc-123 --reason "<summary of completed work>" --json
             - Work should be retried:
-                bd update abc-123 --status open --append-notes "<reason>" --json
+                bd update abc-123 --status open --assignee "" --append-notes "<reason>" --json
             - Work is blocked:
                 bd update abc-123 --status blocked --append-notes "<blocker>" --json
 
