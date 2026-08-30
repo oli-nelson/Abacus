@@ -26,8 +26,65 @@ public sealed record DoltIdentity(
     }
 }
 
+public enum IssueStatus
+{
+    InProgress,
+    Open,
+    Blocked,
+    Closed,
+    Unknown,
+}
+
+public sealed record BeadsIssue(string Id, IssueStatus Status);
+
 public sealed class Beads(CommandRunner runner, string executable = "bd")
 {
+    public async Task<BeadsIssue?> TryClaimReadyAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunWithActorAsync(
+            workspace,
+            agentName,
+            ["ready", "--claim", "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(result, "claim ready work");
+
+        var issues = ParseIssues(result.StandardOutput, "claim result");
+        return issues.Count switch
+        {
+            0 => null,
+            1 when issues[0].Status is IssueStatus.InProgress => issues[0],
+            1 => throw new BeadsException($"claimed issue '{issues[0].Id}' was not in_progress"),
+            _ => throw new BeadsException("bd ready --claim returned more than one issue"),
+        };
+    }
+
+    public Task<CommandResult> PullAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken) =>
+        RunWithActorAsync(workspace, agentName, ["dolt", "pull"], cancellationToken);
+
+    public Task<CommandResult> PushAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken) =>
+        RunWithActorAsync(workspace, agentName, ["dolt", "push"], cancellationToken);
+
+    public async Task<CommandResult> ReopenAsync(
+        string workspace,
+        string agentName,
+        string issueId,
+        string reason,
+        CancellationToken cancellationToken) =>
+        await RunWithActorAsync(
+            workspace,
+            agentName,
+            ["update", issueId, "--status", "open", "--append-notes", reason, "--json"],
+            cancellationToken);
+
     public async Task<DoltIdentity> ReadDoltIdentityAsync(
         string workspace,
         string? agentName,
@@ -99,6 +156,71 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         CancellationToken cancellationToken) =>
         runner.RunAsync(new CommandSpec(executable, arguments, workspace, AgentName: agentName), cancellationToken);
 
+    private Task<CommandResult> RunWithActorAsync(
+        string workspace,
+        string agentName,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken) =>
+        runner.RunAsync(new CommandSpec(
+            executable,
+            arguments,
+            workspace,
+            new Dictionary<string, string?> { ["BEADS_ACTOR"] = agentName },
+            agentName), cancellationToken);
+
+    internal static IReadOnlyList<BeadsIssue> ParseIssues(string json, string context)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind is not JsonValueKind.Array)
+            {
+                throw new JsonException("expected an array");
+            }
+
+            var issues = new List<BeadsIssue>();
+            foreach (var element in document.RootElement.EnumerateArray())
+            {
+                var id = element.GetProperty("id").GetString();
+                var status = element.GetProperty("status").GetString();
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(status))
+                {
+                    throw new JsonException("issue id or status is missing");
+                }
+
+                issues.Add(new BeadsIssue(id, ParseStatus(status)));
+            }
+
+            return issues;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            throw new BeadsException($"Beads returned invalid {context} JSON: {exception.Message}");
+        }
+    }
+
+    internal static IssueStatus ParseStatus(string status) => status switch
+    {
+        "in_progress" => IssueStatus.InProgress,
+        "open" => IssueStatus.Open,
+        "blocked" => IssueStatus.Blocked,
+        "closed" => IssueStatus.Closed,
+        _ => IssueStatus.Unknown,
+    };
+
+    private static void EnsureCommandSuccess(CommandResult result, string operation)
+    {
+        if (!result.Succeeded)
+        {
+            throw new BeadsException($"failed to {operation}: {FailureDetail(result)}");
+        }
+    }
+
+    internal static string FailureDetail(CommandResult result) =>
+        string.IsNullOrWhiteSpace(result.StandardError)
+            ? $"exit code {result.ExitCode}"
+            : result.StandardError.Trim();
+
     private static void EnsureSuccess(CommandResult result, string operation)
     {
         if (!result.Succeeded)
@@ -110,3 +232,5 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         }
     }
 }
+
+public sealed class BeadsException(string message) : Exception(message);
