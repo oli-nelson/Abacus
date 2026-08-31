@@ -45,6 +45,50 @@ public sealed class GitTests
     }
 
     [Fact]
+    public async Task ResumesIssueBranchWithoutMutatingItsStaleWorktree()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var repository = await TemporaryGitRepository.CreateAsync();
+        var suffix = Guid.NewGuid().ToString("N");
+        var parent = Directory.GetParent(repository.Path)!.FullName;
+        var staleWorkspace = Path.Combine(parent, $"abacus-stale-{suffix}");
+        var targetWorkspace = Path.Combine(parent, $"abacus-target-{suffix}");
+        try
+        {
+            await repository.RunAsync("branch", "abacus/abc-resume");
+            await repository.RunAsync("branch", "worker-target");
+            await repository.RunAsync("worktree", "add", staleWorkspace, "abacus/abc-resume");
+            await repository.RunAsync("worktree", "add", targetWorkspace, "worker-target");
+
+            var git = new Git(new CommandRunner(TextWriter.Null), repository.GitExecutable);
+            var branch = await git.PrepareIssueBranchAsync(
+                targetWorkspace,
+                "alice",
+                "abc-resume",
+                CancellationToken.None);
+
+            Assert.Equal("abacus/abc-resume", branch);
+            Assert.Equal("abacus/abc-resume", (await repository.RunInAsync(
+                targetWorkspace,
+                "branch",
+                "--show-current")).Trim());
+            Assert.Equal("abacus/abc-resume", (await repository.RunInAsync(
+                staleWorkspace,
+                "branch",
+                "--show-current")).Trim());
+        }
+        finally
+        {
+            await repository.RunAsync("worktree", "remove", "--force", staleWorkspace);
+            await repository.RunAsync("worktree", "remove", "--force", targetWorkspace);
+        }
+    }
+
+    [Fact]
     public async Task DirtyWorkspaceNeverCreatesIssueBranch()
     {
         if (OperatingSystem.IsWindows())
@@ -115,10 +159,13 @@ public sealed class GitTests
             (await RunAsync("branch", "--show-current")).Trim();
 
         public async Task<string> RunAsync(params string[] arguments)
+            => await RunInAsync(Path, arguments);
+
+        public async Task<string> RunInAsync(string workingDirectory, params string[] arguments)
         {
             var startInfo = new ProcessStartInfo(GitExecutable)
             {
-                WorkingDirectory = Path,
+                WorkingDirectory = workingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,

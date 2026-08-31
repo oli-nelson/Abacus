@@ -69,7 +69,11 @@ public sealed class Git(CommandRunner runner, string executable = "git")
             cancellationToken);
 
         var switchArguments = branchExists.Succeeded
-            ? new[] { "-C", workspace, "switch", branch }
+            // A previously interrupted agent can leave this issue branch
+            // checked out in another clean worktree. Beads guarantees one
+            // active owner for the ticket, so resume it here without mutating
+            // the stale worktree. That worktree is reset before its next claim.
+            ? new[] { "-C", workspace, "switch", "--ignore-other-worktrees", branch }
             : new[] { "-C", workspace, "switch", "-c", branch };
         var switchResult = await RunAsync(workspace, agentName, switchArguments, cancellationToken);
         if (!switchResult.Succeeded)

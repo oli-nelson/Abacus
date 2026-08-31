@@ -46,11 +46,7 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         string agentName,
         CancellationToken cancellationToken)
     {
-        var result = await RunWithActorAsync(
-            workspace,
-            agentName,
-            ["ready", "--claim", "--exclude-label", MergeSlotLabel, "--json"],
-            cancellationToken);
+        var result = await RunClaimWithRetryAsync(workspace, agentName, cancellationToken);
         EnsureCommandSuccess(result, "claim ready work");
 
         var claim = ParseSingleClaim(result.StandardOutput, "claim result");
@@ -89,6 +85,45 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         EnsureCommandSuccess(reclaimResult, $"reclaim ready work '{assignedIssue.Id}'");
         return ParseSingleClaim(reclaimResult.StandardOutput, "reclaim result")
             ?? throw new BeadsException($"bd update --claim returned no issue for '{assignedIssue.Id}'");
+    }
+
+    private async Task<CommandResult> RunClaimWithRetryAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var result = await RunWithActorAsync(
+                workspace,
+                agentName,
+                ["ready", "--claim", "--exclude-label", MergeSlotLabel, "--json"],
+                cancellationToken);
+            if (result.Succeeded
+                || !IsSerializationFailure(result))
+            {
+                return result;
+            }
+
+            // Dolt uses optimistic concurrency. A conflicting transaction is
+            // rolled back safely and reports SQL error 1213/SQLSTATE 40001,
+            // so retry the complete atomic claim with capped backoff and
+            // jitter. This is process-independent when several Abacus instances
+            // share the same Beads database.
+            var exponentialMilliseconds = 25 * (1 << Math.Min(attempt - 1, 4));
+            var jitterMilliseconds = Random.Shared.Next(0, exponentialMilliseconds + 1);
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(exponentialMilliseconds + jitterMilliseconds),
+                cancellationToken);
+        }
+    }
+
+    internal static bool IsSerializationFailure(CommandResult result)
+    {
+        var detail = $"{result.StandardOutput}\n{result.StandardError}";
+        return detail.Contains("serialization failure", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("SQLSTATE 40001", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("Error 1213", StringComparison.OrdinalIgnoreCase);
     }
 
     private static BeadsIssue? ParseSingleClaim(string json, string context)
@@ -285,9 +320,11 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
     }
 
     internal static string FailureDetail(CommandResult result) =>
-        string.IsNullOrWhiteSpace(result.StandardError)
-            ? $"exit code {result.ExitCode}"
-            : result.StandardError.Trim();
+        !string.IsNullOrWhiteSpace(result.StandardError)
+            ? result.StandardError.Trim()
+            : !string.IsNullOrWhiteSpace(result.StandardOutput)
+                ? result.StandardOutput.Trim()
+                : $"exit code {result.ExitCode}";
 
     private static void EnsureSuccess(CommandResult result, string operation)
     {

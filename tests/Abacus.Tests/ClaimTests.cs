@@ -5,6 +5,79 @@ namespace Abacus.Tests;
 public sealed class ClaimTests
 {
     [Fact]
+    public async Task RetriesDoltSerializationFailuresUntilAtomicClaimSucceeds()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-claim-retry-");
+        try
+        {
+            var attempts = Path.Combine(root.FullName, "attempts");
+            await File.WriteAllTextAsync(attempts, "0");
+            var script = Path.Combine(root.FullName, "bd");
+            await File.WriteAllTextAsync(script, $$"""
+                #!/bin/sh
+                count=$(cat {{Q(attempts)}})
+                count=$((count + 1))
+                printf '%s' "$count" > {{Q(attempts)}}
+                if test "$count" -lt 3; then
+                  printf '{"error":"dolt commit: Error 1213 (40001): serialization failure: try restarting transaction"}\n'
+                  exit 1
+                fi
+                printf '[{"id":"abc-retried","status":"in_progress"}]\n'
+                """);
+            File.SetUnixFileMode(
+                script,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var claim = await new Beads(new CommandRunner(TextWriter.Null), script)
+                .TryClaimReadyAsync(root.FullName, "alice", CancellationToken.None);
+
+            Assert.NotNull(claim);
+            Assert.Equal("abc-retried", claim.Id);
+            Assert.Equal("3", await File.ReadAllTextAsync(attempts));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DoesNotRetryOrdinaryClaimFailures()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-claim-failure-");
+        try
+        {
+            var script = Path.Combine(root.FullName, "bd");
+            await File.WriteAllTextAsync(
+                script,
+                "#!/bin/sh\nprintf '{\"error\":\"permission denied\"}\\n'\nexit 1\n");
+            File.SetUnixFileMode(
+                script,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var exception = await Assert.ThrowsAsync<BeadsException>(() =>
+                new Beads(new CommandRunner(TextWriter.Null), script)
+                    .TryClaimReadyAsync(root.FullName, "alice", CancellationToken.None));
+
+            Assert.Contains("permission denied", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ConcurrentClaimsReturnAnIssueToOnlyOneAgent()
     {
         if (OperatingSystem.IsWindows())
