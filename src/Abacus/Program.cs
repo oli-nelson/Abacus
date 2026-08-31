@@ -21,12 +21,18 @@ public static class Program
             };
 
             Console.CancelKeyPress += cancelHandler;
+            using var output = new ConsoleOutput(
+                Console.Error,
+                parsed.Value!.Agents.Select(static agent => agent.Name),
+                parsed.Value.Model,
+                parsed.Value.Verbose);
             try
             {
-                var runner = new CommandRunner(Console.Error);
+                var runner = new CommandRunner(output);
                 var preflight = new Preflight(runner);
-                var validated = await preflight.RunAsync(parsed.Value!, cancellation.Token);
-                await new AbacusApplication(runner, Console.Error)
+                var validated = await preflight.RunAsync(parsed.Value, cancellation.Token);
+                await output.SystemAsync("Preflight complete; starting agent loops");
+                await new AbacusApplication(runner, output)
                     .RunAsync(validated, cancellation.Token);
                 return 0;
             }

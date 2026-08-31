@@ -19,6 +19,7 @@ public sealed class ClaimCoordinator(
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            await log.SetAgentAsync(agent.Name, AgentActivity.Waiting, "Looking for a ready ticket");
             if (!Directory.Exists(agent.WorkspacePath))
             {
                 throw new StartupInvariantException(
@@ -29,9 +30,10 @@ public sealed class ClaimCoordinator(
             {
                 if (!await git.IsWorkspaceCleanAsync(agent.WorkspacePath, agent.Name, cancellationToken))
                 {
+                    await log.SetAgentAsync(agent.Name, AgentActivity.Cleaning, "Discarding workspace changes");
                     await WarnAsync(agent.Name, "workspace is dirty; discarding local changes before claiming work");
                     await git.CleanWorkspaceAsync(agent.WorkspacePath, agent.Name, cancellationToken);
-                    await log.WriteLineAsync($"[{agent.Name}] workspace cleaned; continuing claims");
+                    await log.SetAgentAsync(agent.Name, AgentActivity.Waiting, "workspace cleaned; continuing claims");
                 }
             }
             catch (WorkspacePreparationException exception)
@@ -42,6 +44,7 @@ public sealed class ClaimCoordinator(
 
             if (singleAgentMode && agent.HasRemote)
             {
+                await log.SetAgentAsync(agent.Name, AgentActivity.Syncing, "Pulling the latest Beads data");
                 var pull = await beads.PullAsync(agent.WorkspacePath, agent.Name, cancellationToken);
                 if (!pull.Succeeded)
                 {
@@ -65,12 +68,17 @@ public sealed class ClaimCoordinator(
 
             if (issue is null)
             {
+                await log.SetAgentAsync(agent.Name, AgentActivity.Waiting, "No ready tickets; checking again soon");
                 await Task.Delay(PollingInterval, cancellationToken);
                 continue;
             }
 
             try
             {
+                await log.SetAgentAsync(
+                    agent.Name,
+                    AgentActivity.Preparing,
+                    $"{issue.Id} • preparing workspace and branch");
                 var branch = await git.PrepareIssueBranchAsync(
                     agent.WorkspacePath,
                     agent.Name,
@@ -90,6 +98,7 @@ public sealed class ClaimCoordinator(
             catch (Exception exception)
             {
                 var note = $"Abacus could not prepare the workspace for {agent.Name}: {exception.Message}";
+                await log.SetAgentAsync(agent.Name, AgentActivity.Recovering, $"{issue.Id} • reopening ticket");
                 await WarnAsync(agent.Name, note);
                 await recovery.ReopenKnownClaimAsync(agent, issue.Id, note, cancellationToken);
 
@@ -99,7 +108,7 @@ public sealed class ClaimCoordinator(
     }
 
     private Task WarnAsync(string agentName, string message) =>
-        log.WriteLineAsync($"[{agentName}] warning: {message}");
+        log.WarningAsync(agentName, message);
 }
 
 public sealed class AgentLoop(
@@ -142,6 +151,10 @@ public sealed class AgentLoop(
                 }
                 catch (Exception exception)
                 {
+                    await log.SetAgentAsync(
+                        agent.Name,
+                        AgentActivity.Recovering,
+                        $"{claim.Issue.Id} • OpenCode could not start; reopening ticket");
                     await recovery.ReopenKnownClaimAsync(
                         agent,
                         claim.Issue.Id,
@@ -150,19 +163,29 @@ public sealed class AgentLoop(
                     throw;
                 }
 
+                await log.SetAgentAsync(
+                    agent.Name,
+                    AgentActivity.Working,
+                    $"{claim.Issue.Id} • OpenCode in pane {run.PaneId}");
                 await supervisor.SuperviseAsync(agent, claim.Issue, run, cancellationToken);
+                await log.SetAgentAsync(
+                    agent.Name,
+                    AgentActivity.Finalizing,
+                    $"{claim.Issue.Id} • session finished");
             }
             catch (StartupInvariantException)
             {
+                await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, "Workspace invariant failed");
                 throw;
             }
             catch (OperationCanceledException)
             {
+                await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, "Shutting down");
                 throw;
             }
             catch (Exception exception)
             {
-                await log.WriteLineAsync($"[{agent.Name}] warning: agent loop failed: {exception.Message}");
+                await log.WarningAsync(agent.Name, $"agent loop failed: {exception.Message}");
                 await Task.Delay(claims.PollingInterval, cancellationToken);
             }
         }

@@ -39,6 +39,7 @@ Start agents in an existing tmux session:
 ```sh
 abacus --tmux-session <session_name> \
   --model <provider/model> \
+  [--verbose] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
@@ -58,6 +59,8 @@ abacus --tmux-session <session_name> \
 ```
 
 The OpenCode instances still run in separate tmux panes, but each starts a new non-interactive `opencode run --attach` client session connected to the specified server and uses the model passed to Abacus.
+
+By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, or stopped. Warnings remain visible in the dashboard. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences.
 
 ## Agent workflow
 

@@ -46,7 +46,9 @@ public sealed class CommandRunner(TextWriter log)
         }
 
         var prefix = command.AgentName is null ? "abacus" : command.AgentName;
-        await log.WriteLineAsync($"[{prefix}] {command.FileName} {FormatArgumentsForLog(command.Arguments)}");
+        await log.DebugCommandAsync(
+            prefix,
+            $"{command.FileName} {FormatArgumentsForLog(command.Arguments)}");
 
         using var process = new Process { StartInfo = startInfo };
         try
@@ -82,7 +84,7 @@ public sealed class CommandRunner(TextWriter log)
 
         if (!result.Succeeded)
         {
-            await log.WriteLineAsync($"[{prefix}] {command.FileName} exited {result.ExitCode}");
+            await log.DebugCommandAsync(prefix, $"{command.FileName} exited {result.ExitCode}");
         }
 
         return result;

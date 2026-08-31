@@ -122,7 +122,7 @@ public sealed class TicketRecovery(
     }
 
     private Task WarnAsync(string agentName, string message) =>
-        log.WriteLineAsync($"[{agentName}] warning: {message}");
+        log.WarningAsync(agentName, message);
 }
 
 public sealed class TicketSupervisor(
@@ -186,6 +186,10 @@ public sealed class TicketSupervisor(
 
                 if (current.Status is IssueStatus.Closed or IssueStatus.Open or IssueStatus.Blocked)
                 {
+                    await log.SetAgentAsync(
+                        agent.Name,
+                        AgentActivity.Finalizing,
+                        $"{claimedIssue.Id} • ticket is {StatusName(current.Status)}");
                     return;
                 }
 
@@ -199,6 +203,10 @@ public sealed class TicketSupervisor(
                     var final = await ReadAfterExitAsync(agent, claimedIssue.Id, cancellationToken);
                     if (final is { Status: IssueStatus.Closed or IssueStatus.Open or IssueStatus.Blocked })
                     {
+                        await log.SetAgentAsync(
+                            agent.Name,
+                            AgentActivity.Finalizing,
+                            $"{claimedIssue.Id} • ticket is {StatusName(final.Status)}");
                         return;
                     }
 
@@ -207,6 +215,10 @@ public sealed class TicketSupervisor(
                         var exitDescription = exitCode?.ToString() ?? "unknown";
                         await WarnAsync(agent.Name,
                             $"OpenCode exited with code {exitDescription} while {claimedIssue.Id} remained in_progress");
+                        await log.SetAgentAsync(
+                            agent.Name,
+                            AgentActivity.Recovering,
+                            $"{claimedIssue.Id} • OpenCode exited; reopening ticket");
                         await recovery.ReopenIfStillInProgressAsync(
                             agent,
                             claimedIssue.Id,
@@ -273,7 +285,13 @@ public sealed class TicketSupervisor(
     }
 
     private Task WarnAsync(string agentName, string message) =>
-        log.WriteLineAsync($"[{agentName}] warning: {message}");
+        log.WarningAsync(agentName, message);
+
+    private static string StatusName(IssueStatus status) => status switch
+    {
+        IssueStatus.InProgress => "in progress",
+        _ => status.ToString().ToLowerInvariant(),
+    };
 
     private async Task CleanupPaneAsync(string agentName, OpenCodeRun run)
     {

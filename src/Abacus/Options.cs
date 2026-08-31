@@ -6,11 +6,13 @@ public sealed record Options(
     string TmuxSession,
     string Model,
     string? OpenCodeServer,
-    IReadOnlyList<AgentOptions> Agents)
+    IReadOnlyList<AgentOptions> Agents,
+    bool Verbose = false)
 {
     public const string ShortUsage =
         "Usage: abacus --tmux-session <name> --model <provider/model> " +
-        "[--opencode-server <host:port>] -a <agent_name> <git_workspace_path> [-a ...]";
+        "[--opencode-server <host:port>] [--verbose] " +
+        "-a <agent_name> <git_workspace_path> [-a ...]";
 
     public const string Usage = """
         Abacus coordinates Beads tasks and OpenCode agents in an existing tmux session.
@@ -18,7 +20,12 @@ public sealed record Options(
         Usage:
           abacus --tmux-session <name> --model <provider/model> \
             [--opencode-server <host:port>] \
+            [--verbose] \
             -a <agent_name> <git_workspace_path> [-a ...]
+
+        Output:
+          The default interactive display is a live dashboard of agent activity.
+          Use --verbose (or -v) for timestamped state changes and subprocess commands.
 
         Required prerequisites:
           - macOS or Linux with bd, git, opencode, and tmux on PATH
@@ -48,6 +55,7 @@ public sealed record Options(
         string? tmuxSession = null;
         string? model = null;
         string? server = null;
+        var verbose = false;
         var agents = new List<AgentOptions>();
 
         for (var index = 0; index < arguments.Count; index++)
@@ -63,6 +71,11 @@ public sealed record Options(
                     break;
                 case "--opencode-server":
                     server = ReadValue(arguments, ref index, argument);
+                    break;
+                case "--verbose":
+                case "--debug":
+                case "-v":
+                    verbose = true;
                     break;
                 case "-a":
                     var name = ReadValue(arguments, ref index, argument);
@@ -124,7 +137,7 @@ public sealed record Options(
         }
 
         return new OptionsParseResult(
-            new Options(tmuxSession, model, server, agents.AsReadOnly()),
+            new Options(tmuxSession, model, server, agents.AsReadOnly(), verbose),
             ShowHelp: false);
     }
 

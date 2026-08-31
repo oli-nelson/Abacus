@@ -23,8 +23,25 @@ public sealed class OptionsTests
         Assert.Equal("workers", result.Value.TmuxSession);
         Assert.Equal("provider/model", result.Value.Model);
         Assert.Equal("127.0.0.1:1234", result.Value.OpenCodeServer);
+        Assert.False(result.Value.Verbose);
         Assert.Equal(Path.GetFullPath(Path.Combine(Path.GetTempPath(), "abacus")), result.Value.Agents[0].WorkspacePath);
         Assert.Equal("bob", result.Value.Agents[1].Name);
+    }
+
+    [Theory]
+    [InlineData("--verbose")]
+    [InlineData("--debug")]
+    [InlineData("-v")]
+    public void ParsesVerboseAliases(string verbosityOption)
+    {
+        var result = Options.Parse([
+            "--tmux-session", "s",
+            "--model", "provider/model",
+            verbosityOption,
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.True(result.Value!.Verbose);
     }
 
     [Theory]

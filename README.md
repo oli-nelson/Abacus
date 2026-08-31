@@ -123,6 +123,17 @@ abacus \
 
 Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch `opencode --mini` with the ticket prompt in an Abacus-owned pane. OpenCode receives the pane's terminal directly so Mini has a TTY. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
 
+The default terminal display is a live dashboard with one row per agent. It shows the current lifecycle state (`STARTING`, `WAITING`, `SYNCING`, `CLEANING`, `PREPARING`, `WORKING`, `FINALIZING`, `RECOVERING`, or `STOPPED`), the active ticket when there is one, and recent warnings. For raw diagnostics, add `--verbose` (or `--debug`/`-v`):
+
+```sh
+abacus --verbose \
+  --tmux-session "$SESSION" \
+  --model "$MODEL" \
+  -a "$AGENT" "$REPO"
+```
+
+Verbose mode prints timestamped state transitions, warnings, and every external command. If stderr is redirected to a file or pipe without `--verbose`, Abacus automatically uses compact state-transition lines instead of ANSI terminal control sequences. Set `NO_COLOR=1` to disable dashboard colors while retaining the live layout.
+
 Useful commands from another terminal are:
 
 ```sh
@@ -213,6 +224,8 @@ abacus --tmux-session <session_name> \
 
 `--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to local Mini and attached run processes. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
 
+Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
+
 Run `abacus --help` for the short prerequisite list and examples.
 
 ## Agent and branch behavior
@@ -259,7 +272,7 @@ ticket notes are complete.
 
 The implementation is in [`Prompt.cs`](src/Abacus/Prompt.cs) and the source contract is in [`SPEC.md`](SPEC.md#opencode-prompt-template). Repository-specific agent instructions must define the serialized merge process named in the prompt.
 
-Every external command is logged concisely to stderr with an agent prefix. Prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. OpenCode output is displayed directly in its tmux pane rather than piped to a transcript file, preserving the TTY required by Mini.
+In default mode, agent states and recent warnings are shown without subprocess noise. In verbose mode, every external command is logged concisely to stderr with a timestamp and agent prefix. Prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. OpenCode output is displayed directly in its tmux pane rather than piped to a transcript file, preserving the TTY required by Mini.
 
 Ctrl-C cancels all loops. Abacus interrupts every active pane, checks the ticket again, attempts to reopen any ticket still `in_progress` with a shutdown note, performs configured Dolt pushes with bounded retries, and removes only panes it created.
 
@@ -274,6 +287,6 @@ Abacus does **not**:
 - merge branches or decide whether agent work is correct;
 - choose ticket outcomes for an agent;
 - integrate directly with Git, tmux, Dolt, Beads, or OpenCode APIs/protocols;
-- provide a daemon, dashboard, persistent queue, dynamic pool, or Windows support.
+- provide a daemon, web dashboard, persistent queue, dynamic pool, or Windows support.
 
 The observed external command contracts and fixtures are documented in [`docs/contracts/cli-contracts.md`](docs/contracts/cli-contracts.md).

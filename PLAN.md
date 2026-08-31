@@ -96,6 +96,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   ```text
   abacus --tmux-session <name> --model <provider/model> \
     [--opencode-server <host:port>] \
+    [--verbose] \
     -a <agent_name> <git_workspace_path> [-a ...]
   ```
 
@@ -107,7 +108,8 @@ Before building the loop, capture the exact behavior of the locally supported co
   - captured stdout/stderr and exit code;
   - cancellation that terminates the child process tree;
   - concise, agent-prefixed logging.
-- Add Ctrl-C cancellation and one top-level error boundary. Do not add configurable logging or a general retry framework.
+- Add Ctrl-C cancellation and one top-level error boundary.
+- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Fall back to compact state-transition lines when stderr is redirected, and expose timestamped state, warning, and subprocess diagnostics through `--verbose`. Do not add a general logging framework or configurable log sinks.
 
 ### Exit criteria
 

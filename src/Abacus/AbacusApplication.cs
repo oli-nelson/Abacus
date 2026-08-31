@@ -8,6 +8,7 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
             Path.GetTempPath(),
             $"abacus-{Environment.ProcessId}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(temporaryRoot);
+        await log.SystemAsync("Agent loops started");
 
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
@@ -58,7 +59,7 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
             }
             catch (IOException)
             {
-                await log.WriteLineAsync($"[abacus] temporary files retained in {temporaryRoot}");
+                await log.WarningAsync("abacus", $"temporary files retained in {temporaryRoot}");
             }
         }
     }
