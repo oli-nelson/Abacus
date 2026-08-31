@@ -209,6 +209,7 @@ abacus --tmux-session <session_name> \
   --tmux-window <window_name_or_index> \
   --tmux-layout <layout> \
   --model <provider/model> \
+  [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
@@ -218,6 +219,7 @@ Connect new OpenCode client sessions to an existing server:
 ```sh
 abacus --model <provider/model> \
   --opencode-server 127.0.0.1:1234 \
+  [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
@@ -225,6 +227,28 @@ abacus --model <provider/model> \
 `--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to local Mini and attached run processes. Local mode requires `--tmux-session`. With `--opencode-server`, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--tmux-layout` is also tmux-only and accepts `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`; Abacus reapplies it after each pane is spawned. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
 
 Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
+
+### Finite and preflight-only runs
+
+Abacus normally waits and polls continuously. For CI and scripts, choose one mutually exclusive finite mode:
+
+- `--once` lets each configured agent process at most one ready ticket, then exits. If no ticket is ready for an agent, that agent exits without waiting.
+- `--drain` keeps processing tickets until each agent finishes its active work and observes no more ready tickets.
+- `--check` runs preflight validation and exits without claiming tickets, cleaning workspaces, or starting OpenCode. It checks the required executables, Git workspaces, Beads/Dolt identity and remote configuration, server-address syntax, and requested tmux target.
+
+Finite execution modes fail fast on command or orchestration errors instead of retrying forever. Successful `--once` and `--drain` runs print the normal outcome summary; `--check` prints a preflight success message and no run summary.
+
+For example:
+
+```sh
+# Validate a CI worker without claiming work.
+abacus --check --model "$MODEL" --opencode-server 127.0.0.1:4096 \
+  -a "$AGENT" "$REPO"
+
+# Empty the current ready queue and return control to the script.
+abacus --drain --model "$MODEL" --opencode-server 127.0.0.1:4096 \
+  -a "$AGENT" "$REPO"
+```
 
 Run `abacus --help` for the short prerequisite list and examples.
 

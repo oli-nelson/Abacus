@@ -31,6 +31,13 @@ public static class Program
                 var runner = new CommandRunner(output);
                 var preflight = new Preflight(runner);
                 var validated = await preflight.RunAsync(parsed.Value, cancellation.Token);
+                if (parsed.Value.CheckOnly)
+                {
+                    await output.SystemAsync(
+                        $"Preflight checks passed for {validated.Agents.Count} agent{(validated.Agents.Count == 1 ? string.Empty : "s")}; no tickets claimed");
+                    return 0;
+                }
+
                 await output.SystemAsync("Preflight complete; starting agent loops");
                 await new AbacusApplication(runner, output)
                     .RunAsync(validated, cancellation.Token);

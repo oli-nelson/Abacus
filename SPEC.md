@@ -41,6 +41,7 @@ abacus --tmux-session <session_name> \
   [--tmux-window <window_name_or_index>] \
   [--tmux-layout <layout>] \
   --model <provider/model> \
+  [--once | --drain | --check] \
   [--verbose] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
@@ -55,6 +56,7 @@ To connect the agents to an existing OpenCode server:
 ```sh
 abacus --model <provider/model> \
   --opencode-server 127.0.0.1:1234 \
+  [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
@@ -64,6 +66,8 @@ Without `--tmux-session`, each agent starts as a directly supervised, non-intera
 Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`.
 
 By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. On shutdown, Abacus prints a final per-agent run summary with elapsed time and counts for closed, reopened, blocked, and interrupted tickets.
+
+Abacus runs continuously unless a finite mode is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite modes fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without cleaning workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates required executables, workspace and Dolt configuration, the OpenCode server address, and any requested tmux session/window target. These three modes are mutually exclusive.
 
 ## Agent workflow
 
@@ -89,7 +93,7 @@ Each Abacus agent follows this loop:
 
 9. Changing the ticket from `in_progress` signals that the OpenCode session is finished. Abacus stops the OpenCode process.
 10. Whenever an OpenCode process ends, Abacus runs `bd dolt push` if a remote is configured. This ensures the final ticket update is pushed even if the agent did not push it.
-11. Abacus returns to the start of the loop.
+11. In continuous and drain modes, Abacus returns to the start of the loop. Once mode exits that agent after its first ticket; drain mode exits it when no further ticket is ready.
 
 An unexpected OpenCode exit that leaves the ticket `in_progress` must not be treated as completed work.
 If abacus sees that the ticket is still `in_progress` after OpenCode exits, it should log a warning, reopen the ticket (along with a `bd dolt push` if applicable) and return to the start of the loop.

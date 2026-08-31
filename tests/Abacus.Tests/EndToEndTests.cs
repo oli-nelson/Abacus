@@ -5,6 +5,82 @@ namespace Abacus.Tests;
 
 public sealed class EndToEndTests
 {
+    [Theory]
+    [InlineData("--once", "1")]
+    [InlineData("--drain", "2")]
+    public async Task FiniteExecutionModesExitWithoutCancellation(
+        string executionOption,
+        string expectedReadyCalls)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-finite-");
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+
+            var startInfo = DirectStartInfo(root.FullName, bin, workspace, executionOption);
+            using var process = Process.Start(startInfo)!;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await process.WaitForExitAsync(timeout.Token);
+
+            Assert.Equal(0, process.ExitCode);
+            Assert.Equal(expectedReadyCalls, await File.ReadAllTextAsync(Path.Combine(root.FullName, "ready-count")));
+            Assert.Empty(await stdout);
+            var errorText = await stderr;
+            Assert.Contains("ABACUS RUN SUMMARY", errorText, StringComparison.Ordinal);
+            Assert.Contains("closed 1", errorText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CheckModeRunsPreflightWithoutClaimingOrStartingOpenCode()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-check-");
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+
+            var startInfo = DirectStartInfo(root.FullName, bin, workspace, "--check");
+            using var process = Process.Start(startInfo)!;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await process.WaitForExitAsync(timeout.Token);
+
+            Assert.Equal(0, process.ExitCode);
+            Assert.Empty(await stdout);
+            var errorText = await stderr;
+            Assert.Contains("Preflight checks passed", errorText, StringComparison.Ordinal);
+            Assert.DoesNotContain("RUN SUMMARY", errorText, StringComparison.Ordinal);
+            Assert.DoesNotContain("ready", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
+            Assert.False(File.Exists(Path.Combine(root.FullName, "opencode-actor")));
+            Assert.False(File.Exists(Path.Combine(root.FullName, "tmux-calls")));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public async Task ProgramRunsOneFakeCliTicketAndCleansUpOnCtrlC()
     {
@@ -156,7 +232,13 @@ public sealed class EndToEndTests
             elif test "$1" = dolt && test "$2" = remote; then
               printf '[]\n'
             elif test "$1" = ready; then
-              if ! test -f "$root/claimed"; then
+              if test "$2" = --claim; then
+                count=0
+                test -f "$root/ready-count" && count=$(cat "$root/ready-count")
+                count=$((count + 1))
+                printf '%s' "$count" > "$root/ready-count"
+              fi
+              if test "$2" = --claim && ! test -f "$root/claimed"; then
                 touch "$root/claimed"; printf 'in_progress' > "$root/status"
                 printf '[{"id":"abc-1","status":"in_progress"}]\n'
               else
@@ -281,6 +363,32 @@ public sealed class EndToEndTests
         using var process = Process.Start(startInfo)!;
         await process.WaitForExitAsync();
         Assert.Equal(0, process.ExitCode);
+    }
+
+    private static ProcessStartInfo DirectStartInfo(
+        string root,
+        string bin,
+        string workspace,
+        string executionOption)
+    {
+        var startInfo = new ProcessStartInfo(FindOnPath("dotnet"))
+        {
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+        startInfo.ArgumentList.Add("--model");
+        startInfo.ArgumentList.Add("provider/exact-model");
+        startInfo.ArgumentList.Add("--opencode-server");
+        startInfo.ArgumentList.Add("127.0.0.1:4096");
+        startInfo.ArgumentList.Add(executionOption);
+        startInfo.ArgumentList.Add("-a");
+        startInfo.ArgumentList.Add("alice");
+        startInfo.ArgumentList.Add(workspace);
+        startInfo.Environment["PATH"] = bin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+        return startInfo;
     }
 
     private static string FindOnPath(string executable)

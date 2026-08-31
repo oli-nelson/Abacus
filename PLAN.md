@@ -99,6 +99,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   abacus [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
     --model <provider/model> \
     [--opencode-server <host:port>] \
+    [--once | --drain | --check] \
     [--verbose] \
     -a <agent_name> <git_workspace_path> [-a ...]
   ```
@@ -112,6 +113,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   - cancellation that terminates the child process tree;
   - concise, agent-prefixed logging.
 - Add Ctrl-C cancellation and one top-level error boundary.
+- Support finite execution without a scheduler: `--once` processes at most one ticket per agent, `--drain` runs until agents observe an empty ready queue, and `--check` exits after preflight without starting the application loop. Treat the modes as mutually exclusive and fail fast on orchestration errors during finite runs.
 - Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Fall back to compact state-transition lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 
 ### Exit criteria
@@ -144,6 +146,7 @@ All checks happen before any ticket is claimed or OpenCode run is created.
 - Missing tmux for local mode, invalid explicit tmux targets, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and cleaned by the agent loop before claiming.
 - A valid single-agent local setup and a valid multi-agent shared-Dolt setup pass.
 - Preflight never mutates Git, Beads, tmux, or OpenCode state.
+- `--check` reports success immediately after this boundary and never claims work or starts OpenCode.
 
 ## Phase 4 - Claiming and workspace preparation
 
@@ -238,6 +241,7 @@ All checks happen before any ticket is claimed or OpenCode run is created.
   - unexpected OpenCode exit while `in_progress`;
   - remote pull/push behavior and failures;
   - Ctrl-C cleanup.
+  - once, drain, and preflight-only process exit behavior.
 
 ### Documentation
 

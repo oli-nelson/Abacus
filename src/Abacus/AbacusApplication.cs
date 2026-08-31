@@ -41,6 +41,7 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
                     openCodeHost,
                     supervisor,
                     recovery,
+                    preflight.Options.ExecutionMode,
                     summary,
                     log).RunAsync(linkedCancellation.Token);
             }).ToArray();

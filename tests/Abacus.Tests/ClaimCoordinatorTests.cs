@@ -72,6 +72,45 @@ public sealed class ClaimCoordinatorTests
         Assert.Contains("workspace cleaned; continuing claims", fixture.Log.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task FiniteModeReturnsImmediatelyWhenNoWorkIsReady()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await CoordinatorFixture.CreateAsync(recoverFirstClaim: false);
+        var claim = await fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            singleAgentMode: true,
+            ExecutionMode.Drain,
+            CancellationToken.None);
+
+        Assert.Null(claim);
+        Assert.Equal("1", await fixture.ReadAsync("ready-count"));
+        Assert.Contains("finite run is complete", fixture.Log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FiniteModeFailsFastWhenPullFails()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await CoordinatorFixture.CreateAsync(recoverFirstClaim: false);
+        await Assert.ThrowsAsync<BeadsException>(() => fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: true),
+            singleAgentMode: true,
+            ExecutionMode.Once,
+            CancellationToken.None));
+
+        Assert.Equal("1", await fixture.ReadAsync("pull-count"));
+        Assert.Equal("0", await fixture.ReadAsync("ready-count"));
+    }
+
     private sealed class CoordinatorFixture : IDisposable
     {
         private readonly DirectoryInfo root;

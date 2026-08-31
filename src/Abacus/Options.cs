@@ -2,6 +2,13 @@ namespace Abacus;
 
 public sealed record AgentOptions(string Name, string WorkspacePath);
 
+public enum ExecutionMode
+{
+    Continuous,
+    Once,
+    Drain,
+}
+
 public sealed record Options(
     string? TmuxSession,
     string Model,
@@ -9,7 +16,9 @@ public sealed record Options(
     IReadOnlyList<AgentOptions> Agents,
     bool Verbose = false,
     string? TmuxWindow = null,
-    string? TmuxLayout = null)
+    string? TmuxLayout = null,
+    ExecutionMode ExecutionMode = ExecutionMode.Continuous,
+    bool CheckOnly = false)
 {
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -23,7 +32,7 @@ public sealed record Options(
     public const string ShortUsage =
         "Usage: abacus [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <provider/model> " +
-        "[--opencode-server <host:port>] [--verbose] " +
+        "[--opencode-server <host:port>] [--once | --drain | --check] [--verbose] " +
         "-a <agent_name> <git_workspace_path> [-a ...]";
 
     public const string Usage = """
@@ -33,12 +42,18 @@ public sealed record Options(
           abacus [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
             --model <provider/model> \
             [--opencode-server <host:port>] \
+            [--once | --drain | --check] \
             [--verbose] \
             -a <agent_name> <git_workspace_path> [-a ...]
 
         Output:
           The default interactive display is a live dashboard of agent activity.
           Use --verbose (or -v) for timestamped state changes and subprocess commands.
+
+        Finite execution:
+          --once   Process at most one ready ticket per agent, then exit.
+          --drain  Process ready work until the queue is empty, then exit.
+          --check  Run preflight validation without claiming tickets.
 
         Tmux layouts:
           --tmux-layout reapplies one of even-horizontal, even-vertical,
@@ -76,6 +91,9 @@ public sealed record Options(
         string? model = null;
         string? server = null;
         var verbose = false;
+        var once = false;
+        var drain = false;
+        var checkOnly = false;
         var agents = new List<AgentOptions>();
 
         for (var index = 0; index < arguments.Count; index++)
@@ -97,6 +115,15 @@ public sealed record Options(
                     break;
                 case "--opencode-server":
                     server = ReadValue(arguments, ref index, argument);
+                    break;
+                case "--once":
+                    once = true;
+                    break;
+                case "--drain":
+                    drain = true;
+                    break;
+                case "--check":
+                    checkOnly = true;
                     break;
                 case "--verbose":
                 case "--debug":
@@ -144,6 +171,16 @@ public sealed record Options(
                 "--tmux-layout must be one of even-horizontal, even-vertical, main-horizontal, main-vertical, or tiled");
         }
 
+        if (once && drain)
+        {
+            throw new OptionsException("--once and --drain cannot be used together");
+        }
+
+        if (checkOnly && (once || drain))
+        {
+            throw new OptionsException("--check cannot be combined with --once or --drain");
+        }
+
         if (string.IsNullOrWhiteSpace(model))
         {
             throw new OptionsException("--model is required");
@@ -188,8 +225,20 @@ public sealed record Options(
             throw new OptionsException($"duplicate workspace path '{duplicatePath}'");
         }
 
+        var executionMode = once
+            ? ExecutionMode.Once
+            : drain ? ExecutionMode.Drain : ExecutionMode.Continuous;
         return new OptionsParseResult(
-            new Options(tmuxSession, model, server, agents.AsReadOnly(), verbose, tmuxWindow, tmuxLayout),
+            new Options(
+                tmuxSession,
+                model,
+                server,
+                agents.AsReadOnly(),
+                verbose,
+                tmuxWindow,
+                tmuxLayout,
+                executionMode,
+                checkOnly),
             ShowHelp: false);
     }
 

@@ -48,6 +48,51 @@ public sealed class OptionsTests
         Assert.True(result.Value!.Verbose);
     }
 
+    [Theory]
+    [InlineData("--once", ExecutionMode.Once)]
+    [InlineData("--drain", ExecutionMode.Drain)]
+    public void ParsesFiniteExecutionModes(string option, ExecutionMode expected)
+    {
+        var result = Options.Parse([
+            "--tmux-session", "s",
+            "--model", "provider/model",
+            option,
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Equal(expected, result.Value!.ExecutionMode);
+        Assert.False(result.Value.CheckOnly);
+    }
+
+    [Fact]
+    public void ParsesCheckOnlyMode()
+    {
+        var result = Options.Parse([
+            "--tmux-session", "s",
+            "--model", "provider/model",
+            "--check",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.True(result.Value!.CheckOnly);
+        Assert.Equal(ExecutionMode.Continuous, result.Value.ExecutionMode);
+    }
+
+    [Theory]
+    [InlineData("--once", "--drain")]
+    [InlineData("--check", "--once")]
+    [InlineData("--check", "--drain")]
+    public void RejectsConflictingExecutionModes(string first, string second)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "s",
+            "--model", "provider/model",
+            first,
+            second,
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
     [Fact]
     public void AttachedServerDoesNotRequireTmux()
     {
