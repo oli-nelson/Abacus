@@ -1,6 +1,6 @@
 namespace Abacus;
 
-public sealed record ExternalTools(string Bd, string Git, string OpenCode, string Tmux);
+public sealed record ExternalTools(string Bd, string Git, string OpenCode, string? Tmux);
 
 public sealed record ValidatedAgent(
     string Name,
@@ -31,13 +31,16 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
             FindExecutable("bd"),
             FindExecutable("git"),
             FindExecutable("opencode"),
-            FindExecutable("tmux"));
+            options.TmuxSession is null ? null : FindExecutable("tmux"));
 
-        await VerifyTmuxTargetAsync(
-            tools.Tmux,
-            options.TmuxSession,
-            options.TmuxWindow,
-            cancellationToken);
+        if (options.TmuxSession is not null)
+        {
+            await VerifyTmuxTargetAsync(
+                tools.Tmux!,
+                options.TmuxSession,
+                options.TmuxWindow,
+                cancellationToken);
+        }
 
         var git = new Git(runner, tools.Git);
         var beads = new Beads(runner, tools.Bd);

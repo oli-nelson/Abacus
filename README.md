@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a small Unix-oriented C# orchestrator for [Beads](https://github.com/gastownhall/beads), Git, [OpenCode](https://github.com/anomalyco/opencode), and tmux. It owns only the agent state machine and invokes each existing command-line tool with literal argument lists.
+Abacus is a small Unix-oriented C# orchestrator for [Beads](https://github.com/gastownhall/beads), Git, [OpenCode](https://github.com/anomalyco/opencode), and optional tmux process hosting. It owns only the agent state machine and invokes each existing command-line tool with literal argument lists.
 
 ## Prerequisites
 
@@ -12,15 +12,14 @@ Abacus targets macOS and Linux. These commands must be on `PATH`:
 | Beads (`bd`) | 1.2.2 |
 | Git | 2.55.0 |
 | OpenCode | 1.18.20 |
-| tmux | 3.6a |
+| tmux | 3.6a (local Mini and optional pane-hosted attached mode) |
 
 Before running Abacus:
 
 1. Initialize Beads in every assigned Git workspace.
 2. Make every workspace clean and give each agent a distinct worktree or clone.
-3. Start the named tmux session.
-   Optionally create or select a specific existing window for Abacus panes.
-4. Optionally start an OpenCode server for attached mode.
+3. For local Mini mode, start the named tmux session and optionally select a specific window.
+4. For attached mode, start an OpenCode server. tmux is optional.
 
 For multiple agents, every workspace must connect to the same server-backed Dolt database. Abacus reads `bd dolt show --json` in each workspace, rejects embedded/local storage, and requires equal normalized host, port, and database identities. A single agent may use embedded Dolt storage. Remote presence is discovered with `bd dolt remote list --json`.
 
@@ -154,9 +153,9 @@ Press `Ctrl-C` in the Abacus terminal to stop it cleanly. Abacus interrupts its 
 tmux kill-session -t "$SESSION"
 ```
 
-## Single-agent walkthrough with an OpenCode server
+## Single-agent walkthrough with an OpenCode server and no tmux
 
-The repository, Beads ticket, clean-workspace check, and tmux setup are identical to the preceding walkthrough. The difference is that you start the server yourself and pass its address to Abacus.
+The repository, Beads ticket, and clean-workspace check are identical to the preceding walkthrough. Start the server yourself and pass its address to Abacus; no tmux session is needed.
 
 ### 1. Start the OpenCode server
 
@@ -168,26 +167,20 @@ opencode serve --hostname 127.0.0.1 --port 4096
 
 Leave that command running. Its output should report that the server is listening on `http://127.0.0.1:4096`.
 
-### 2. Start tmux and Abacus
+### 2. Start Abacus
 
 In another terminal:
 
 ```sh
 export REPO=/path/to/your/repository
 export AGENT=alice
-export SESSION=abacus-work
-export WINDOW=agents
 export MODEL=provider/model
 
 cd "$REPO"
 bd ready --json
 git status --porcelain
 
-tmux new-session -d -s "$SESSION" -n "$WINDOW"
-
 abacus \
-  --tmux-session "$SESSION" \
-  --tmux-window "$WINDOW" \
   --model "$MODEL" \
   --opencode-server 127.0.0.1:4096 \
   -a "$AGENT" "$REPO"
@@ -202,11 +195,9 @@ opencode run <prompt> \
   --dir "$REPO"
 ```
 
-Abacus does not start, stop, or directly query the server. Stop Abacus with `Ctrl-C`, stop the OpenCode server with `Ctrl-C` in its terminal, and remove the tmux session when it is no longer needed:
+Abacus launches one directly supervised `opencode run --attach` child per active agent. Each child has its own workspace, prompt, model, and `BEADS_ACTOR`. Its output is drained so the Abacus dashboard stays intact. Abacus does not start, stop, or directly query the server. Stop Abacus with `Ctrl-C`, then stop the OpenCode server with `Ctrl-C` in its terminal.
 
-```sh
-tmux kill-session -t "$SESSION"
-```
+If you prefer pane-hosted attached clients, also pass `--tmux-session` and optionally `--tmux-window`; Abacus then uses the existing tmux behavior.
 
 ## Usage
 
@@ -223,15 +214,13 @@ abacus --tmux-session <session_name> \
 Connect new OpenCode client sessions to an existing server:
 
 ```sh
-abacus --tmux-session <session_name> \
-  --tmux-window <window_name_or_index> \
-  --model <provider/model> \
+abacus --model <provider/model> \
   --opencode-server 127.0.0.1:1234 \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
 
-`--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to local Mini and attached run processes. `--tmux-window` is optional and accepts a window name or index within `--tmux-session`; when omitted, panes are created in that session's current window. Abacus verifies an explicit window during preflight and never creates the session or window. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
+`--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to local Mini and attached run processes. Local mode requires `--tmux-session`. With `--opencode-server`, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
 
 Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
 
@@ -245,9 +234,9 @@ Each agent has one asynchronous loop:
 2. If the workspace is dirty, discard tracked and untracked non-ignored changes with `git reset --hard HEAD` and `git clean -fd` before claiming.
 3. Atomically claim with `BEADS_ACTOR=<agent> bd ready --claim --exclude-label gt:slot --json`. If an older run left ready work assigned to that same agent, reclaim it without taking another agent's work. Merge-slot beads are never dispatched as coding work.
 4. Create or reuse `abacus/<issue-id>` and verify the workspace is clean.
-5. Start local `opencode --mini --prompt ...` or attached `opencode run --attach ...` in a dedicated Abacus-owned tmux pane.
-6. Watch both the Beads status and the OpenCode exit marker.
-7. Stop and clean the pane when the ticket becomes `closed`, `open`, or `blocked`.
+5. Start local `opencode --mini --prompt ...` in a dedicated Abacus-owned tmux pane. Start attached `opencode run --attach ...` in a pane when tmux was supplied, otherwise as a directly supervised child process.
+6. Watch both the Beads status and the hosted OpenCode run for exit.
+7. Stop and clean the pane or direct process when the ticket becomes `closed`, `open`, or `blocked`.
 8. Reopen tickets left `in_progress` by an unexpected exit, push when configured, and continue waiting.
 
 Every OpenCode session receives this exact prompt after substituting the agent name, issue ID, and canonical workspace path:
@@ -281,9 +270,9 @@ ticket notes are complete.
 
 The implementation is in [`Prompt.cs`](src/Abacus/Prompt.cs) and the source contract is in [`SPEC.md`](SPEC.md#opencode-prompt-template). Repository-specific agent instructions must define the serialized merge process named in the prompt.
 
-In default mode, agent states and recent warnings are shown without subprocess noise. In verbose mode, every external command is logged concisely to stderr with a timestamp and agent prefix. Prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. OpenCode output is displayed directly in its tmux pane rather than piped to a transcript file, preserving the TTY required by Mini.
+In default mode, agent states and recent warnings are shown without subprocess noise. In verbose mode, every external command is logged concisely to stderr with a timestamp and agent prefix. Pane-hosted prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. OpenCode output is displayed directly in tmux for pane-hosted runs; direct attached-process output is drained to preserve the dashboard.
 
-Ctrl-C cancels all loops. Abacus interrupts every active pane, checks the ticket again, attempts to reopen any ticket still `in_progress` with a shutdown note, performs configured Dolt pushes with bounded retries, and removes only panes it created.
+Ctrl-C cancels all loops. Abacus interrupts every active pane or direct process, checks the ticket again, attempts to reopen any ticket still `in_progress` with a shutdown note, performs configured Dolt pushes with bounded retries, and removes only runs it created.
 
 ## Deliberate boundaries
 

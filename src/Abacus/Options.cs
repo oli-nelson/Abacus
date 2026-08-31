@@ -3,7 +3,7 @@ namespace Abacus;
 public sealed record AgentOptions(string Name, string WorkspacePath);
 
 public sealed record Options(
-    string TmuxSession,
+    string? TmuxSession,
     string Model,
     string? OpenCodeServer,
     IReadOnlyList<AgentOptions> Agents,
@@ -11,16 +11,16 @@ public sealed record Options(
     string? TmuxWindow = null)
 {
     public const string ShortUsage =
-        "Usage: abacus --tmux-session <name> [--tmux-window <name-or-index>] " +
+        "Usage: abacus [--tmux-session <name> [--tmux-window <name-or-index>]] " +
         "--model <provider/model> " +
         "[--opencode-server <host:port>] [--verbose] " +
         "-a <agent_name> <git_workspace_path> [-a ...]";
 
     public const string Usage = """
-        Abacus coordinates Beads tasks and OpenCode agents in an existing tmux session.
+        Abacus coordinates Beads tasks and local or attached OpenCode agents.
 
         Usage:
-          abacus --tmux-session <name> [--tmux-window <name-or-index>] \
+          abacus [--tmux-session <name> [--tmux-window <name-or-index>]] \
             --model <provider/model> \
             [--opencode-server <host:port>] \
             [--verbose] \
@@ -31,8 +31,10 @@ public sealed record Options(
           Use --verbose (or -v) for timestamped state changes and subprocess commands.
 
         Required prerequisites:
-          - macOS or Linux with bd, git, opencode, and tmux on PATH
-          - an existing tmux session and, when specified, an existing window
+          - macOS or Linux with bd, git, and opencode on PATH
+          - tmux on PATH for pane-hosted modes
+          - local Mini mode requires an existing tmux session
+          - attached-server mode can run directly without tmux
           - each workspace is a clean Git worktree with a Beads project
           - multiple workspaces share one server-backed Dolt database
 
@@ -41,8 +43,7 @@ public sealed record Options(
             -a alice /work/repo-a -a bob /work/repo-b
 
         Connect each new client session to an existing OpenCode server:
-          abacus --tmux-session work --tmux-window agents --model provider/model \
-            --opencode-server 127.0.0.1:1234 \
+          abacus --model provider/model --opencode-server 127.0.0.1:1234 \
             -a alice /work/repo-a -a bob /work/repo-b
         """;
 
@@ -94,14 +95,24 @@ public sealed record Options(
             }
         }
 
-        if (string.IsNullOrWhiteSpace(tmuxSession))
+        if (tmuxSession is not null && string.IsNullOrWhiteSpace(tmuxSession))
         {
-            throw new OptionsException("--tmux-session is required");
+            throw new OptionsException("--tmux-session cannot be empty");
+        }
+
+        if (tmuxSession is null && server is null)
+        {
+            throw new OptionsException("--tmux-session is required unless --opencode-server is supplied");
         }
 
         if (tmuxWindow is not null && string.IsNullOrWhiteSpace(tmuxWindow))
         {
             throw new OptionsException("--tmux-window cannot be empty");
+        }
+
+        if (tmuxWindow is not null && tmuxSession is null)
+        {
+            throw new OptionsException("--tmux-window requires --tmux-session");
         }
 
         if (string.IsNullOrWhiteSpace(model))

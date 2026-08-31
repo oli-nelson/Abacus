@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build the smallest useful Abacus: a Unix-oriented C# console application that coordinates Beads, Git, OpenCode, and tmux by running their existing command-line tools.
+Build the smallest useful Abacus: a Unix-oriented C# console application that coordinates Beads, Git, OpenCode, and optional tmux hosting by running their existing command-line tools.
 
 Abacus should own only the orchestration state machine. It should not reimplement or directly integrate with the internals of any of those tools.
 
@@ -16,7 +16,7 @@ Abacus should own only the orchestration state machine. It should not reimplemen
 - Pass ordinary command arguments through `ProcessStartInfo.ArgumentList`, not interpolated shell strings. Use a generated shell wrapper only where tmux needs a pane command and process-exit marker.
 - Keep state in memory. A temporary per-run directory may contain prompt files, pane wrapper scripts, and exit markers; there is no Abacus database.
 - Run one asynchronous loop per configured agent. Do not introduce a scheduler, message bus, dependency-injection container, plugin model, web UI, or daemon.
-- Target macOS/Linux only. tmux and POSIX shell behavior are explicit prerequisites.
+- Target macOS/Linux only. tmux and POSIX shell behavior are explicit prerequisites for local Mini and pane-hosted modes; attached-server mode can supervise OpenCode directly without tmux.
 - Prefer clear failure and retry behavior over automatic repair of repositories, Beads configuration, or OpenCode servers.
 
 ## Proposed shape
@@ -31,6 +31,8 @@ src/Abacus/
   Preflight.cs        # executable, tmux, workspace, Git, and Beads checks
   Beads.cs            # thin wrappers around bd commands and minimal JSON parsing
   Git.cs              # thin wrappers around git commands
+  OpenCodeHost.cs     # common lifecycle contract for pane and direct runs
+  DirectOpenCode.cs   # directly supervised attached-server processes
   Tmux.cs             # pane creation, interruption, and cleanup
   AgentLoop.cs        # the single-agent state machine
   Prompt.cs           # renders the fixed prompt from SPEC.md
@@ -55,10 +57,10 @@ Waiting -> Claimed -> PreparingWorkspace -> RunningOpenCode -> Finalizing -> Wai
 4. If no issue is ready, sleep for a small fixed interval and try again.
 5. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
 6. Verify that the workspace is clean before OpenCode starts.
-7. Render the SPEC.md prompt for the claimed issue and launch OpenCode in a new pane in the requested tmux session and optional window. Use local Mini with the prompt and requested model, or `opencode run` with `--model`, `--dir`, and `--attach` when a server is configured.
-8. Poll `bd show <issue_id> --json` while also watching the OpenCode exit marker.
-9. When the ticket leaves `in_progress`, interrupt OpenCode if it is still running and clean up its pane.
-10. When OpenCode exits while the ticket is still `in_progress`, warn, reopen the issue with a useful note, and clean up its pane.
+7. Render the SPEC.md prompt and launch OpenCode. Local Mini uses a new pane in the requested tmux session and optional window. Attached mode uses `opencode run` with `--model`, `--dir`, and `--attach`; it runs as a directly supervised process unless a tmux session was explicitly supplied.
+8. Poll `bd show <issue_id> --json` while also watching the hosted OpenCode run for exit.
+9. When the ticket leaves `in_progress`, interrupt OpenCode if it is still running and clean up its pane or direct process.
+10. When OpenCode exits while the ticket is still `in_progress`, warn, reopen the issue with a useful note, and clean up its hosted run.
 11. After every OpenCode exit, run `bd dolt push` when a remote is configured, then return to waiting.
 
 Any failure after a successful claim but before the agent changes ticket state must attempt to return the issue to `open` with an appended reason. This prevents an orchestration error from stranding work in `in_progress`.
@@ -94,7 +96,7 @@ Before building the loop, capture the exact behavior of the locally supported co
 - Implement the exact CLI from the spec:
 
   ```text
-  abacus --tmux-session <name> [--tmux-window <name-or-index>] \
+  abacus [--tmux-session <name> [--tmux-window <name-or-index>]] \
     --model <provider/model> \
     [--opencode-server <host:port>] \
     [--verbose] \
@@ -120,12 +122,13 @@ Before building the loop, capture the exact behavior of the locally supported co
 
 ## Phase 3 - Preflight safety checks
 
-All checks happen before any ticket is claimed or pane is created.
+All checks happen before any ticket is claimed or OpenCode run is created.
 
 ### Work
 
-- Verify `bd`, `git`, `opencode`, and `tmux` are executable from `PATH`.
-- Verify the named tmux session already exists. If `--tmux-window` is supplied, verify that the named or indexed window exists in that session. Abacus must not create or own either one.
+- Verify `bd`, `git`, and `opencode` are executable from `PATH`.
+- Require tmux for local Mini mode. When a tmux session is supplied, verify `tmux` is executable and the session exists; if `--tmux-window` is supplied, verify that the named or indexed window exists in that session. Abacus must not create or own either one.
+- Allow `--opencode-server` without tmux and do not look up or invoke tmux in that configuration. Reject `--tmux-window` unless `--tmux-session` is also supplied.
 - For every agent workspace:
   - resolve the canonical absolute path and ensure it exists;
   - verify it is a Git worktree using `git -C <path> rev-parse`;
@@ -138,7 +141,7 @@ All checks happen before any ticket is claimed or pane is created.
 
 ### Exit criteria
 
-- Invalid tmux sessions or explicit windows, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and cleaned by the agent loop before claiming.
+- Missing tmux for local mode, invalid explicit tmux targets, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and cleaned by the agent loop before claiming.
 - A valid single-agent local setup and a valid multi-agent shared-Dolt setup pass.
 - Preflight never mutates Git, Beads, tmux, or OpenCode state.
 
@@ -170,7 +173,7 @@ All checks happen before any ticket is claimed or pane is created.
 - Existing and new issue branches both work.
 - Dirty or unusable workspaces never start OpenCode and do not leave the issue claimed.
 
-## Phase 5 - OpenCode panes and prompt delivery
+## Phase 5 - OpenCode processes, panes, and prompt delivery
 
 ### Work
 
@@ -183,15 +186,18 @@ All checks happen before any ticket is claimed or pane is created.
   - write the OpenCode exit code to an atomic exit-marker file;
   - remain alive briefly/idle until Abacus has observed the marker, so the pane does not disappear before cleanup.
 - Create a detached pane in the existing session's current window, or the explicit `session:window` target supplied through `--tmux-window`, with `tmux split-window -d -P -F '#{pane_id}'`; run the wrapper there, record the returned pane ID, and optionally retile the window.
+- When `--opencode-server` is supplied without tmux, start one `opencode run --attach` child directly per agent using `ProcessStartInfo.ArgumentList`, the agent workspace, and `BEADS_ACTOR`. Drain stdout and stderr asynchronously to preserve the dashboard and prevent blocked pipes.
+- Keep one small OpenCode host boundary so ticket supervision can observe exit and perform idempotent cleanup for either a pane or a direct process. This is a concrete lifecycle boundary, not a plugin system.
+- Interrupt direct children, wait a short grace period, then terminate the process tree if needed.
 - Do not use tmux control mode or a tmux protocol library. All lifecycle operations are CLI commands using the recorded pane ID.
 - Implement idempotent cleanup: send Ctrl-C, allow a short grace period, then `tmux kill-pane` if the pane remains. Never target panes that Abacus did not create.
 - Remove prompt, wrapper, and marker files when their run ends.
 
 ### Exit criteria
 
-- Each configured agent gets a distinct pane, workspace, actor environment, prompt, and OpenCode session using the model passed to Abacus.
+- Each configured agent gets a distinct pane or direct process, workspace, actor environment, prompt, and OpenCode session using the model passed to Abacus.
 - Local Mini and `--opencode-server` run modes both use only the OpenCode CLI.
-- Ctrl-C and startup failures do not leave Abacus-created panes behind.
+- Ctrl-C and startup failures do not leave Abacus-created panes or direct processes behind.
 
 ## Phase 6 - Ticket supervision and recovery
 
@@ -202,10 +208,10 @@ All checks happen before any ticket is claimed or pane is created.
   - `in_progress`: keep monitoring;
   - `closed`, `open`, or `blocked`: stop OpenCode and finalize;
   - missing/unparseable/unknown: warn and retry a limited number of consecutive polls without changing the ticket.
-- Watch the exit marker in parallel with status polling.
+- Watch the pane exit marker or direct child exit state in parallel with status polling.
 - If OpenCode exits and the ticket remains `in_progress`, log a warning and reopen it with a note containing the agent name and process exit code.
 - After every OpenCode exit or forced stop, run `bd dolt push` when the project has a remote. A push failure must be visible and retried a small bounded number of times, but must not misreport the ticket as completed.
-- On Abacus shutdown, interrupt all active OpenCode panes. For any ticket still `in_progress`, attempt to reopen it with an “Abacus shut down” note, push if configured, and then remove the pane.
+- On Abacus shutdown, interrupt all active OpenCode runs. For any ticket still `in_progress`, attempt to reopen it with an “Abacus shut down” note, push if configured, and then remove the pane or direct process.
 - Isolate loop failures: one agent's transient command failure should be logged and delayed without crashing other loops. A failure that invalidates a startup invariant, such as a missing workspace, should stop Abacus with a clear error.
 
 ### Exit criteria
@@ -226,7 +232,8 @@ All checks happen before any ticket is claimed or pane is created.
   - dirty workspace cleanup before claiming;
   - mismatched Dolt databases rejection;
   - required and malformed model option handling;
-  - local and attached OpenCode command construction with the same requested model for every agent;
+  - local, pane-attached, and direct-attached OpenCode command construction with the same requested model for every agent;
+  - attached-server startup and cleanup without tmux installed or invoked;
   - successful close, agent-requested reopen, and blocked completion;
   - unexpected OpenCode exit while `in_progress`;
   - remote pull/push behavior and failures;
@@ -243,7 +250,7 @@ All checks happen before any ticket is claimed or pane is created.
 1. Create a disposable Git repository and Beads project with one small ticket.
 2. Start a named tmux session and run one agent without a server.
 3. Verify claim, branch creation, selected model, prompt, completion-state detection, pane cleanup, and push behavior.
-4. Repeat with two distinct worktrees sharing one Dolt database and an existing OpenCode server.
+4. Repeat without tmux using two distinct worktrees sharing one Dolt database and an existing OpenCode server.
 5. Kill OpenCode mid-ticket and verify the warning, reopen, push, and retry path.
 
 ### Exit criteria
@@ -256,7 +263,7 @@ All checks happen before any ticket is claimed or pane is created.
 
 - The CLI and prompt match SPEC.md.
 - `--model <provider/model>` is required and every OpenCode instance receives that exact model ID.
-- Every agent uses a unique validated workspace and a dedicated Abacus-owned tmux pane.
+- Every agent uses a unique validated workspace and either a dedicated Abacus-owned tmux pane or directly supervised attached process.
 - Multi-agent execution is impossible unless all workspaces resolve to the same shared Dolt database.
 - Claims are atomic and attributed with `BEADS_ACTOR`.
 - Git branch preparation and clean-workspace enforcement happen before OpenCode starts.
@@ -264,7 +271,7 @@ All checks happen before any ticket is claimed or pane is created.
 - Ticket transitions control session lifetime exactly as specified.
 - Unexpected exits reopen rather than complete work.
 - Remote pull/push behavior matches the single-agent/shared-database rules in SPEC.md.
-- Shutdown and failure paths do not strand `in_progress` tickets or Abacus-created panes.
+- Shutdown and failure paths do not strand `in_progress` tickets or Abacus-created panes/processes.
 
 ## Explicit non-goals for the first version
 

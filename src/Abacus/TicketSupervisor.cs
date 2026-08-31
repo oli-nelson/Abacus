@@ -127,7 +127,7 @@ public sealed class TicketRecovery(
 
 public sealed class TicketSupervisor(
     Beads beads,
-    Tmux tmux,
+    IOpenCodeHost openCodeHost,
     TicketRecovery recovery,
     TextWriter log,
     TimeSpan? pollingInterval = null,
@@ -138,7 +138,7 @@ public sealed class TicketSupervisor(
     public async Task SuperviseAsync(
         ValidatedAgent agent,
         BeadsIssue claimedIssue,
-        OpenCodeRun run,
+        IOpenCodeRun run,
         CancellationToken cancellationToken)
     {
         var shutdownHandled = false;
@@ -195,11 +195,11 @@ public sealed class TicketSupervisor(
 
                 var exitCode = run.TryReadExitCode();
                 if (exitCode is not null
-                    || File.Exists(run.MarkerPath)
-                    || !await tmux.PaneExistsAsync(run, cancellationToken))
+                    || run.HasExited
+                    || !await openCodeHost.IsRunningAsync(run, cancellationToken))
                 {
                     // Read once more after observing process exit. The agent's final ticket
-                    // update may have raced with the exit marker.
+                    // update may have raced with the observed process exit.
                     var final = await ReadAfterExitAsync(agent, claimedIssue.Id, cancellationToken);
                     if (final is { Status: IssueStatus.Closed or IssueStatus.Open or IssueStatus.Blocked })
                     {
@@ -234,7 +234,7 @@ public sealed class TicketSupervisor(
         }
         catch (OperationCanceledException)
         {
-            await CleanupPaneAsync(agent.Name, run);
+            await CleanupRunAsync(agent.Name, run);
             await recovery.ReopenIfStillInProgressAsync(
                 agent,
                 claimedIssue.Id,
@@ -248,7 +248,7 @@ public sealed class TicketSupervisor(
         {
             if (!shutdownHandled)
             {
-                await CleanupPaneAsync(agent.Name, run);
+                await CleanupRunAsync(agent.Name, run);
                 await recovery.PushWithRetryAsync(agent, CancellationToken.None);
             }
         }
@@ -293,15 +293,15 @@ public sealed class TicketSupervisor(
         _ => status.ToString().ToLowerInvariant(),
     };
 
-    private async Task CleanupPaneAsync(string agentName, OpenCodeRun run)
+    private async Task CleanupRunAsync(string agentName, IOpenCodeRun run)
     {
         try
         {
-            await tmux.StopAndCleanupAsync(run, CancellationToken.None);
+            await openCodeHost.StopAndCleanupAsync(run, CancellationToken.None);
         }
         catch (Exception exception)
         {
-            await WarnAsync(agentName, $"could not completely clean pane {run.PaneId}: {exception.Message}");
+            await WarnAsync(agentName, $"could not completely clean {run.Location}: {exception.Message}");
         }
     }
 }

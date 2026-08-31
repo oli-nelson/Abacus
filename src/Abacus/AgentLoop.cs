@@ -117,7 +117,7 @@ public sealed class AgentLoop(
     string model,
     string? serverUrl,
     ClaimCoordinator claims,
-    Tmux tmux,
+    IOpenCodeHost openCodeHost,
     TicketSupervisor supervisor,
     TicketRecovery recovery,
     TextWriter log)
@@ -130,10 +130,10 @@ public sealed class AgentLoop(
             try
             {
                 var claim = await claims.WaitForPreparedClaimAsync(agent, singleAgentMode, cancellationToken);
-                OpenCodeRun run;
+                IOpenCodeRun run;
                 try
                 {
-                    run = await tmux.StartOpenCodeAsync(
+                    run = await openCodeHost.StartOpenCodeAsync(
                         agent,
                         claim.Issue,
                         model,
@@ -166,7 +166,7 @@ public sealed class AgentLoop(
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Working,
-                    $"{claim.Issue.Id} • OpenCode in pane {run.PaneId}");
+                    $"{claim.Issue.Id} • OpenCode in {run.Location}");
                 await supervisor.SuperviseAsync(agent, claim.Issue, run, cancellationToken);
                 await log.SetAgentAsync(
                     agent.Name,

@@ -6,15 +6,15 @@ It uses:
 
 - Beads for task management
 - OpenCode for running agents
-- tmux for managing agent processes
+- tmux for managing local Mini processes and optional pane-hosted attached processes
 
 ## Setup
 
 Before running Abacus:
 
 1. Set up a Beads project in your Git repository.
-2. Start a tmux session and, optionally, the window where agent panes should run.
-3. Optionally, start an OpenCode server.
+2. For local Mini mode, start a tmux session and, optionally, the window where agent panes should run.
+3. For attached mode, start an OpenCode server. A tmux session is optional in this mode.
 
 ### Agent workspaces
 
@@ -52,15 +52,15 @@ Each local agent runs in its own tmux pane through `opencode --mini --prompt ...
 To connect the agents to an existing OpenCode server:
 
 ```sh
-abacus --tmux-session <session_name> \
-  [--tmux-window <window_name_or_index>] \
-  --model <provider/model> \
+abacus --model <provider/model> \
   --opencode-server 127.0.0.1:1234 \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
 
-The OpenCode instances still run in separate tmux panes, but each starts a new non-interactive `opencode run --attach` client session connected to the specified server and uses the model passed to Abacus.
+Without `--tmux-session`, each agent starts as a directly supervised, non-interactive `opencode run --attach` child process connected to the specified server. Direct processes receive their own workspace, prompt, model, and `BEADS_ACTOR`; Abacus drains their output so it does not corrupt the dashboard and stops them when supervision ends. tmux is not looked up or required in this mode.
+
+Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` remains valid only with `--tmux-session`.
 
 By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, or stopped. Warnings remain visible in the dashboard. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences.
 
@@ -78,7 +78,7 @@ Each Abacus agent follows this loop:
 
 4. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
 5. Make sure the workspace has no local changes before starting OpenCode.
-6. Start local OpenCode through `opencode --mini --prompt ...`, or attached OpenCode through `opencode run --attach ...`, with `BEADS_ACTOR=<agent_name>`, the required Abacus `--model` value, and a prompt describing the issue and its ticket-state responsibilities.
+6. Start local OpenCode through `opencode --mini --prompt ...` in tmux. Start attached OpenCode through `opencode run --attach ...`, either directly when no tmux session was supplied or in tmux when one was. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the required Abacus `--model` value and a prompt describing the issue and its ticket-state responsibilities.
 7. While OpenCode is running, Abacus monitors the ticket status through Beads.
 8. The OpenCode agent does the work and changes the ticket status when it is finished:
 

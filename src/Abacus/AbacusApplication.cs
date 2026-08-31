@@ -15,26 +15,28 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
         {
             var beads = new Beads(runner, preflight.Tools.Bd);
             var git = new Git(runner, preflight.Tools.Git);
-            var tmux = new Tmux(
-                runner,
-                preflight.Tools.Tmux,
-                preflight.Tools.OpenCode,
-                preflight.Options.TmuxSession,
-                temporaryRoot,
-                tmuxWindow: preflight.Options.TmuxWindow);
+            IOpenCodeHost openCodeHost = preflight.Options.TmuxSession is null
+                ? new DirectOpenCode(runner, log, preflight.Tools.OpenCode)
+                : new Tmux(
+                    runner,
+                    preflight.Tools.Tmux!,
+                    preflight.Tools.OpenCode,
+                    preflight.Options.TmuxSession,
+                    temporaryRoot,
+                    tmuxWindow: preflight.Options.TmuxWindow);
 
             var loops = preflight.Agents.Select(agent =>
             {
                 var recovery = new TicketRecovery(beads, log);
                 var claims = new ClaimCoordinator(beads, git, recovery, log);
-                var supervisor = new TicketSupervisor(beads, tmux, recovery, log);
+                var supervisor = new TicketSupervisor(beads, openCodeHost, recovery, log);
                 return new AgentLoop(
                     agent,
                     preflight.Agents.Count == 1,
                     preflight.Options.Model,
                     preflight.OpenCodeServerUrl,
                     claims,
-                    tmux,
+                    openCodeHost,
                     supervisor,
                     recovery,
                     log).RunAsync(linkedCancellation.Token);

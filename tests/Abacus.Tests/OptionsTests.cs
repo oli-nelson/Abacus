@@ -46,8 +46,35 @@ public sealed class OptionsTests
         Assert.True(result.Value!.Verbose);
     }
 
+    [Fact]
+    public void AttachedServerDoesNotRequireTmux()
+    {
+        var result = Options.Parse([
+            "--model", "provider/model",
+            "--opencode-server", "127.0.0.1:1234",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Null(result.Value!.TmuxSession);
+        Assert.Null(result.Value.TmuxWindow);
+    }
+
+    [Fact]
+    public void TmuxWindowStillRequiresTmuxSession()
+    {
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-window", "agents",
+            "--model", "provider/model",
+            "--opencode-server", "127.0.0.1:1234",
+            "-a", "alice", "/tmp/a",
+        ]));
+
+        Assert.Contains("requires --tmux-session", exception.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData()]
+    [InlineData("--model", "provider/model", "-a", "alice", "/tmp/a")]
     [InlineData("--tmux-session", "s", "--model", "provider/model")]
     [InlineData("--tmux-session", "s", "--tmux-window", "--model", "provider/model", "-a", "alice", "/tmp/a")]
     [InlineData("--tmux-session", "s", "-a", "alice", "/tmp/a")]

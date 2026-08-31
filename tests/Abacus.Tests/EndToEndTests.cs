@@ -75,6 +75,72 @@ public sealed class EndToEndTests
         }
     }
 
+    [Fact]
+    public async Task AttachedServerRunsDirectlyWithoutTmux()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-direct-");
+        Process? process = null;
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+
+            var startInfo = new ProcessStartInfo(FindOnPath("dotnet"))
+            {
+                WorkingDirectory = root.FullName,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+            startInfo.ArgumentList.Add("--model");
+            startInfo.ArgumentList.Add("provider/exact-model");
+            startInfo.ArgumentList.Add("--opencode-server");
+            startInfo.ArgumentList.Add("127.0.0.1:4096");
+            startInfo.ArgumentList.Add("-a");
+            startInfo.ArgumentList.Add("alice");
+            startInfo.ArgumentList.Add(workspace);
+            startInfo.Environment["PATH"] = bin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+
+            process = Process.Start(startInfo)!;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            await WaitForFileAsync(Path.Combine(root.FullName, "direct-finished"), TimeSpan.FromSeconds(15));
+
+            await RunAsync("/bin/kill", "-INT", process.Id.ToString());
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await process.WaitForExitAsync(timeout.Token);
+
+            Assert.Equal(130, process.ExitCode);
+            Assert.Equal("alice", await File.ReadAllTextAsync(Path.Combine(root.FullName, "opencode-actor")));
+            Assert.Equal(Prompt.Render("alice", "abc-1", workspace),
+                await File.ReadAllTextAsync(Path.Combine(root.FullName, "opencode-prompt")));
+            Assert.Equal(
+                ["--model", "provider/exact-model", "--attach", "http://127.0.0.1:4096", "--dir", workspace],
+                await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
+            Assert.False(File.Exists(Path.Combine(root.FullName, "tmux-calls")));
+            Assert.Empty(await stdout);
+            Assert.Contains("process", await stderr, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (process is { HasExited: false })
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+
+            process?.Dispose();
+            root.Delete(recursive: true);
+        }
+    }
+
     private static async Task WriteFakeToolsAsync(string root, string bin)
     {
         await WriteExecutableAsync(Path.Combine(bin, "bd"), $$"""
@@ -125,15 +191,25 @@ public sealed class EndToEndTests
         await WriteExecutableAsync(Path.Combine(bin, "opencode"), $$"""
             #!/bin/sh
             root={{Q(root)}}
-            test "$1" = --mini || exit 2
-            shift
-            test "$1" = --prompt || exit 2
-            shift
-            printf '%s' "$1" > "$root/opencode-prompt"
-            shift
+            direct=0
+            if test "$1" = --mini; then
+              shift
+              test "$1" = --prompt || exit 2
+              shift
+              printf '%s' "$1" > "$root/opencode-prompt"
+              shift
+            elif test "$1" = run; then
+              shift
+              printf '%s' "$1" > "$root/opencode-prompt"
+              shift
+              direct=1
+            else
+              exit 2
+            fi
             printf '%s\n' "$@" > "$root/opencode-arguments"
             printf '%s' "$BEADS_ACTOR" > "$root/opencode-actor"
             printf 'closed' > "$root/status"
+            test "$direct" -eq 1 && touch "$root/direct-finished"
             exit 0
             """);
         await WriteExecutableAsync(Path.Combine(bin, "tmux"), $$"""

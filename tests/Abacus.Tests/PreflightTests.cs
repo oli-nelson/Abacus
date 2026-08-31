@@ -33,6 +33,28 @@ public sealed class PreflightTests
     }
 
     [Fact]
+    public async Task AttachedServerWithoutTmuxDoesNotRequireTmuxExecutable()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await PreflightFixture.CreateAsync(includeTmux: false);
+        var workspace = await fixture.AddWorkspaceAsync("one", EmbeddedIdentity, "[]");
+
+        var result = await fixture.RunAsync(
+            new Options(
+                null,
+                "provider/model",
+                "127.0.0.1:1234",
+                [new("alice", workspace)]));
+
+        Assert.Null(result.Tools.Tmux);
+        Assert.Equal("http://127.0.0.1:1234", result.OpenCodeServerUrl);
+    }
+
+    [Fact]
     public async Task ValidMultiAgentSharedDatabasePasses()
     {
         if (OperatingSystem.IsWindows())
@@ -198,20 +220,24 @@ public sealed class PreflightTests
 
         public static async Task<PreflightFixture> CreateAsync(
             bool tmuxSucceeds = true,
-            bool tmuxWindowSucceeds = true)
+            bool tmuxWindowSucceeds = true,
+            bool includeTmux = true)
         {
             var fixture = new PreflightFixture(Directory.CreateTempSubdirectory("abacus-preflight-"));
             Directory.CreateDirectory(fixture.bin);
             await fixture.WriteToolAsync("opencode", "#!/bin/sh\nexit 0\n");
-            await fixture.WriteToolAsync("tmux", $$"""
-                #!/bin/sh
-                if test "$1" = has-session; then
-                  exit {{(tmuxSucceeds ? 0 : 1)}}
-                elif test "$1" = display-message; then
-                  exit {{(tmuxWindowSucceeds ? 0 : 1)}}
-                fi
-                exit 2
-                """);
+            if (includeTmux)
+            {
+                await fixture.WriteToolAsync("tmux", $$"""
+                    #!/bin/sh
+                    if test "$1" = has-session; then
+                      exit {{(tmuxSucceeds ? 0 : 1)}}
+                    elif test "$1" = display-message; then
+                      exit {{(tmuxWindowSucceeds ? 0 : 1)}}
+                    fi
+                    exit 2
+                    """);
+            }
             await fixture.WriteToolAsync("git", """
                 #!/bin/sh
                 workspace="$2"

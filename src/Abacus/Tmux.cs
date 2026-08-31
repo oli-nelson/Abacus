@@ -5,7 +5,7 @@ public sealed class OpenCodeRun(
     string runDirectory,
     string promptPath,
     string wrapperPath,
-    string markerPath)
+    string markerPath) : IOpenCodeRun
 {
     private readonly SemaphoreSlim cleanupLock = new(1, 1);
     private bool cleaned;
@@ -15,6 +15,8 @@ public sealed class OpenCodeRun(
     public string PromptPath { get; } = promptPath;
     public string WrapperPath { get; } = wrapperPath;
     public string MarkerPath { get; } = markerPath;
+    public string Location => $"pane {PaneId}";
+    public bool HasExited => File.Exists(MarkerPath);
 
     internal SemaphoreSlim CleanupLock => cleanupLock;
     internal bool Cleaned { get => cleaned; set => cleaned = value; }
@@ -46,7 +48,7 @@ public sealed class Tmux(
     string tmuxSession,
     string temporaryRoot,
     TimeSpan? interruptGracePeriod = null,
-    string? tmuxWindow = null)
+    string? tmuxWindow = null) : IOpenCodeHost
 {
     private readonly TimeSpan gracePeriod = interruptGracePeriod ?? TimeSpan.FromSeconds(1);
     private readonly string splitTarget = Target(tmuxSession, tmuxWindow);
@@ -133,6 +135,24 @@ public sealed class Tmux(
             temporaryRoot), cancellationToken);
         return result.Succeeded && string.Equals(result.StandardOutput.Trim(), run.PaneId, StringComparison.Ordinal);
     }
+
+    async Task<IOpenCodeRun> IOpenCodeHost.StartOpenCodeAsync(
+        ValidatedAgent agent,
+        BeadsIssue issue,
+        string model,
+        string? serverUrl,
+        CancellationToken cancellationToken) =>
+        await StartOpenCodeAsync(agent, issue, model, serverUrl, cancellationToken);
+
+    Task<bool> IOpenCodeHost.IsRunningAsync(
+        IOpenCodeRun run,
+        CancellationToken cancellationToken) =>
+        PaneExistsAsync(RequireTmuxRun(run), cancellationToken);
+
+    Task IOpenCodeHost.StopAndCleanupAsync(
+        IOpenCodeRun run,
+        CancellationToken cancellationToken) =>
+        StopAndCleanupAsync(RequireTmuxRun(run), cancellationToken);
 
     public async Task StopAndCleanupAsync(OpenCodeRun run, CancellationToken cancellationToken)
     {
@@ -234,6 +254,10 @@ public sealed class Tmux(
 
     internal static string Target(string session, string? window) =>
         window is null ? session : $"{session}:{window}";
+
+    private static OpenCodeRun RequireTmuxRun(IOpenCodeRun run) =>
+        run as OpenCodeRun
+        ?? throw new ArgumentException("run was not created by the tmux host", nameof(run));
 
     private static string SanitizeFileName(string value) =>
         string.Concat(value.Select(static character =>
