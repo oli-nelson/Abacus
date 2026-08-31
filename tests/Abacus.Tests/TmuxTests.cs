@@ -83,6 +83,28 @@ public sealed class TmuxTests
     }
 
     [Fact]
+    public async Task SpecifiedWindowIsUsedAsTheSplitTarget()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
+        var tmux = fixture.CreateTmux(window: "agents");
+
+        await tmux.StartOpenCodeAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            "provider/model", null, CancellationToken.None);
+
+        Assert.Contains(
+            await File.ReadAllLinesAsync(fixture.CallsPath),
+            static call => call.StartsWith("split-window -t workers:agents ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task CleanupIsIdempotentAndTargetsOnlyTheRecordedPane()
     {
         if (OperatingSystem.IsWindows())
@@ -185,13 +207,14 @@ public sealed class TmuxTests
             return new TmuxFixture(root, tmux, openCode);
         }
 
-        public Tmux CreateTmux(TimeSpan? gracePeriod = null) => new(
+        public Tmux CreateTmux(TimeSpan? gracePeriod = null, string? window = null) => new(
             new CommandRunner(TextWriter.Null),
             TmuxPath,
             OpenCodePath,
             "workers",
             TemporaryRoot,
-            gracePeriod);
+            gracePeriod,
+            window);
 
         private static string QuoteForShell(string value) =>
             $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";

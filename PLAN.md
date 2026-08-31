@@ -27,7 +27,7 @@ src/Abacus/
   Abacus.csproj
   Program.cs          # argument parsing, cancellation, startup, exit code
   CommandRunner.cs    # subprocess execution and concise command logging
-  Options.cs          # --tmux-session, --model, --opencode-server, repeated -a pairs
+  Options.cs          # tmux target, model, OpenCode server, repeated -a pairs
   Preflight.cs        # executable, tmux, workspace, Git, and Beads checks
   Beads.cs            # thin wrappers around bd commands and minimal JSON parsing
   Git.cs              # thin wrappers around git commands
@@ -55,7 +55,7 @@ Waiting -> Claimed -> PreparingWorkspace -> RunningOpenCode -> Finalizing -> Wai
 4. If no issue is ready, sleep for a small fixed interval and try again.
 5. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
 6. Verify that the workspace is clean before OpenCode starts.
-7. Render the SPEC.md prompt for the claimed issue and launch OpenCode in a new pane in the requested tmux session. Use local Mini with the prompt and requested model, or `opencode run` with `--model`, `--dir`, and `--attach` when a server is configured.
+7. Render the SPEC.md prompt for the claimed issue and launch OpenCode in a new pane in the requested tmux session and optional window. Use local Mini with the prompt and requested model, or `opencode run` with `--model`, `--dir`, and `--attach` when a server is configured.
 8. Poll `bd show <issue_id> --json` while also watching the OpenCode exit marker.
 9. When the ticket leaves `in_progress`, interrupt OpenCode if it is still running and clean up its pane.
 10. When OpenCode exits while the ticket is still `in_progress`, warn, reopen the issue with a useful note, and clean up its pane.
@@ -94,7 +94,8 @@ Before building the loop, capture the exact behavior of the locally supported co
 - Implement the exact CLI from the spec:
 
   ```text
-  abacus --tmux-session <name> --model <provider/model> \
+  abacus --tmux-session <name> [--tmux-window <name-or-index>] \
+    --model <provider/model> \
     [--opencode-server <host:port>] \
     [--verbose] \
     -a <agent_name> <git_workspace_path> [-a ...]
@@ -124,7 +125,7 @@ All checks happen before any ticket is claimed or pane is created.
 ### Work
 
 - Verify `bd`, `git`, `opencode`, and `tmux` are executable from `PATH`.
-- Verify the named tmux session already exists. Abacus must not create or own the session.
+- Verify the named tmux session already exists. If `--tmux-window` is supplied, verify that the named or indexed window exists in that session. Abacus must not create or own either one.
 - For every agent workspace:
   - resolve the canonical absolute path and ensure it exists;
   - verify it is a Git worktree using `git -C <path> rev-parse`;
@@ -137,7 +138,7 @@ All checks happen before any ticket is claimed or pane is created.
 
 ### Exit criteria
 
-- Invalid tmux sessions, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and cleaned by the agent loop before claiming.
+- Invalid tmux sessions or explicit windows, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and cleaned by the agent loop before claiming.
 - A valid single-agent local setup and a valid multi-agent shared-Dolt setup pass.
 - Preflight never mutates Git, Beads, tmux, or OpenCode state.
 
@@ -181,7 +182,7 @@ All checks happen before any ticket is claimed or pane is created.
   - connect OpenCode directly to the pane terminal rather than piping it through `tee`, because Mini requires a TTY;
   - write the OpenCode exit code to an atomic exit-marker file;
   - remain alive briefly/idle until Abacus has observed the marker, so the pane does not disappear before cleanup.
-- Create a detached pane in the existing session with `tmux split-window -d -P -F '#{pane_id}'`, run the wrapper there, record the returned pane ID, and optionally retile the window.
+- Create a detached pane in the existing session's current window, or the explicit `session:window` target supplied through `--tmux-window`, with `tmux split-window -d -P -F '#{pane_id}'`; run the wrapper there, record the returned pane ID, and optionally retile the window.
 - Do not use tmux control mode or a tmux protocol library. All lifecycle operations are CLI commands using the recorded pane ID.
 - Implement idempotent cleanup: send Ctrl-C, allow a short grace period, then `tmux kill-pane` if the pane remains. Never target panes that Abacus did not create.
 - Remove prompt, wrapper, and marker files when their run ends.
@@ -269,7 +270,7 @@ All checks happen before any ticket is claimed or pane is created.
 
 - Creating, deleting, or repairing Git worktrees/clones.
 - Setting up or migrating Beads/Dolt databases and remotes.
-- Starting or managing the requested tmux session or OpenCode server.
+- Starting or managing the requested tmux session, tmux window, or OpenCode server.
 - Direct Git, tmux, Dolt, Beads, or OpenCode API/protocol integrations.
 - A persistent queue, dashboard, web service, configuration file, dynamic agent pool, or automatic scaling.
 - Interpreting ticket content, deciding whether work is correct, or performing the merge for the agent.

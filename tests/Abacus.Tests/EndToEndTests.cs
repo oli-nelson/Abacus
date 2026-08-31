@@ -31,6 +31,8 @@ public sealed class EndToEndTests
             startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
             startInfo.ArgumentList.Add("--tmux-session");
             startInfo.ArgumentList.Add("workers");
+            startInfo.ArgumentList.Add("--tmux-window");
+            startInfo.ArgumentList.Add("agents");
             startInfo.ArgumentList.Add("--model");
             startInfo.ArgumentList.Add("provider/exact-model");
             startInfo.ArgumentList.Add("-a");
@@ -56,6 +58,7 @@ public sealed class EndToEndTests
                 await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
             Assert.Contains("ready --claim --exclude-label gt:slot --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
             Assert.Contains("send-keys -t %1 C-c", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
+            Assert.Contains("split-window -t workers:agents", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Empty(await stdout);
             Assert.Contains("[alice]", await stderr, StringComparison.Ordinal);
         }
@@ -138,6 +141,9 @@ public sealed class EndToEndTests
             root={{Q(root)}}
             printf '%s\n' "$*" >> "$root/tmux-calls"
             if test "$1" = has-session; then
+              exit 0
+            elif test "$1" = display-message && test "$5" = '#{window_id}'; then
+              printf '@1\n'
               exit 0
             elif test "$1" = split-window; then
               for command do :; done

@@ -53,7 +53,7 @@ OpenCode accepts the prompt as positional arguments and documents the model form
 A disposable session proved this pane contract:
 
 ```sh
-tmux split-window -d -P -F '#{pane_id}' <wrapper-path>
+tmux split-window -t <session-or-session:window> -d -P -F '#{pane_id}' <wrapper-path>
 tmux send-keys -t <returned-pane-id> C-c
 tmux kill-pane -t <returned-pane-id>
 ```

@@ -19,6 +19,7 @@ Before running Abacus:
 1. Initialize Beads in every assigned Git workspace.
 2. Make every workspace clean and give each agent a distinct worktree or clone.
 3. Start the named tmux session.
+   Optionally create or select a specific existing window for Abacus panes.
 4. Optionally start an OpenCode server for attached mode.
 
 For multiple agents, every workspace must connect to the same server-backed Dolt database. Abacus reads `bd dolt show --json` in each workspace, rejects embedded/local storage, and requires equal normalized host, port, and database identities. A single agent may use embedded Dolt storage. Remote presence is discovered with `bd dolt remote list --json`.
@@ -53,12 +54,13 @@ The walkthroughs below assume `abacus` is installed on `PATH`. If you are runnin
 
 ### 1. Initialize Beads in a Git repository
 
-Choose the repository, agent name, tmux session, and OpenCode model. `MODEL` must be an exact model ID reported by `opencode models`.
+Choose the repository, agent name, tmux session and window, and OpenCode model. `MODEL` must be an exact model ID reported by `opencode models`.
 
 ```sh
 export REPO=/path/to/your/repository
 export AGENT=alice
 export SESSION=abacus-work
+export WINDOW=agents
 export MODEL=provider/model
 
 opencode models
@@ -97,11 +99,12 @@ If this prints files you want to preserve, commit or move them before starting A
 
 ### 2. Start the tmux session
 
-Abacus requires an existing session and will not create one. Start it detached so the current terminal remains available:
+Abacus requires an existing session and will not create one. It can also target a specific existing window by name or index. Start both together so the current terminal remains available:
 
 ```sh
-tmux new-session -d -s "$SESSION"
+tmux new-session -d -s "$SESSION" -n "$WINDOW"
 tmux has-session -t "$SESSION"
+tmux display-message -p -t "$SESSION:$WINDOW" '#{window_id}'
 ```
 
 You can inspect the session at any time, then detach with `Ctrl-b d`:
@@ -117,6 +120,7 @@ From any terminal, start Abacus with the repository as the agent's workspace:
 ```sh
 abacus \
   --tmux-session "$SESSION" \
+  --tmux-window "$WINDOW" \
   --model "$MODEL" \
   -a "$AGENT" "$REPO"
 ```
@@ -128,6 +132,7 @@ The default terminal display is a live dashboard with one row per agent. It show
 ```sh
 abacus --verbose \
   --tmux-session "$SESSION" \
+  --tmux-window "$WINDOW" \
   --model "$MODEL" \
   -a "$AGENT" "$REPO"
 ```
@@ -171,16 +176,18 @@ In another terminal:
 export REPO=/path/to/your/repository
 export AGENT=alice
 export SESSION=abacus-work
+export WINDOW=agents
 export MODEL=provider/model
 
 cd "$REPO"
 bd ready --json
 git status --porcelain
 
-tmux new-session -d -s "$SESSION"
+tmux new-session -d -s "$SESSION" -n "$WINDOW"
 
 abacus \
   --tmux-session "$SESSION" \
+  --tmux-window "$WINDOW" \
   --model "$MODEL" \
   --opencode-server 127.0.0.1:4096 \
   -a "$AGENT" "$REPO"
@@ -207,6 +214,7 @@ Start agents in an existing tmux session:
 
 ```sh
 abacus --tmux-session <session_name> \
+  --tmux-window <window_name_or_index> \
   --model <provider/model> \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
@@ -216,13 +224,14 @@ Connect new OpenCode client sessions to an existing server:
 
 ```sh
 abacus --tmux-session <session_name> \
+  --tmux-window <window_name_or_index> \
   --model <provider/model> \
   --opencode-server 127.0.0.1:1234 \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
 
-`--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to local Mini and attached run processes. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
+`--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to local Mini and attached run processes. `--tmux-window` is optional and accepts a window name or index within `--tmux-session`; when omitted, panes are created in that session's current window. Abacus verifies an explicit window during preflight and never creates the session or window. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
 
 Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
 
@@ -282,7 +291,7 @@ Abacus does **not**:
 
 - create, delete, or repair Git worktrees or clones;
 - initialize or configure Beads, Dolt databases, or remotes;
-- create or start the requested tmux session;
+- create or start the requested tmux session or window;
 - start or manage an OpenCode server;
 - merge branches or decide whether agent work is correct;
 - choose ticket outcomes for an agent;

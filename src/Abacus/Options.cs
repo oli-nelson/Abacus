@@ -7,10 +7,12 @@ public sealed record Options(
     string Model,
     string? OpenCodeServer,
     IReadOnlyList<AgentOptions> Agents,
-    bool Verbose = false)
+    bool Verbose = false,
+    string? TmuxWindow = null)
 {
     public const string ShortUsage =
-        "Usage: abacus --tmux-session <name> --model <provider/model> " +
+        "Usage: abacus --tmux-session <name> [--tmux-window <name-or-index>] " +
+        "--model <provider/model> " +
         "[--opencode-server <host:port>] [--verbose] " +
         "-a <agent_name> <git_workspace_path> [-a ...]";
 
@@ -18,7 +20,8 @@ public sealed record Options(
         Abacus coordinates Beads tasks and OpenCode agents in an existing tmux session.
 
         Usage:
-          abacus --tmux-session <name> --model <provider/model> \
+          abacus --tmux-session <name> [--tmux-window <name-or-index>] \
+            --model <provider/model> \
             [--opencode-server <host:port>] \
             [--verbose] \
             -a <agent_name> <git_workspace_path> [-a ...]
@@ -29,16 +32,16 @@ public sealed record Options(
 
         Required prerequisites:
           - macOS or Linux with bd, git, opencode, and tmux on PATH
-          - an existing tmux session
+          - an existing tmux session and, when specified, an existing window
           - each workspace is a clean Git worktree with a Beads project
           - multiple workspaces share one server-backed Dolt database
 
         Run agents locally:
-          abacus --tmux-session work --model provider/model \
+          abacus --tmux-session work --tmux-window agents --model provider/model \
             -a alice /work/repo-a -a bob /work/repo-b
 
         Connect each new client session to an existing OpenCode server:
-          abacus --tmux-session work --model provider/model \
+          abacus --tmux-session work --tmux-window agents --model provider/model \
             --opencode-server 127.0.0.1:1234 \
             -a alice /work/repo-a -a bob /work/repo-b
         """;
@@ -53,6 +56,7 @@ public sealed record Options(
         }
 
         string? tmuxSession = null;
+        string? tmuxWindow = null;
         string? model = null;
         string? server = null;
         var verbose = false;
@@ -65,6 +69,9 @@ public sealed record Options(
             {
                 case "--tmux-session":
                     tmuxSession = ReadValue(arguments, ref index, argument);
+                    break;
+                case "--tmux-window":
+                    tmuxWindow = ReadValue(arguments, ref index, argument);
                     break;
                 case "--model":
                     model = ReadValue(arguments, ref index, argument);
@@ -90,6 +97,11 @@ public sealed record Options(
         if (string.IsNullOrWhiteSpace(tmuxSession))
         {
             throw new OptionsException("--tmux-session is required");
+        }
+
+        if (tmuxWindow is not null && string.IsNullOrWhiteSpace(tmuxWindow))
+        {
+            throw new OptionsException("--tmux-window cannot be empty");
         }
 
         if (string.IsNullOrWhiteSpace(model))
@@ -137,7 +149,7 @@ public sealed record Options(
         }
 
         return new OptionsParseResult(
-            new Options(tmuxSession, model, server, agents.AsReadOnly(), verbose),
+            new Options(tmuxSession, model, server, agents.AsReadOnly(), verbose, tmuxWindow),
             ShowHelp: false);
     }
 

@@ -45,9 +45,11 @@ public sealed class Tmux(
     string openCodeExecutable,
     string tmuxSession,
     string temporaryRoot,
-    TimeSpan? interruptGracePeriod = null)
+    TimeSpan? interruptGracePeriod = null,
+    string? tmuxWindow = null)
 {
     private readonly TimeSpan gracePeriod = interruptGracePeriod ?? TimeSpan.FromSeconds(1);
+    private readonly string splitTarget = Target(tmuxSession, tmuxWindow);
 
     public async Task<OpenCodeRun> StartOpenCodeAsync(
         ValidatedAgent agent,
@@ -88,7 +90,7 @@ public sealed class Tmux(
                 executable,
                 [
                     "split-window",
-                    "-t", tmuxSession,
+                    "-t", splitTarget,
                     "-d",
                     "-P",
                     "-F", "#{pane_id}",
@@ -229,6 +231,9 @@ public sealed class Tmux(
 
     internal static string ShellQuote(string value) =>
         $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";
+
+    internal static string Target(string session, string? window) =>
+        window is null ? session : $"{session}:{window}";
 
     private static string SanitizeFileName(string value) =>
         string.Concat(value.Select(static character =>

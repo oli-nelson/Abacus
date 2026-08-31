@@ -20,7 +20,8 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
                 preflight.Tools.Tmux,
                 preflight.Tools.OpenCode,
                 preflight.Options.TmuxSession,
-                temporaryRoot);
+                temporaryRoot,
+                tmuxWindow: preflight.Options.TmuxWindow);
 
             var loops = preflight.Agents.Select(agent =>
             {

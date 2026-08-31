@@ -33,7 +33,11 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
             FindExecutable("opencode"),
             FindExecutable("tmux"));
 
-        await VerifyTmuxSessionAsync(tools.Tmux, options.TmuxSession, cancellationToken);
+        await VerifyTmuxTargetAsync(
+            tools.Tmux,
+            options.TmuxSession,
+            options.TmuxWindow,
+            cancellationToken);
 
         var git = new Git(runner, tools.Git);
         var beads = new Beads(runner, tools.Bd);
@@ -107,9 +111,10 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
             && int.TryParse(server[(separator + 1)..], out _);
     }
 
-    private async Task VerifyTmuxSessionAsync(
+    private async Task VerifyTmuxTargetAsync(
         string tmux,
         string session,
+        string? window,
         CancellationToken cancellationToken)
     {
         var result = await runner.RunAsync(new CommandSpec(
@@ -119,6 +124,22 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
         if (!result.Succeeded)
         {
             throw new PreflightException($"tmux session '{session}' does not exist");
+        }
+
+        if (window is null)
+        {
+            return;
+        }
+
+        var target = Tmux.Target(session, window);
+        var windowResult = await runner.RunAsync(new CommandSpec(
+            tmux,
+            ["display-message", "-p", "-t", target, "#{window_id}"],
+            Environment.CurrentDirectory), cancellationToken);
+        if (!windowResult.Succeeded)
+        {
+            throw new PreflightException(
+                $"tmux window '{window}' does not exist in session '{session}'");
         }
     }
 

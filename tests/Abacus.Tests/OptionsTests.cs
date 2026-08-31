@@ -12,6 +12,7 @@ public sealed class OptionsTests
 
         var result = Options.Parse([
             "--tmux-session", "workers",
+            "--tmux-window", "agents",
             "--model", "provider/model",
             "--opencode-server", "127.0.0.1:1234",
             "-a", "alice", first,
@@ -21,6 +22,7 @@ public sealed class OptionsTests
         Assert.False(result.ShowHelp);
         Assert.NotNull(result.Value);
         Assert.Equal("workers", result.Value.TmuxSession);
+        Assert.Equal("agents", result.Value.TmuxWindow);
         Assert.Equal("provider/model", result.Value.Model);
         Assert.Equal("127.0.0.1:1234", result.Value.OpenCodeServer);
         Assert.False(result.Value.Verbose);
@@ -47,6 +49,7 @@ public sealed class OptionsTests
     [Theory]
     [InlineData()]
     [InlineData("--tmux-session", "s", "--model", "provider/model")]
+    [InlineData("--tmux-session", "s", "--tmux-window", "--model", "provider/model", "-a", "alice", "/tmp/a")]
     [InlineData("--tmux-session", "s", "-a", "alice", "/tmp/a")]
     [InlineData("--tmux-session", "s", "--model", "model", "-a", "alice", "/tmp/a")]
     [InlineData("--tmux-session", "s", "--model", "/model", "-a", "alice", "/tmp/a")]

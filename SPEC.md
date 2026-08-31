@@ -13,7 +13,7 @@ It uses:
 Before running Abacus:
 
 1. Set up a Beads project in your Git repository.
-2. Start a tmux session.
+2. Start a tmux session and, optionally, the window where agent panes should run.
 3. Optionally, start an OpenCode server.
 
 ### Agent workspaces
@@ -38,6 +38,7 @@ Start agents in an existing tmux session:
 
 ```sh
 abacus --tmux-session <session_name> \
+  [--tmux-window <window_name_or_index>] \
   --model <provider/model> \
   [--verbose] \
   -a <agent_name> <git_workspace_path> \
@@ -46,12 +47,13 @@ abacus --tmux-session <session_name> \
 
 `--model` is required. Its OpenCode model ID is used for every agent started by that Abacus instance.
 
-Each local agent runs in its own tmux pane through `opencode --mini --prompt ...`, using its assigned Git workspace and the requested model. OpenCode must remain connected directly to the pane terminal so Mini has a TTY.
+Each local agent runs in its own tmux pane through `opencode --mini --prompt ...`, using its assigned Git workspace and the requested model. OpenCode must remain connected directly to the pane terminal so Mini has a TTY. When `--tmux-window` is supplied, Abacus verifies that the existing window belongs to the requested session and creates every agent pane there. Without it, tmux targets the session's current window as before.
 
 To connect the agents to an existing OpenCode server:
 
 ```sh
 abacus --tmux-session <session_name> \
+  [--tmux-window <window_name_or_index>] \
   --model <provider/model> \
   --opencode-server 127.0.0.1:1234 \
   -a <agent_name> <git_workspace_path> \

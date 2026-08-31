@@ -139,6 +139,29 @@ public sealed class PreflightTests
     }
 
     [Fact]
+    public async Task MissingTmuxWindowIsRejected()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await PreflightFixture.CreateAsync(tmuxWindowSucceeds: false);
+        var workspace = await fixture.AddWorkspaceAsync("one", EmbeddedIdentity, "[]");
+
+        var exception = await Assert.ThrowsAsync<PreflightException>(() => fixture.RunAsync(
+            new Options(
+                "workers",
+                "provider/model",
+                null,
+                [new("alice", workspace)],
+                TmuxWindow: "missing")));
+
+        Assert.Contains("window 'missing'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("session 'workers'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task IntermediateSymlinkAliasesCannotAssignOneWorktreeTwice()
     {
         if (OperatingSystem.IsWindows())
@@ -173,12 +196,22 @@ public sealed class PreflightTests
             bin = Path.Combine(root.FullName, "bin");
         }
 
-        public static async Task<PreflightFixture> CreateAsync(bool tmuxSucceeds = true)
+        public static async Task<PreflightFixture> CreateAsync(
+            bool tmuxSucceeds = true,
+            bool tmuxWindowSucceeds = true)
         {
             var fixture = new PreflightFixture(Directory.CreateTempSubdirectory("abacus-preflight-"));
             Directory.CreateDirectory(fixture.bin);
             await fixture.WriteToolAsync("opencode", "#!/bin/sh\nexit 0\n");
-            await fixture.WriteToolAsync("tmux", $"#!/bin/sh\nexit {(tmuxSucceeds ? 0 : 1)}\n");
+            await fixture.WriteToolAsync("tmux", $$"""
+                #!/bin/sh
+                if test "$1" = has-session; then
+                  exit {{(tmuxSucceeds ? 0 : 1)}}
+                elif test "$1" = display-message; then
+                  exit {{(tmuxWindowSucceeds ? 0 : 1)}}
+                fi
+                exit 2
+                """);
             await fixture.WriteToolAsync("git", """
                 #!/bin/sh
                 workspace="$2"
