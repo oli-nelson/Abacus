@@ -147,7 +147,6 @@ public sealed class TicketSupervisorTests
             var prompt = Path.Combine(runDirectory, "prompt");
             var wrapper = Path.Combine(runDirectory, "wrapper");
             var marker = Path.Combine(runDirectory, "marker");
-            var log = Path.Combine(runDirectory, "log");
             await File.WriteAllTextAsync(prompt, "prompt");
             await File.WriteAllTextAsync(wrapper, "wrapper");
             if (markerExitCode is not null)
@@ -207,7 +206,7 @@ public sealed class TicketSupervisorTests
                 root,
                 bd,
                 tmux,
-                new OpenCodeRun("%9", runDirectory, prompt, wrapper, marker, log));
+                new OpenCodeRun("%9", runDirectory, prompt, wrapper, marker));
         }
 
         public Task SuperviseAsync(bool hasRemote, CancellationToken cancellationToken = default)

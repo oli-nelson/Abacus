@@ -10,11 +10,11 @@ Abacus should own only the orchestration state machine. It should not reimplemen
 
 - Use one .NET console application and the .NET standard library.
 - Use `Process`/`ProcessStartInfo` to run `bd`, `git`, `opencode`, and `tmux` commands. Do not add Beads, Git, OpenCode, tmux, Dolt, or HTTP client libraries.
-- Use `opencode run --attach ...` when a server is supplied; do not call the OpenCode server API.
-- Require one `--model <provider/model>` value per Abacus invocation and pass it unchanged to every `opencode run` command.
+- Use `opencode --mini --prompt ...` for local agents and `opencode run --attach ...` when a server is supplied; do not call the OpenCode server API.
+- Require one `--model <provider/model>` value per Abacus invocation and pass it unchanged to every OpenCode command.
 - Parse only the small amount of JSON emitted by `bd --json` that Abacus needs: issue ID, issue status, Dolt identity, and remote presence.
 - Pass ordinary command arguments through `ProcessStartInfo.ArgumentList`, not interpolated shell strings. Use a generated shell wrapper only where tmux needs a pane command and process-exit marker.
-- Keep state in memory. A temporary per-run directory may contain prompt files, pane wrapper scripts, exit markers, and logs; there is no Abacus database.
+- Keep state in memory. A temporary per-run directory may contain prompt files, pane wrapper scripts, and exit markers; there is no Abacus database.
 - Run one asynchronous loop per configured agent. Do not introduce a scheduler, message bus, dependency-injection container, plugin model, web UI, or daemon.
 - Target macOS/Linux only. tmux and POSIX shell behavior are explicit prerequisites.
 - Prefer clear failure and retry behavior over automatic repair of repositories, Beads configuration, or OpenCode servers.
@@ -49,16 +49,17 @@ Waiting -> Claimed -> PreparingWorkspace -> RunningOpenCode -> Finalizing -> Wai
                                       \-> ReopenOnFailure -------^
 ```
 
-1. In single-agent mode, pull Beads before looking for work when a Dolt remote exists.
-2. Run `bd ready --claim --exclude-label gt:slot --json` in the agent workspace with `BEADS_ACTOR=<agent name>`.
-3. If no issue is ready, sleep for a small fixed interval and try again.
-4. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
-5. Verify that the workspace is clean before OpenCode starts.
-6. Render the SPEC.md prompt for the claimed issue and launch `opencode run` in a new pane in the requested tmux session. Supply `--model <provider/model>`, `--dir <workspace>`, and, when configured, `--attach http://<host:port>`.
-7. Poll `bd show <issue_id> --json` while also watching the OpenCode exit marker.
-8. When the ticket leaves `in_progress`, interrupt OpenCode if it is still running and clean up its pane.
-9. When OpenCode exits while the ticket is still `in_progress`, warn, reopen the issue with a useful note, and clean up the pane.
-10. After every OpenCode exit, run `bd dolt push` when a remote is configured, then return to waiting.
+1. Clean the workspace with `git reset --hard HEAD` and `git clean -fd` before looking for work.
+2. In single-agent mode, pull Beads before looking for work when a Dolt remote exists.
+3. Run `bd ready --claim --exclude-label gt:slot --json` in the agent workspace with `BEADS_ACTOR=<agent name>`.
+4. If no issue is ready, sleep for a small fixed interval and try again.
+5. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
+6. Verify that the workspace is clean before OpenCode starts.
+7. Render the SPEC.md prompt for the claimed issue and launch OpenCode in a new pane in the requested tmux session. Use local Mini with the prompt and requested model, or `opencode run` with `--model`, `--dir`, and `--attach` when a server is configured.
+8. Poll `bd show <issue_id> --json` while also watching the OpenCode exit marker.
+9. When the ticket leaves `in_progress`, interrupt OpenCode if it is still running and clean up its pane.
+10. When OpenCode exits while the ticket is still `in_progress`, warn, reopen the issue with a useful note, and clean up its pane.
+11. After every OpenCode exit, run `bd dolt push` when a remote is configured, then return to waiting.
 
 Any failure after a successful claim but before the agent changes ticket state must attempt to return the issue to `open` with an appended reason. This prevents an orchestration error from stranding work in `in_progress`.
 
@@ -68,13 +69,13 @@ Before building the loop, capture the exact behavior of the locally supported co
 
 ### Work
 
-- Record the minimum supported versions of `dotnet`, `bd`, `git`, `opencode`, and `tmux` in the README. Initial development can use the currently installed tools: .NET 10.0.101, Beads 1.2.2, OpenCode 1.17.10, tmux 3.6a, and Git 2.55.0.
+- Record the minimum supported versions of `dotnet`, `bd`, `git`, `opencode`, and `tmux` in the README. Initial development can use the currently installed tools: .NET 10.0.101, Beads 1.2.2, OpenCode 1.18.20, tmux 3.6a, and Git 2.55.0.
 - In a disposable Beads repository, save representative outputs and exit codes for:
   - `bd ready --claim --exclude-label gt:slot --json` with and without ready work.
   - `bd show <id> --json` for `in_progress`, `open`, `blocked`, and `closed` issues.
   - `bd dolt show --json` and `bd dolt remote list --json` with and without a remote.
   - failed pulls and pushes.
-- Confirm that `opencode run <prompt> --model <provider/model> --dir <workspace>` creates one session with the requested model and exits when the run ends.
+- Confirm that `opencode --mini --prompt <prompt> --model <provider/model>` creates one local interactive session with the requested model.
 - Confirm that `opencode run <prompt> --model <provider/model> --attach http://<server> --dir <workspace>` creates a new client session with the requested model and without any direct HTTP work in Abacus.
 - Prove a tmux wrapper can write an exit-code marker after OpenCode exits and can be interrupted with `tmux send-keys ... C-c`.
 - Turn the captured Beads JSON into test fixtures. Avoid broad DTOs; extract fields with `JsonDocument` so harmless schema additions do not matter.
@@ -134,7 +135,7 @@ All checks happen before any ticket is claimed or pane is created.
 
 ### Exit criteria
 
-- Invalid tmux sessions, dirty workspaces, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims.
+- Invalid tmux sessions, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and cleaned by the agent loop before claiming.
 - A valid single-agent local setup and a valid multi-agent shared-Dolt setup pass.
 - Preflight never mutates Git, Beads, tmux, or OpenCode state.
 
@@ -149,6 +150,8 @@ All checks happen before any ticket is claimed or pane is created.
   ```
 
 - In single-agent mode only, run `bd dolt pull` immediately before each claim attempt when a remote exists. A pull failure should log and delay the next attempt rather than claim against stale data.
+- Check workspace cleanliness before every claim. If a workspace is dirty, warn, discard tracked changes with `git reset --hard HEAD`, remove untracked non-ignored files and directories with `git clean -fd`, and verify the result is clean before claiming.
+- If automatic cleanup fails or leaves the workspace dirty, stop Abacus with a clear startup-invariant error rather than repeatedly claiming and reopening work.
 - Treat “no ready issue” as idle, not as an error. Use one fixed polling interval (for example, five seconds) to avoid adding tuning options prematurely.
 - After a claim, use Git CLI commands to:
   - verify the workspace is still clean;
@@ -172,18 +175,19 @@ All checks happen before any ticket is claimed or pane is created.
 - Write the prompt and a small POSIX wrapper to the run's temporary directory. The wrapper should:
   - `cd` to the workspace;
   - export `BEADS_ACTOR`;
-  - run either `opencode run <prompt> --model <provider/model> --dir <workspace>` or the same command with `--attach <url>`;
+  - run `opencode --mini --prompt <prompt> --model <provider/model>` locally, or `opencode run <prompt> --model <provider/model> --attach <url> --dir <workspace>` when a server is supplied;
+  - connect OpenCode directly to the pane terminal rather than piping it through `tee`, because Mini requires a TTY;
   - write the OpenCode exit code to an atomic exit-marker file;
   - remain alive briefly/idle until Abacus has observed the marker, so the pane does not disappear before cleanup.
 - Create a detached pane in the existing session with `tmux split-window -d -P -F '#{pane_id}'`, run the wrapper there, record the returned pane ID, and optionally retile the window.
 - Do not use tmux control mode or a tmux protocol library. All lifecycle operations are CLI commands using the recorded pane ID.
 - Implement idempotent cleanup: send Ctrl-C, allow a short grace period, then `tmux kill-pane` if the pane remains. Never target panes that Abacus did not create.
-- Remove prompt, wrapper, and marker files when their run ends; retain a small log file only when it helps diagnose failure.
+- Remove prompt, wrapper, and marker files when their run ends.
 
 ### Exit criteria
 
 - Each configured agent gets a distinct pane, workspace, actor environment, prompt, and OpenCode session using the model passed to Abacus.
-- Local and `--opencode-server` modes both run through the OpenCode CLI.
+- Local Mini and `--opencode-server` run modes both use only the OpenCode CLI.
 - Ctrl-C and startup failures do not leave Abacus-created panes behind.
 
 ## Phase 6 - Ticket supervision and recovery
@@ -216,7 +220,7 @@ All checks happen before any ticket is claimed or pane is created.
 - Cover at least:
   - no ready work followed by a claim;
   - two agents claiming concurrently;
-  - dirty workspace rejection;
+  - dirty workspace cleanup before claiming;
   - mismatched Dolt databases rejection;
   - required and malformed model option handling;
   - local and attached OpenCode command construction with the same requested model for every agent;

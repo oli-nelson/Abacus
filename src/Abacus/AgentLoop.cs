@@ -25,6 +25,21 @@ public sealed class ClaimCoordinator(
                     $"[{agent.Name}] workspace disappeared: '{agent.WorkspacePath}'");
             }
 
+            try
+            {
+                if (!await git.IsWorkspaceCleanAsync(agent.WorkspacePath, agent.Name, cancellationToken))
+                {
+                    await WarnAsync(agent.Name, "workspace is dirty; discarding local changes before claiming work");
+                    await git.CleanWorkspaceAsync(agent.WorkspacePath, agent.Name, cancellationToken);
+                    await log.WriteLineAsync($"[{agent.Name}] workspace cleaned; continuing claims");
+                }
+            }
+            catch (WorkspacePreparationException exception)
+            {
+                throw new StartupInvariantException(
+                    $"[{agent.Name}] could not clean workspace '{agent.WorkspacePath}': {exception.Message}");
+            }
+
             if (singleAgentMode && agent.HasRemote)
             {
                 var pull = await beads.PullAsync(agent.WorkspacePath, agent.Name, cancellationToken);

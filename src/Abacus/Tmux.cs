@@ -5,8 +5,7 @@ public sealed class OpenCodeRun(
     string runDirectory,
     string promptPath,
     string wrapperPath,
-    string markerPath,
-    string logPath)
+    string markerPath)
 {
     private readonly SemaphoreSlim cleanupLock = new(1, 1);
     private bool cleaned;
@@ -16,7 +15,6 @@ public sealed class OpenCodeRun(
     public string PromptPath { get; } = promptPath;
     public string WrapperPath { get; } = wrapperPath;
     public string MarkerPath { get; } = markerPath;
-    public string LogPath { get; } = logPath;
 
     internal SemaphoreSlim CleanupLock => cleanupLock;
     internal bool Cleaned { get => cleaned; set => cleaned = value; }
@@ -71,8 +69,6 @@ public sealed class Tmux(
         var promptPath = Path.Combine(runDirectory, "prompt.txt");
         var wrapperPath = Path.Combine(runDirectory, "run.sh");
         var markerPath = Path.Combine(runDirectory, "exit-code");
-        var processStatusPath = markerPath + ".opencode";
-        var logPath = Path.Combine(runDirectory, "opencode.log");
 
         try
         {
@@ -82,7 +78,7 @@ public sealed class Tmux(
                 cancellationToken);
             await File.WriteAllTextAsync(
                 wrapperPath,
-                RenderWrapper(agent, model, serverUrl, promptPath, markerPath, processStatusPath, logPath),
+                RenderWrapper(agent, model, serverUrl, promptPath, markerPath),
                 cancellationToken);
             File.SetUnixFileMode(
                 wrapperPath,
@@ -111,7 +107,7 @@ public sealed class Tmux(
                 throw new TmuxException("tmux did not return the created pane ID");
             }
 
-            var run = new OpenCodeRun(paneId, runDirectory, promptPath, wrapperPath, markerPath, logPath);
+            var run = new OpenCodeRun(paneId, runDirectory, promptPath, wrapperPath, markerPath);
             if (cancellationToken.IsCancellationRequested)
             {
                 await StopAndCleanupAsync(run, CancellationToken.None);
@@ -185,25 +181,31 @@ public sealed class Tmux(
         string model,
         string? serverUrl,
         string promptPath,
-        string markerPath,
-        string processStatusPath,
-        string logPath)
+        string markerPath)
     {
-        var arguments = new List<string>
+        List<string> arguments;
+        if (serverUrl is null)
         {
-            ShellQuote(openCodeExecutable),
-            "run",
-            "\"$prompt\"",
-            "--model", ShellQuote(model),
-        };
-        if (serverUrl is not null)
-        {
-            arguments.Add("--attach");
-            arguments.Add(ShellQuote(serverUrl));
+            arguments =
+            [
+                ShellQuote(openCodeExecutable),
+                "--mini",
+                "--prompt", "\"$prompt\"",
+                "--model", ShellQuote(model),
+            ];
         }
-
-        arguments.Add("--dir");
-        arguments.Add(ShellQuote(agent.WorkspacePath));
+        else
+        {
+            arguments =
+            [
+                ShellQuote(openCodeExecutable),
+                "run",
+                "\"$prompt\"",
+                "--model", ShellQuote(model),
+                "--attach", ShellQuote(serverUrl),
+                "--dir", ShellQuote(agent.WorkspacePath),
+            ];
+        }
 
         return $"""
             #!/bin/sh
@@ -213,18 +215,8 @@ public sealed class Tmux(
             if cd {ShellQuote(agent.WorkspacePath)}; then
               prompt=$(cat {ShellQuote(promptPath)})
               if test $? -eq 0; then
-                process_status={ShellQuote(processStatusPath)}
-                process_status_tmp={ShellQuote(processStatusPath)}.tmp
-                (
-                  {string.Join(' ', arguments)}
-                  opencode_code=$?
-                  printf '%s\n' "$opencode_code" >"$process_status_tmp"
-                  mv "$process_status_tmp" "$process_status"
-                ) 2>&1 | tee {ShellQuote(logPath)}
-                if test -f "$process_status"; then
-                  code=$(cat "$process_status")
-                  rm -f "$process_status"
-                fi
+                {string.Join(' ', arguments)}
+                code=$?
               fi
             fi
             marker_tmp={ShellQuote(markerPath)}.tmp.$$
@@ -244,17 +236,9 @@ public sealed class Tmux(
 
     private static void CleanupRunFiles(OpenCodeRun run)
     {
-        var exitCode = run.TryReadExitCode();
         TryDeleteFile(run.PromptPath);
         TryDeleteFile(run.WrapperPath);
         TryDeleteFile(run.MarkerPath);
-        TryDeleteFile(run.MarkerPath + ".opencode");
-        TryDeleteFile(run.MarkerPath + ".opencode.tmp");
-
-        if (exitCode == 0)
-        {
-            TryDeleteFile(run.LogPath);
-        }
 
         try
         {
@@ -262,7 +246,6 @@ public sealed class Tmux(
         }
         catch (IOException)
         {
-            // A diagnostic log remains for a failed or interrupted run.
         }
         catch (UnauthorizedAccessException)
         {

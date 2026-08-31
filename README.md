@@ -11,7 +11,7 @@ Abacus targets macOS and Linux. These commands must be on `PATH`:
 | .NET SDK | 10.0.101 |
 | Beads (`bd`) | 1.2.2 |
 | Git | 2.55.0 |
-| OpenCode | 1.17.10 |
+| OpenCode | 1.18.20 |
 | tmux | 3.6a |
 
 Before running Abacus:
@@ -87,13 +87,13 @@ bd create "Add a hello-world file" \
 bd ready --json
 ```
 
-Abacus refuses to start with local Git changes. Confirm this prints nothing:
+Abacus treats each assigned workspace as disposable agent state. Before every claim it automatically runs `git reset --hard HEAD` and `git clean -fd`, discarding tracked changes and untracked non-ignored files and directories. Inspect the workspace before starting Abacus if there is anything you may want to keep:
 
 ```sh
 git status --porcelain
 ```
 
-If it prints files created by repository or Beads setup, review and commit those files according to the repository's normal policy, then run the cleanliness check again.
+If this prints files you want to preserve, commit or move them before starting Abacus. Ignored files are not removed because cleanup does not use `git clean -x`.
 
 ### 2. Start the tmux session
 
@@ -121,7 +121,7 @@ abacus \
   -a "$AGENT" "$REPO"
 ```
 
-Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch a new local `opencode run` in an Abacus-owned pane. The pane shows the command's streaming output; it is not the interactive OpenCode TUI. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
+Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch `opencode --mini` with the ticket prompt in an Abacus-owned pane. OpenCode receives the pane's terminal directly so Mini has a TTY. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
 
 Useful commands from another terminal are:
 
@@ -211,7 +211,7 @@ abacus --tmux-session <session_name> \
   -a <agent_name> <git_workspace_path>
 ```
 
-`--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to every `opencode run` process. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
+`--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to local Mini and attached run processes. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
 
 Run `abacus --help` for the short prerequisite list and examples.
 
@@ -220,12 +220,13 @@ Run `abacus --help` for the short prerequisite list and examples.
 Each agent has one asynchronous loop:
 
 1. In single-agent mode, pull Dolt before claiming when a remote exists.
-2. Atomically claim with `BEADS_ACTOR=<agent> bd ready --claim --exclude-label gt:slot --json`. If an older run left ready work assigned to that same agent, reclaim it without taking another agent's work. Merge-slot beads are never dispatched as coding work.
-3. Create or reuse `abacus/<issue-id>` and verify the workspace is clean.
-4. Start `opencode run` in a dedicated Abacus-owned tmux pane.
-5. Watch both the Beads status and the OpenCode exit marker.
-6. Stop and clean the pane when the ticket becomes `closed`, `open`, or `blocked`.
-7. Reopen tickets left `in_progress` by an unexpected exit, push when configured, and continue waiting.
+2. If the workspace is dirty, discard tracked and untracked non-ignored changes with `git reset --hard HEAD` and `git clean -fd` before claiming.
+3. Atomically claim with `BEADS_ACTOR=<agent> bd ready --claim --exclude-label gt:slot --json`. If an older run left ready work assigned to that same agent, reclaim it without taking another agent's work. Merge-slot beads are never dispatched as coding work.
+4. Create or reuse `abacus/<issue-id>` and verify the workspace is clean.
+5. Start local `opencode --mini --prompt ...` or attached `opencode run --attach ...` in a dedicated Abacus-owned tmux pane.
+6. Watch both the Beads status and the OpenCode exit marker.
+7. Stop and clean the pane when the ticket becomes `closed`, `open`, or `blocked`.
+8. Reopen tickets left `in_progress` by an unexpected exit, push when configured, and continue waiting.
 
 Every OpenCode session receives this exact prompt after substituting the agent name, issue ID, and canonical workspace path:
 
@@ -258,7 +259,7 @@ ticket notes are complete.
 
 The implementation is in [`Prompt.cs`](src/Abacus/Prompt.cs) and the source contract is in [`SPEC.md`](SPEC.md#opencode-prompt-template). Repository-specific agent instructions must define the serialized merge process named in the prompt.
 
-Every external command is logged concisely to stderr with an agent prefix. Prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. A small `opencode.log` remains there only for failed or interrupted runs, and Abacus prints the retained directory at shutdown.
+Every external command is logged concisely to stderr with an agent prefix. Prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. OpenCode output is displayed directly in its tmux pane rather than piped to a transcript file, preserving the TTY required by Mini.
 
 Ctrl-C cancels all loops. Abacus interrupts every active pane, checks the ticket again, attempts to reopen any ticket still `in_progress` with a shutdown note, performs configured Dolt pushes with bounded retries, and removes only panes it created.
 

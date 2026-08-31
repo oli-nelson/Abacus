@@ -58,7 +58,7 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
             }
             catch (IOException)
             {
-                await log.WriteLineAsync($"[abacus] diagnostic logs retained in {temporaryRoot}");
+                await log.WriteLineAsync($"[abacus] temporary files retained in {temporaryRoot}");
             }
         }
     }

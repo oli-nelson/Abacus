@@ -52,7 +52,7 @@ public sealed class EndToEndTests
             Assert.Equal(Prompt.Render("alice", "abc-1", workspace),
                 await File.ReadAllTextAsync(Path.Combine(root.FullName, "opencode-prompt")));
             Assert.Equal(
-                ["--model", "provider/exact-model", "--dir", workspace],
+                ["--model", "provider/exact-model"],
                 await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
             Assert.Contains("ready --claim --exclude-label gt:slot --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
             Assert.Contains("send-keys -t %1 C-c", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
@@ -122,7 +122,9 @@ public sealed class EndToEndTests
         await WriteExecutableAsync(Path.Combine(bin, "opencode"), $$"""
             #!/bin/sh
             root={{Q(root)}}
-            test "$1" = run || exit 2
+            test "$1" = --mini || exit 2
+            shift
+            test "$1" = --prompt || exit 2
             shift
             printf '%s' "$1" > "$root/opencode-prompt"
             shift

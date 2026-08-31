@@ -43,7 +43,6 @@ public sealed class TmuxTests
             ["--model", "provider/model", "--attach", "http://127.0.0.1:1234", "--dir", workspace],
             await File.ReadAllLinesAsync(Path.Combine(workspace, "received-arguments")));
         Assert.Equal("visible OpenCode output", await wrapper.StandardOutput.ReadLineAsync());
-        Assert.Contains("visible OpenCode output", await File.ReadAllTextAsync(run.LogPath), StringComparison.Ordinal);
 
         wrapper.Kill(entireProcessTree: true);
         await wrapper.WaitForExitAsync();
@@ -74,10 +73,12 @@ public sealed class TmuxTests
         Assert.NotEqual(local.PaneId, attached.PaneId);
         var localWrapper = await File.ReadAllTextAsync(local.WrapperPath);
         var attachedWrapper = await File.ReadAllTextAsync(attached.WrapperPath);
-        Assert.Contains("--model 'provider/exact-model'", localWrapper, StringComparison.Ordinal);
+        Assert.Contains("--mini --prompt \"$prompt\" --model 'provider/exact-model'", localWrapper, StringComparison.Ordinal);
         Assert.Contains("--model 'provider/exact-model'", attachedWrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain(" run ", localWrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain("--mini", attachedWrapper, StringComparison.Ordinal);
         Assert.DoesNotContain("--attach", localWrapper, StringComparison.Ordinal);
-        Assert.Contains("--attach 'http://server:1234'", attachedWrapper, StringComparison.Ordinal);
+        Assert.Contains("run \"$prompt\" --model 'provider/exact-model' --attach 'http://server:1234'", attachedWrapper, StringComparison.Ordinal);
         Assert.NotEqual(local.RunDirectory, attached.RunDirectory);
     }
 
@@ -98,7 +99,6 @@ public sealed class TmuxTests
             "provider/model", null, CancellationToken.None);
 
         await File.WriteAllTextAsync(run.MarkerPath, "1\n");
-        await File.WriteAllTextAsync(run.LogPath, "diagnostic\n");
         await tmux.StopAndCleanupAsync(run, CancellationToken.None);
         await tmux.StopAndCleanupAsync(run, CancellationToken.None);
 
@@ -108,7 +108,7 @@ public sealed class TmuxTests
         Assert.False(File.Exists(run.PromptPath));
         Assert.False(File.Exists(run.WrapperPath));
         Assert.False(File.Exists(run.MarkerPath));
-        Assert.True(File.Exists(run.LogPath));
+        Assert.False(Directory.Exists(run.RunDirectory));
     }
 
     private static ValidatedAgent Agent(string name, string workspace) =>

@@ -46,6 +46,32 @@ public sealed class ClaimCoordinatorTests
         Assert.False(File.Exists(fixture.PathOf("pull-count")));
     }
 
+    [Fact]
+    public async Task DirtyWorkspaceIsCleanedBeforeClaiming()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            initiallyDirty: true);
+        var claim = await fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            singleAgentMode: true,
+            CancellationToken.None);
+
+        Assert.Equal("abc-good", claim.Issue.Id);
+        Assert.Equal("2", await fixture.ReadAsync("ready-count"));
+        Assert.False(File.Exists(fixture.PathOf("updates")));
+        var gitCalls = await fixture.ReadAsync("git-calls");
+        Assert.Contains("reset --hard HEAD", gitCalls, StringComparison.Ordinal);
+        Assert.Contains("clean -fd", gitCalls, StringComparison.Ordinal);
+        Assert.Contains("workspace is dirty; discarding local changes", fixture.Log.ToString(), StringComparison.Ordinal);
+        Assert.Contains("workspace cleaned; continuing claims", fixture.Log.ToString(), StringComparison.Ordinal);
+    }
+
     private sealed class CoordinatorFixture : IDisposable
     {
         private readonly DirectoryInfo root;
@@ -74,7 +100,9 @@ public sealed class ClaimCoordinatorTests
         public ClaimCoordinator Coordinator { get; }
         public StringWriter Log { get; }
 
-        public static async Task<CoordinatorFixture> CreateAsync(bool recoverFirstClaim)
+        public static async Task<CoordinatorFixture> CreateAsync(
+            bool recoverFirstClaim,
+            bool initiallyDirty = false)
         {
             if (OperatingSystem.IsWindows())
             {
@@ -93,6 +121,7 @@ public sealed class ClaimCoordinatorTests
 
             await File.WriteAllTextAsync(Path.Combine(root.FullName, "ready-count"), "0");
             await File.WriteAllTextAsync(Path.Combine(root.FullName, "push-count"), "0");
+            await File.WriteAllTextAsync(Path.Combine(root.FullName, "status-count"), "0");
             await File.WriteAllTextAsync(bd, $$"""
                 #!/bin/sh
                 root={{Q(root.FullName)}}
@@ -130,10 +159,18 @@ public sealed class ClaimCoordinatorTests
             await File.WriteAllTextAsync(git, $$"""
                 #!/bin/sh
                 root={{Q(root.FullName)}}
+                printf '%s\n' "$*" >> "$root/git-calls"
                 if test "$3" = status; then
-                  if test {{(recoverFirstClaim ? "1" : "0")}} -eq 1 && ! test -f "$root/recovered"; then
+                  count=$(cat "$root/status-count"); count=$((count + 1)); printf '%s' "$count" > "$root/status-count"
+                  if test {{(initiallyDirty ? "1" : "0")}} -eq 1 && ! test -f "$root/cleaned"; then
+                    printf ' M dirty\n'
+                  elif test {{(recoverFirstClaim ? "1" : "0")}} -eq 1 && test "$count" -eq 2 && ! test -f "$root/recovered"; then
                     printf ' M dirty\n'
                   fi
+                elif test "$3" = reset; then
+                  exit 0
+                elif test "$3" = clean; then
+                  touch "$root/cleaned"
                 elif test "$3" = show-ref; then
                   exit 1
                 elif test "$3" = switch; then

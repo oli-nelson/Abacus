@@ -61,6 +61,28 @@ public sealed class GitTests
         Assert.Equal(repository.InitialBranch, await repository.CurrentBranchAsync());
     }
 
+    [Fact]
+    public async Task CleanupDiscardsTrackedAndUntrackedChanges()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var repository = await TemporaryGitRepository.CreateAsync();
+        var tracked = Path.Combine(repository.Path, "file.txt");
+        var untracked = Path.Combine(repository.Path, "untracked");
+        await File.AppendAllTextAsync(tracked, "dirty\n");
+        await File.WriteAllTextAsync(untracked, "temporary\n");
+        var git = new Git(new CommandRunner(TextWriter.Null), repository.GitExecutable);
+
+        await git.CleanWorkspaceAsync(repository.Path, "alice", CancellationToken.None);
+
+        Assert.Equal("clean\n", await File.ReadAllTextAsync(tracked));
+        Assert.False(File.Exists(untracked));
+        Assert.True(await git.IsWorkspaceCleanAsync(repository.Path, "alice", CancellationToken.None));
+    }
+
     private sealed class TemporaryGitRepository : IDisposable
     {
         private TemporaryGitRepository(string path, string gitExecutable, string initialBranch)

@@ -55,7 +55,7 @@ public sealed class PreflightTests
     }
 
     [Fact]
-    public async Task DirtyWorkspaceFailsBeforeBeadsQuery()
+    public async Task DirtyWorkspacePassesForAgentCleanup()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -65,10 +65,11 @@ public sealed class PreflightTests
         using var fixture = await PreflightFixture.CreateAsync();
         var workspace = await fixture.AddWorkspaceAsync("dirty", EmbeddedIdentity, "[]", gitStatus: " M file");
 
-        var exception = await Assert.ThrowsAsync<PreflightException>(() => fixture.RunAsync(
-            new Options("workers", "provider/model", null, [new("alice", workspace)])));
+        var result = await fixture.RunAsync(
+            new Options("workers", "provider/model", null, [new("alice", workspace)]));
 
-        Assert.Contains("dirty", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(result.Agents);
+        Assert.Equal("alice", result.Agents[0].Name);
     }
 
     [Theory]

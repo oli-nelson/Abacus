@@ -45,7 +45,7 @@ abacus --tmux-session <session_name> \
 
 `--model` is required. Its OpenCode model ID is used for every agent started by that Abacus instance.
 
-Each agent runs in its own tmux pane as an OpenCode instance, using its assigned Git workspace and the requested model.
+Each local agent runs in its own tmux pane through `opencode --mini --prompt ...`, using its assigned Git workspace and the requested model. OpenCode must remain connected directly to the pane terminal so Mini has a TTY.
 
 To connect the agents to an existing OpenCode server:
 
@@ -57,32 +57,33 @@ abacus --tmux-session <session_name> \
   -a <agent_name> <git_workspace_path>
 ```
 
-The OpenCode instances still run in separate tmux panes, but each starts a new client session connected to the specified server and uses the model passed to Abacus.
+The OpenCode instances still run in separate tmux panes, but each starts a new non-interactive `opencode run --attach` client session connected to the specified server and uses the model passed to Abacus.
 
 ## Agent workflow
 
 Each Abacus agent follows this loop:
 
-1. In single-agent mode, pull the latest Beads data if a remote is configured. Agents using a shared database already see the latest data.
-2. Abacus atomically claims a ready task using the agent name as the actor:
+1. Before claiming work, discard tracked and untracked non-ignored workspace changes with `git reset --hard HEAD` and `git clean -fd`.
+2. In single-agent mode, pull the latest Beads data if a remote is configured. Agents using a shared database already see the latest data.
+3. Abacus atomically claims a ready task using the agent name as the actor:
 
    ```sh
    BEADS_ACTOR=<agent_name> bd ready --claim --exclude-label gt:slot --json
    ```
 
-3. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
-4. Make sure the workspace has no local changes before starting OpenCode.
-5. Start OpenCode with `BEADS_ACTOR=<agent_name>`, the required Abacus `--model` value, and a prompt describing the issue and its ticket-state responsibilities.
-6. While OpenCode is running, Abacus monitors the ticket status through Beads.
-7. The OpenCode agent does the work and changes the ticket status when it is finished:
+4. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
+5. Make sure the workspace has no local changes before starting OpenCode.
+6. Start local OpenCode through `opencode --mini --prompt ...`, or attached OpenCode through `opencode run --attach ...`, with `BEADS_ACTOR=<agent_name>`, the required Abacus `--model` value, and a prompt describing the issue and its ticket-state responsibilities.
+7. While OpenCode is running, Abacus monitors the ticket status through Beads.
+8. The OpenCode agent does the work and changes the ticket status when it is finished:
 
    - Close it after the work has been completed and merged.
    - Return it to `open` if the work should be retried by another agent.
    - Mark it `blocked` if it cannot continue without outside help.
 
-8. Changing the ticket from `in_progress` signals that the OpenCode session is finished. Abacus stops the OpenCode process.
-9. Whenever an OpenCode process ends, Abacus runs `bd dolt push` if a remote is configured. This ensures the final ticket update is pushed even if the agent did not push it.
-10. Abacus returns to the start of the loop.
+9. Changing the ticket from `in_progress` signals that the OpenCode session is finished. Abacus stops the OpenCode process.
+10. Whenever an OpenCode process ends, Abacus runs `bd dolt push` if a remote is configured. This ensures the final ticket update is pushed even if the agent did not push it.
+11. Abacus returns to the start of the loop.
 
 An unexpected OpenCode exit that leaves the ticket `in_progress` must not be treated as completed work.
 If abacus sees that the ticket is still `in_progress` after OpenCode exits, it should log a warning, reopen the ticket (along with a `bd dolt push` if applicable) and return to the start of the loop.

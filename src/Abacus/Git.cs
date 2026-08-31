@@ -47,17 +47,6 @@ public sealed class Git(CommandRunner runner, string executable = "git")
         {
             throw new PreflightException($"[{agentName}] '{workspace}' is not a Git worktree");
         }
-
-        var status = await RunAsync(workspace, agentName, ["-C", workspace, "status", "--porcelain"], cancellationToken);
-        if (!status.Succeeded)
-        {
-            throw new PreflightException($"[{agentName}] could not inspect Git status: {FailureDetail(status)}");
-        }
-
-        if (!string.IsNullOrEmpty(status.StandardOutput))
-        {
-            throw new PreflightException($"[{agentName}] workspace is dirty: '{workspace}'");
-        }
     }
 
     public async Task<string> PrepareIssueBranchAsync(
@@ -103,7 +92,7 @@ public sealed class Git(CommandRunner runner, string executable = "git")
         return branch;
     }
 
-    private async Task EnsureCleanAsync(
+    public async Task<bool> IsWorkspaceCleanAsync(
         string workspace,
         string agentName,
         CancellationToken cancellationToken)
@@ -114,7 +103,46 @@ public sealed class Git(CommandRunner runner, string executable = "git")
             throw new WorkspacePreparationException($"could not inspect Git status: {FailureDetail(status)}");
         }
 
-        if (!string.IsNullOrEmpty(status.StandardOutput))
+        return string.IsNullOrEmpty(status.StandardOutput);
+    }
+
+    public async Task CleanWorkspaceAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        var reset = await RunAsync(
+            workspace,
+            agentName,
+            ["-C", workspace, "reset", "--hard", "HEAD"],
+            cancellationToken);
+        if (!reset.Succeeded)
+        {
+            throw new WorkspacePreparationException($"could not reset tracked changes: {FailureDetail(reset)}");
+        }
+
+        var clean = await RunAsync(
+            workspace,
+            agentName,
+            ["-C", workspace, "clean", "-fd"],
+            cancellationToken);
+        if (!clean.Succeeded)
+        {
+            throw new WorkspacePreparationException($"could not remove untracked files: {FailureDetail(clean)}");
+        }
+
+        if (!await IsWorkspaceCleanAsync(workspace, agentName, cancellationToken))
+        {
+            throw new WorkspacePreparationException("workspace remained dirty after cleanup");
+        }
+    }
+
+    private async Task EnsureCleanAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsWorkspaceCleanAsync(workspace, agentName, cancellationToken))
         {
             throw new WorkspacePreparationException("workspace became dirty before OpenCode could start");
         }
