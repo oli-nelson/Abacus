@@ -20,6 +20,10 @@ public sealed class TicketSupervisorTests
 
         Assert.False(File.Exists(fixture.UpdateCalls));
         Assert.Contains($"send-keys -t {fixture.Run.PaneId} C-c", await File.ReadAllTextAsync(fixture.TmuxCalls));
+        var totals = Assert.Single(fixture.Summary.Snapshot().Agents);
+        Assert.Equal(status == "closed" ? 1 : 0, totals.Closed);
+        Assert.Equal(status == "open" ? 1 : 0, totals.Reopened);
+        Assert.Equal(status == "blocked" ? 1 : 0, totals.Blocked);
     }
 
     [Fact]
@@ -39,6 +43,7 @@ public sealed class TicketSupervisorTests
         Assert.Contains("alice", update, StringComparison.Ordinal);
         Assert.Contains("17", update, StringComparison.Ordinal);
         Assert.Equal("1", (await File.ReadAllTextAsync(fixture.PushCount)).Trim());
+        Assert.Equal(1, Assert.Single(fixture.Summary.Snapshot().Agents).Reopened);
     }
 
     [Fact]
@@ -90,6 +95,7 @@ public sealed class TicketSupervisorTests
         Assert.Contains("Abacus shut down", update, StringComparison.Ordinal);
         Assert.Contains("send-keys", await File.ReadAllTextAsync(fixture.TmuxCalls), StringComparison.Ordinal);
         Assert.Equal("1", (await File.ReadAllTextAsync(fixture.PushCount)).Trim());
+        Assert.Equal(1, Assert.Single(fixture.Summary.Snapshot().Agents).Interrupted);
     }
 
     [Fact]
@@ -129,6 +135,7 @@ public sealed class TicketSupervisorTests
         public string TmuxCalls { get; }
         public string PushCount { get; }
         public StringWriter Log { get; } = new();
+        public RunSummary Summary { get; } = new(["alice"]);
 
         public static async Task<SupervisorFixture> CreateAsync(
             IReadOnlyList<string> statuses,
@@ -226,7 +233,8 @@ public sealed class TicketSupervisorTests
                 tmuxClient,
                 recovery,
                 Log,
-                pollingInterval: TimeSpan.FromMilliseconds(1));
+                pollingInterval: TimeSpan.FromMilliseconds(1),
+                summary: Summary);
             var agent = new ValidatedAgent(
                 "alice",
                 Path.Combine(root.FullName, "workspace"),

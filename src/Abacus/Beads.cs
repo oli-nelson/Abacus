@@ -35,7 +35,7 @@ public enum IssueStatus
     Unknown,
 }
 
-public sealed record BeadsIssue(string Id, IssueStatus Status);
+public sealed record BeadsIssue(string Id, IssueStatus Status, string? Title = null);
 
 public sealed class Beads(CommandRunner runner, string executable = "bd")
 {
@@ -248,12 +248,15 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             {
                 var id = element.GetProperty("id").GetString();
                 var status = element.GetProperty("status").GetString();
+                var title = element.TryGetProperty("title", out var titleElement)
+                    ? titleElement.GetString()
+                    : null;
                 if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(status))
                 {
                     throw new JsonException("issue id or status is missing");
                 }
 
-                issues.Add(new BeadsIssue(id, ParseStatus(status)));
+                issues.Add(new BeadsIssue(id, ParseStatus(status), title));
             }
 
             return issues;

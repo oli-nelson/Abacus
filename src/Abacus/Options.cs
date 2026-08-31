@@ -8,10 +8,20 @@ public sealed record Options(
     string? OpenCodeServer,
     IReadOnlyList<AgentOptions> Agents,
     bool Verbose = false,
-    string? TmuxWindow = null)
+    string? TmuxWindow = null,
+    string? TmuxLayout = null)
 {
+    private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
+    {
+        "even-horizontal",
+        "even-vertical",
+        "main-horizontal",
+        "main-vertical",
+        "tiled",
+    };
+
     public const string ShortUsage =
-        "Usage: abacus [--tmux-session <name> [--tmux-window <name-or-index>]] " +
+        "Usage: abacus [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <provider/model> " +
         "[--opencode-server <host:port>] [--verbose] " +
         "-a <agent_name> <git_workspace_path> [-a ...]";
@@ -20,7 +30,7 @@ public sealed record Options(
         Abacus coordinates Beads tasks and local or attached OpenCode agents.
 
         Usage:
-          abacus [--tmux-session <name> [--tmux-window <name-or-index>]] \
+          abacus [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
             --model <provider/model> \
             [--opencode-server <host:port>] \
             [--verbose] \
@@ -29,6 +39,10 @@ public sealed record Options(
         Output:
           The default interactive display is a live dashboard of agent activity.
           Use --verbose (or -v) for timestamped state changes and subprocess commands.
+
+        Tmux layouts:
+          --tmux-layout reapplies one of even-horizontal, even-vertical,
+          main-horizontal, main-vertical, or tiled after each pane is spawned.
 
         Required prerequisites:
           - macOS or Linux with bd, git, and opencode on PATH
@@ -39,7 +53,7 @@ public sealed record Options(
           - multiple workspaces share one server-backed Dolt database
 
         Run agents locally:
-          abacus --tmux-session work --tmux-window agents --model provider/model \
+          abacus --tmux-session work --tmux-window agents --tmux-layout tiled --model provider/model \
             -a alice /work/repo-a -a bob /work/repo-b
 
         Connect each new client session to an existing OpenCode server:
@@ -58,6 +72,7 @@ public sealed record Options(
 
         string? tmuxSession = null;
         string? tmuxWindow = null;
+        string? tmuxLayout = null;
         string? model = null;
         string? server = null;
         var verbose = false;
@@ -73,6 +88,9 @@ public sealed record Options(
                     break;
                 case "--tmux-window":
                     tmuxWindow = ReadValue(arguments, ref index, argument);
+                    break;
+                case "--tmux-layout":
+                    tmuxLayout = ReadValue(arguments, ref index, argument);
                     break;
                 case "--model":
                     model = ReadValue(arguments, ref index, argument);
@@ -113,6 +131,17 @@ public sealed record Options(
         if (tmuxWindow is not null && tmuxSession is null)
         {
             throw new OptionsException("--tmux-window requires --tmux-session");
+        }
+
+        if (tmuxLayout is not null && tmuxSession is null)
+        {
+            throw new OptionsException("--tmux-layout requires --tmux-session");
+        }
+
+        if (tmuxLayout is not null && !TmuxLayouts.Contains(tmuxLayout))
+        {
+            throw new OptionsException(
+                "--tmux-layout must be one of even-horizontal, even-vertical, main-horizontal, main-vertical, or tiled");
         }
 
         if (string.IsNullOrWhiteSpace(model))
@@ -160,7 +189,7 @@ public sealed record Options(
         }
 
         return new OptionsParseResult(
-            new Options(tmuxSession, model, server, agents.AsReadOnly(), verbose, tmuxWindow),
+            new Options(tmuxSession, model, server, agents.AsReadOnly(), verbose, tmuxWindow, tmuxLayout),
             ShowHelp: false);
     }
 

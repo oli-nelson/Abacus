@@ -39,6 +39,7 @@ Start agents in an existing tmux session:
 ```sh
 abacus --tmux-session <session_name> \
   [--tmux-window <window_name_or_index>] \
+  [--tmux-layout <layout>] \
   --model <provider/model> \
   [--verbose] \
   -a <agent_name> <git_workspace_path> \
@@ -47,7 +48,7 @@ abacus --tmux-session <session_name> \
 
 `--model` is required. Its OpenCode model ID is used for every agent started by that Abacus instance.
 
-Each local agent runs in its own tmux pane through `opencode --mini --prompt ...`, using its assigned Git workspace and the requested model. OpenCode must remain connected directly to the pane terminal so Mini has a TTY. When `--tmux-window` is supplied, Abacus verifies that the existing window belongs to the requested session and creates every agent pane there. Without it, tmux targets the session's current window as before.
+Each local agent runs in its own tmux pane through `opencode --mini --prompt ...`, using its assigned Git workspace and the requested model. OpenCode must remain connected directly to the pane terminal so Mini has a TTY. When `--tmux-window` is supplied, Abacus verifies that the existing window belongs to the requested session and creates every agent pane there. Without it, tmux targets the session's current window as before. `--tmux-layout` is optional and reapplies a supported built-in layout (`even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`) to that target after each pane is spawned.
 
 To connect the agents to an existing OpenCode server:
 
@@ -60,9 +61,9 @@ abacus --model <provider/model> \
 
 Without `--tmux-session`, each agent starts as a directly supervised, non-interactive `opencode run --attach` child process connected to the specified server. Direct processes receive their own workspace, prompt, model, and `BEADS_ACTOR`; Abacus drains their output so it does not corrupt the dashboard and stops them when supervision ends. tmux is not looked up or required in this mode.
 
-Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` remains valid only with `--tmux-session`.
+Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`.
 
-By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, or stopped. Warnings remain visible in the dashboard. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences.
+By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. On shutdown, Abacus prints a final per-agent run summary with elapsed time and counts for closed, reopened, blocked, and interrupted tickets.
 
 ## Agent workflow
 

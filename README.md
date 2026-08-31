@@ -120,13 +120,14 @@ From any terminal, start Abacus with the repository as the agent's workspace:
 abacus \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
+  --tmux-layout tiled \
   --model "$MODEL" \
   -a "$AGENT" "$REPO"
 ```
 
 Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch `opencode --mini` with the ticket prompt in an Abacus-owned pane. OpenCode receives the pane's terminal directly so Mini has a TTY. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
 
-The default terminal display is a live dashboard with one row per agent. It shows the current lifecycle state (`STARTING`, `WAITING`, `SYNCING`, `CLEANING`, `PREPARING`, `WORKING`, `FINALIZING`, `RECOVERING`, or `STOPPED`), the active ticket when there is one, and recent warnings. For raw diagnostics, add `--verbose` (or `--debug`/`-v`):
+The default terminal display is a live dashboard with one row per agent. It shows the current lifecycle state (`STARTING`, `WAITING`, `IDLE`, `SYNCING`, `CLEANING`, `PREPARING`, `WORKING`, `FINALIZING`, `RECOVERING`, `RETRYING`, or `STOPPED`), elapsed time in that state, the active ticket ID and title, pane or process location, retry count, last observed exit code, and recent warnings. Idle polling is distinct from error retries. For raw diagnostics, add `--verbose` (or `--debug`/`-v`):
 
 ```sh
 abacus --verbose \
@@ -136,7 +137,7 @@ abacus --verbose \
   -a "$AGENT" "$REPO"
 ```
 
-Verbose mode prints timestamped state transitions, warnings, and every external command. If stderr is redirected to a file or pipe without `--verbose`, Abacus automatically uses compact state-transition lines instead of ANSI terminal control sequences. Set `NO_COLOR=1` to disable dashboard colors while retaining the live layout.
+Verbose mode prints timestamped state transitions, warnings, and every external command. If stderr is redirected to a file or pipe without `--verbose`, Abacus automatically uses compact state-transition lines instead of ANSI terminal control sequences. Set `NO_COLOR=1` to disable dashboard colors while retaining the live layout. When Abacus stops, it prints elapsed run time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
 
 Useful commands from another terminal are:
 
@@ -197,7 +198,7 @@ opencode run <prompt> \
 
 Abacus launches one directly supervised `opencode run --attach` child per active agent. Each child has its own workspace, prompt, model, and `BEADS_ACTOR`. Its output is drained so the Abacus dashboard stays intact. Abacus does not start, stop, or directly query the server. Stop Abacus with `Ctrl-C`, then stop the OpenCode server with `Ctrl-C` in its terminal.
 
-If you prefer pane-hosted attached clients, also pass `--tmux-session` and optionally `--tmux-window`; Abacus then uses the existing tmux behavior.
+If you prefer pane-hosted attached clients, also pass `--tmux-session` and optionally `--tmux-window` and `--tmux-layout`; Abacus then uses the existing tmux behavior.
 
 ## Usage
 
@@ -206,6 +207,7 @@ Start agents in an existing tmux session:
 ```sh
 abacus --tmux-session <session_name> \
   --tmux-window <window_name_or_index> \
+  --tmux-layout <layout> \
   --model <provider/model> \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
@@ -220,7 +222,7 @@ abacus --model <provider/model> \
   -a <agent_name> <git_workspace_path>
 ```
 
-`--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to local Mini and attached run processes. Local mode requires `--tmux-session`. With `--opencode-server`, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
+`--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to local Mini and attached run processes. Local mode requires `--tmux-session`. With `--opencode-server`, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--tmux-layout` is also tmux-only and accepts `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`; Abacus reapplies it after each pane is spawned. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
 
 Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
 

@@ -131,7 +131,8 @@ public sealed class TicketSupervisor(
     TicketRecovery recovery,
     TextWriter log,
     TimeSpan? pollingInterval = null,
-    int maximumInvalidPolls = 3)
+    int maximumInvalidPolls = 3,
+    RunSummary? summary = null)
 {
     private readonly TimeSpan interval = pollingInterval ?? TimeSpan.FromSeconds(5);
 
@@ -186,6 +187,7 @@ public sealed class TicketSupervisor(
 
                 if (current.Status is IssueStatus.Closed or IssueStatus.Open or IssueStatus.Blocked)
                 {
+                    RecordTerminalOutcome(agent.Name, current.Status);
                     await log.SetAgentAsync(
                         agent.Name,
                         AgentActivity.Finalizing,
@@ -198,11 +200,13 @@ public sealed class TicketSupervisor(
                     || run.HasExited
                     || !await openCodeHost.IsRunningAsync(run, cancellationToken))
                 {
+                    await log.SetLastExitCodeAsync(agent.Name, exitCode);
                     // Read once more after observing process exit. The agent's final ticket
                     // update may have raced with the observed process exit.
                     var final = await ReadAfterExitAsync(agent, claimedIssue.Id, cancellationToken);
                     if (final is { Status: IssueStatus.Closed or IssueStatus.Open or IssueStatus.Blocked })
                     {
+                        RecordTerminalOutcome(agent.Name, final.Status);
                         await log.SetAgentAsync(
                             agent.Name,
                             AgentActivity.Finalizing,
@@ -224,6 +228,7 @@ public sealed class TicketSupervisor(
                             claimedIssue.Id,
                             $"Abacus agent {agent.Name} exited with process code {exitDescription} before updating the ticket",
                             CancellationToken.None);
+                        summary?.Record(agent.Name, TicketOutcome.Reopened);
                     }
 
                     return;
@@ -234,6 +239,7 @@ public sealed class TicketSupervisor(
         }
         catch (OperationCanceledException)
         {
+            summary?.Record(agent.Name, TicketOutcome.Interrupted);
             await CleanupRunAsync(agent.Name, run);
             await recovery.ReopenIfStillInProgressAsync(
                 agent,
@@ -292,6 +298,21 @@ public sealed class TicketSupervisor(
         IssueStatus.InProgress => "in progress",
         _ => status.ToString().ToLowerInvariant(),
     };
+
+    private void RecordTerminalOutcome(string agentName, IssueStatus status)
+    {
+        var outcome = status switch
+        {
+            IssueStatus.Closed => TicketOutcome.Closed,
+            IssueStatus.Open => TicketOutcome.Reopened,
+            IssueStatus.Blocked => TicketOutcome.Blocked,
+            _ => (TicketOutcome?)null,
+        };
+        if (outcome is not null)
+        {
+            summary?.Record(agentName, outcome.Value);
+        }
+    }
 
     private async Task CleanupRunAsync(string agentName, IOpenCodeRun run)
     {

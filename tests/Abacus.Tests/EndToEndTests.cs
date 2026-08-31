@@ -33,6 +33,8 @@ public sealed class EndToEndTests
             startInfo.ArgumentList.Add("workers");
             startInfo.ArgumentList.Add("--tmux-window");
             startInfo.ArgumentList.Add("agents");
+            startInfo.ArgumentList.Add("--tmux-layout");
+            startInfo.ArgumentList.Add("tiled");
             startInfo.ArgumentList.Add("--model");
             startInfo.ArgumentList.Add("provider/exact-model");
             startInfo.ArgumentList.Add("-a");
@@ -59,8 +61,10 @@ public sealed class EndToEndTests
             Assert.Contains("ready --claim --exclude-label gt:slot --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
             Assert.Contains("send-keys -t %1 C-c", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Contains("split-window -t workers:agents", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
+            Assert.Contains("select-layout -t workers:agents tiled", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Empty(await stdout);
             Assert.Contains("[alice]", await stderr, StringComparison.Ordinal);
+            Assert.Contains("ABACUS RUN SUMMARY", await stderr, StringComparison.Ordinal);
         }
         finally
         {
@@ -226,6 +230,8 @@ public sealed class EndToEndTests
               /bin/sh -c "$command" >/dev/null 2>&1 &
               printf '%s' "$!" > "$root/pane-pid"
               printf '%%1\n'
+            elif test "$1" = select-layout; then
+              exit 0
             elif test "$1" = display-message; then
               pid=$(cat "$root/pane-pid")
               kill -0 "$pid" 2>/dev/null || exit 1

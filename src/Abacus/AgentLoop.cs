@@ -7,7 +7,8 @@ public sealed class ClaimCoordinator(
     Git git,
     TicketRecovery recovery,
     TextWriter log,
-    TimeSpan? pollingInterval = null)
+    TimeSpan? pollingInterval = null,
+    RunSummary? summary = null)
 {
     public TimeSpan PollingInterval { get; } = pollingInterval ?? TimeSpan.FromSeconds(5);
 
@@ -16,6 +17,7 @@ public sealed class ClaimCoordinator(
         bool singleAgentMode,
         CancellationToken cancellationToken)
     {
+        await log.ClearTicketAsync(agent.Name);
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -49,6 +51,7 @@ public sealed class ClaimCoordinator(
                 if (!pull.Succeeded)
                 {
                     await WarnAsync(agent.Name, $"Beads pull failed; claim delayed: {Beads.FailureDetail(pull)}");
+                    await log.SetAgentAsync(agent.Name, AgentActivity.Retrying, "Beads pull failed; retrying soon");
                     await Task.Delay(PollingInterval, cancellationToken);
                     continue;
                 }
@@ -62,19 +65,21 @@ public sealed class ClaimCoordinator(
             catch (BeadsException exception)
             {
                 await WarnAsync(agent.Name, exception.Message);
+                await log.SetAgentAsync(agent.Name, AgentActivity.Retrying, "Could not claim work; retrying soon");
                 await Task.Delay(PollingInterval, cancellationToken);
                 continue;
             }
 
             if (issue is null)
             {
-                await log.SetAgentAsync(agent.Name, AgentActivity.Waiting, "No ready tickets; checking again soon");
+                await log.SetAgentAsync(agent.Name, AgentActivity.Idle, "No ready tickets; checking again soon");
                 await Task.Delay(PollingInterval, cancellationToken);
                 continue;
             }
 
             try
             {
+                await log.SetTicketAsync(agent.Name, issue.Id, issue.Title);
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Preparing,
@@ -93,6 +98,7 @@ public sealed class ClaimCoordinator(
                     issue.Id,
                     $"Abacus shut down while preparing the workspace for {agent.Name}",
                     CancellationToken.None);
+                summary?.Record(agent.Name, TicketOutcome.Interrupted);
                 throw;
             }
             catch (Exception exception)
@@ -101,8 +107,11 @@ public sealed class ClaimCoordinator(
                 await log.SetAgentAsync(agent.Name, AgentActivity.Recovering, $"{issue.Id} • reopening ticket");
                 await WarnAsync(agent.Name, note);
                 await recovery.ReopenKnownClaimAsync(agent, issue.Id, note, cancellationToken);
+                summary?.Record(agent.Name, TicketOutcome.Reopened);
+                await log.SetAgentAsync(agent.Name, AgentActivity.Retrying, "Workspace preparation failed; retrying soon");
 
                 await Task.Delay(PollingInterval, cancellationToken);
+                await log.ClearTicketAsync(agent.Name);
             }
         }
     }
@@ -120,6 +129,7 @@ public sealed class AgentLoop(
     IOpenCodeHost openCodeHost,
     TicketSupervisor supervisor,
     TicketRecovery recovery,
+    RunSummary summary,
     TextWriter log)
 {
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -147,6 +157,7 @@ public sealed class AgentLoop(
                         claim.Issue.Id,
                         $"Abacus shut down before OpenCode started for {agent.Name}",
                         CancellationToken.None);
+                    summary.Record(agent.Name, TicketOutcome.Interrupted);
                     throw;
                 }
                 catch (Exception exception)
@@ -160,9 +171,11 @@ public sealed class AgentLoop(
                         claim.Issue.Id,
                         $"Abacus could not start OpenCode for {agent.Name}: {exception.Message}",
                         CancellationToken.None);
+                    summary.Record(agent.Name, TicketOutcome.Reopened);
                     throw;
                 }
 
+                await log.SetRunLocationAsync(agent.Name, run.Location);
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Working,
@@ -186,6 +199,7 @@ public sealed class AgentLoop(
             catch (Exception exception)
             {
                 await log.WarningAsync(agent.Name, $"agent loop failed: {exception.Message}");
+                await log.SetAgentAsync(agent.Name, AgentActivity.Retrying, "Agent loop failed; retrying soon");
                 await Task.Delay(claims.PollingInterval, cancellationToken);
             }
         }

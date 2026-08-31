@@ -96,7 +96,7 @@ Before building the loop, capture the exact behavior of the locally supported co
 - Implement the exact CLI from the spec:
 
   ```text
-  abacus [--tmux-session <name> [--tmux-window <name-or-index>]] \
+  abacus [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
     --model <provider/model> \
     [--opencode-server <host:port>] \
     [--verbose] \
@@ -112,7 +112,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   - cancellation that terminates the child process tree;
   - concise, agent-prefixed logging.
 - Add Ctrl-C cancellation and one top-level error boundary.
-- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Fall back to compact state-transition lines when stderr is redirected, and expose timestamped state, warning, and subprocess diagnostics through `--verbose`. Do not add a general logging framework or configurable log sinks.
+- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Fall back to compact state-transition lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 
 ### Exit criteria
 
@@ -128,7 +128,7 @@ All checks happen before any ticket is claimed or OpenCode run is created.
 
 - Verify `bd`, `git`, and `opencode` are executable from `PATH`.
 - Require tmux for local Mini mode. When a tmux session is supplied, verify `tmux` is executable and the session exists; if `--tmux-window` is supplied, verify that the named or indexed window exists in that session. Abacus must not create or own either one.
-- Allow `--opencode-server` without tmux and do not look up or invoke tmux in that configuration. Reject `--tmux-window` unless `--tmux-session` is also supplied.
+- Allow `--opencode-server` without tmux and do not look up or invoke tmux in that configuration. Reject `--tmux-window` and `--tmux-layout` unless `--tmux-session` is also supplied.
 - For every agent workspace:
   - resolve the canonical absolute path and ensure it exists;
   - verify it is a Git worktree using `git -C <path> rev-parse`;
@@ -185,7 +185,7 @@ All checks happen before any ticket is claimed or OpenCode run is created.
   - connect OpenCode directly to the pane terminal rather than piping it through `tee`, because Mini requires a TTY;
   - write the OpenCode exit code to an atomic exit-marker file;
   - remain alive briefly/idle until Abacus has observed the marker, so the pane does not disappear before cleanup.
-- Create a detached pane in the existing session's current window, or the explicit `session:window` target supplied through `--tmux-window`, with `tmux split-window -d -P -F '#{pane_id}'`; run the wrapper there, record the returned pane ID, and optionally retile the window.
+- Create a detached pane in the existing session's current window, or the explicit `session:window` target supplied through `--tmux-window`, with `tmux split-window -d -P -F '#{pane_id}'`; run the wrapper there and record the returned pane ID. When `--tmux-layout` is supplied, reapply that validated built-in layout after each split.
 - When `--opencode-server` is supplied without tmux, start one `opencode run --attach` child directly per agent using `ProcessStartInfo.ArgumentList`, the agent workspace, and `BEADS_ACTOR`. Drain stdout and stderr asynchronously to preserve the dashboard and prevent blocked pipes.
 - Keep one small OpenCode host boundary so ticket supervision can observe exit and perform idempotent cleanup for either a pane or a direct process. This is a concrete lifecycle boundary, not a plugin system.
 - Interrupt direct children, wait a short grace period, then terminate the process tree if needed.

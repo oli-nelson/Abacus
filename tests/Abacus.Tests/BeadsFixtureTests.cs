@@ -14,11 +14,12 @@ public sealed class BeadsFixtureTests
     }
 
     [Fact]
-    public void ClaimFixtureExtractsOnlyIdAndStatus()
+    public void ClaimFixtureExtractsIdStatusAndTitle()
     {
         var issue = Assert.Single(Beads.ParseIssues(Fixture("ready-claimed.json"), "claim fixture"));
         Assert.Equal("abc-123", issue.Id);
         Assert.Equal(IssueStatus.InProgress, issue.Status);
+        Assert.Equal("Contract fixture", issue.Title);
     }
 
     [Theory]

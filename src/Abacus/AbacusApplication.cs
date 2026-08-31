@@ -9,6 +9,7 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
             $"abacus-{Environment.ProcessId}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(temporaryRoot);
         await log.SystemAsync("Agent loops started");
+        var summary = new RunSummary(preflight.Agents.Select(static agent => agent.Name));
 
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
@@ -23,13 +24,14 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
                     preflight.Tools.OpenCode,
                     preflight.Options.TmuxSession,
                     temporaryRoot,
-                    tmuxWindow: preflight.Options.TmuxWindow);
+                    tmuxWindow: preflight.Options.TmuxWindow,
+                    tmuxLayout: preflight.Options.TmuxLayout);
 
             var loops = preflight.Agents.Select(agent =>
             {
                 var recovery = new TicketRecovery(beads, log);
-                var claims = new ClaimCoordinator(beads, git, recovery, log);
-                var supervisor = new TicketSupervisor(beads, openCodeHost, recovery, log);
+                var claims = new ClaimCoordinator(beads, git, recovery, log, summary: summary);
+                var supervisor = new TicketSupervisor(beads, openCodeHost, recovery, log, summary: summary);
                 return new AgentLoop(
                     agent,
                     preflight.Agents.Count == 1,
@@ -39,6 +41,7 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
                     openCodeHost,
                     supervisor,
                     recovery,
+                    summary,
                     log).RunAsync(linkedCancellation.Token);
             }).ToArray();
 
@@ -64,6 +67,8 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
             {
                 await log.WarningAsync("abacus", $"temporary files retained in {temporaryRoot}");
             }
+
+            await log.SummaryAsync(summary.Snapshot());
         }
     }
 }

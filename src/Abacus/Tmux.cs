@@ -48,7 +48,8 @@ public sealed class Tmux(
     string tmuxSession,
     string temporaryRoot,
     TimeSpan? interruptGracePeriod = null,
-    string? tmuxWindow = null) : IOpenCodeHost
+    string? tmuxWindow = null,
+    string? tmuxLayout = null) : IOpenCodeHost
 {
     private readonly TimeSpan gracePeriod = interruptGracePeriod ?? TimeSpan.FromSeconds(1);
     private readonly string splitTarget = Target(tmuxSession, tmuxWindow);
@@ -112,6 +113,20 @@ public sealed class Tmux(
             }
 
             var run = new OpenCodeRun(paneId, runDirectory, promptPath, wrapperPath, markerPath);
+            if (tmuxLayout is not null)
+            {
+                var layout = await runner.RunAsync(new CommandSpec(
+                    executable,
+                    ["select-layout", "-t", splitTarget, tmuxLayout],
+                    temporaryRoot,
+                    AgentName: agent.Name), CancellationToken.None);
+                if (!layout.Succeeded)
+                {
+                    await StopAndCleanupAsync(run, CancellationToken.None);
+                    throw new TmuxException($"could not arrange OpenCode panes: {Beads.FailureDetail(layout)}");
+                }
+            }
+
             if (cancellationToken.IsCancellationRequested)
             {
                 await StopAndCleanupAsync(run, CancellationToken.None);

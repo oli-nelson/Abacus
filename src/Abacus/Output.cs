@@ -6,21 +6,28 @@ public enum AgentActivity
 {
     Starting,
     Waiting,
+    Idle,
     Syncing,
     Cleaning,
     Preparing,
     Working,
     Finalizing,
     Recovering,
+    Retrying,
     Stopped,
 }
 
 internal interface IAgentOutput
 {
     Task SetAgentAsync(string agentName, AgentActivity activity, string detail);
+    Task SetTicketAsync(string agentName, string issueId, string? title);
+    Task ClearTicketAsync(string agentName);
+    Task SetRunLocationAsync(string agentName, string location);
+    Task SetLastExitCodeAsync(string agentName, int? exitCode);
     Task WarningAsync(string source, string message);
     Task SystemAsync(string message);
     Task DebugCommandAsync(string source, string command);
+    Task SummaryAsync(RunSummarySnapshot summary);
 }
 
 internal static class OutputExtensions
@@ -39,6 +46,30 @@ internal static class OutputExtensions
             ? agentOutput.WarningAsync(source, message)
             : output.WriteLineAsync($"[{source}] warning: {message}");
 
+    public static Task SetTicketAsync(
+        this TextWriter output,
+        string agentName,
+        string issueId,
+        string? title) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.SetTicketAsync(agentName, issueId, title)
+            : Task.CompletedTask;
+
+    public static Task ClearTicketAsync(this TextWriter output, string agentName) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.ClearTicketAsync(agentName)
+            : Task.CompletedTask;
+
+    public static Task SetRunLocationAsync(this TextWriter output, string agentName, string location) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.SetRunLocationAsync(agentName, location)
+            : Task.CompletedTask;
+
+    public static Task SetLastExitCodeAsync(this TextWriter output, string agentName, int? exitCode) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.SetLastExitCodeAsync(agentName, exitCode)
+            : Task.CompletedTask;
+
     public static Task SystemAsync(this TextWriter output, string message) =>
         output is IAgentOutput agentOutput
             ? agentOutput.SystemAsync(message)
@@ -49,19 +80,42 @@ internal static class OutputExtensions
             ? agentOutput.DebugCommandAsync(source, command)
             : output.WriteLineAsync($"[{source}] {command}");
 
+    public static Task SummaryAsync(this TextWriter output, RunSummarySnapshot summary) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.SummaryAsync(summary)
+            : WritePlainSummaryAsync(output, summary);
+
     public static string ActivityName(AgentActivity activity) => activity switch
     {
         AgentActivity.Starting => "STARTING",
         AgentActivity.Waiting => "WAITING",
+        AgentActivity.Idle => "IDLE",
         AgentActivity.Syncing => "SYNCING",
         AgentActivity.Cleaning => "CLEANING",
         AgentActivity.Preparing => "PREPARING",
         AgentActivity.Working => "WORKING",
         AgentActivity.Finalizing => "FINALIZING",
         AgentActivity.Recovering => "RECOVERING",
+        AgentActivity.Retrying => "RETRYING",
         AgentActivity.Stopped => "STOPPED",
         _ => activity.ToString().ToUpperInvariant(),
     };
+
+    private static async Task WritePlainSummaryAsync(TextWriter output, RunSummarySnapshot summary)
+    {
+        await output.WriteLineAsync($"[abacus] run summary • {FormatDuration(summary.Elapsed)} • {summary.Total} outcomes");
+        foreach (var agent in summary.Agents)
+        {
+            await output.WriteLineAsync(
+                $"[{agent.AgentName}] closed {agent.Closed} • reopened {agent.Reopened} • blocked {agent.Blocked} • interrupted {agent.Interrupted}");
+        }
+    }
+
+    internal static string FormatDuration(TimeSpan elapsed) => elapsed.TotalHours >= 1
+        ? $"{(int)elapsed.TotalHours}h {elapsed.Minutes}m"
+        : elapsed.TotalMinutes >= 1
+            ? $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s"
+            : $"{Math.Max(0, elapsed.Seconds)}s";
 }
 
 public sealed class ConsoleOutput : TextWriter, IAgentOutput
@@ -83,8 +137,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private readonly string model;
     private readonly Dictionary<string, AgentRow> agents;
     private readonly Queue<string> warnings = new();
+    private readonly Timer? refreshTimer;
     private string systemStatus = "Running preflight checks";
     private bool rendered;
+    private bool dashboardFrozen;
     private bool disposed;
 
     public ConsoleOutput(
@@ -102,7 +158,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         this.model = model;
         agents = agentNames.ToDictionary(
             static name => name,
-            static name => new AgentRow(name, AgentActivity.Starting, "Waiting for preflight"),
+            static name => AgentRow.Create(name),
             StringComparer.Ordinal);
 
         if (this.interactive)
@@ -112,6 +168,12 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 writer.Write("\u001b[?25l");
                 RenderDashboard();
             }
+
+            refreshTimer = new Timer(
+                static state => ((ConsoleOutput)state!).RefreshDashboard(),
+                this,
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(1));
         }
     }
 
@@ -121,10 +183,23 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     {
         lock (gate)
         {
-            var changed = !agents.TryGetValue(agentName, out var current)
-                || current.Activity != activity
-                || !string.Equals(current.Detail, detail, StringComparison.Ordinal);
-            agents[agentName] = new AgentRow(agentName, activity, detail);
+            var stateChanged = !agents.TryGetValue(agentName, out var current)
+                || current.Activity != activity;
+            var changed = stateChanged
+                || !string.Equals(current!.Detail, detail, StringComparison.Ordinal);
+            var retryCount = current?.RetryCount ?? 0;
+            if (stateChanged && activity is AgentActivity.Retrying)
+            {
+                retryCount++;
+            }
+
+            agents[agentName] = (current ?? AgentRow.Create(agentName)) with
+            {
+                Activity = activity,
+                Detail = detail,
+                ChangedAt = stateChanged ? DateTimeOffset.UtcNow : current!.ChangedAt,
+                RetryCount = retryCount,
+            };
 
             if (interactive)
             {
@@ -138,6 +213,38 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
         return Task.CompletedTask;
     }
+
+    public Task SetTicketAsync(string agentName, string issueId, string? title) =>
+        UpdateRowAsync(agentName, row => row with
+        {
+            IssueId = issueId,
+            TicketTitle = title,
+            RunLocation = null,
+            RetryCount = 0,
+        });
+
+    public Task ClearTicketAsync(string agentName) =>
+        UpdateRowAsync(agentName, row => row with
+        {
+            IssueId = null,
+            TicketTitle = null,
+            RunLocation = null,
+        });
+
+    public Task SetRunLocationAsync(string agentName, string location) =>
+        UpdateRowAsync(agentName, row => row with
+        {
+            RunLocation = location,
+            LastExitCode = null,
+            HasExitObservation = false,
+        });
+
+    public Task SetLastExitCodeAsync(string agentName, int? exitCode) =>
+        UpdateRowAsync(agentName, row => row with
+        {
+            LastExitCode = exitCode,
+            HasExitObservation = true,
+        });
 
     public Task WarningAsync(string source, string message)
     {
@@ -195,6 +302,31 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         return Task.CompletedTask;
     }
 
+    public Task SummaryAsync(RunSummarySnapshot summary)
+    {
+        lock (gate)
+        {
+            dashboardFrozen = true;
+            refreshTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            if (interactive)
+            {
+                writer.Write("\u001b[2J\u001b[H");
+            }
+
+            writer.WriteLine($"ABACUS RUN SUMMARY  •  {OutputExtensions.FormatDuration(summary.Elapsed)}  •  {summary.Total} outcomes");
+            writer.WriteLine(new string('─', 72));
+            foreach (var agent in summary.Agents)
+            {
+                writer.WriteLine(
+                    $"{agent.AgentName,-16} closed {agent.Closed}  reopened {agent.Reopened}  blocked {agent.Blocked}  interrupted {agent.Interrupted}");
+            }
+
+            writer.Flush();
+        }
+
+        return Task.CompletedTask;
+    }
+
     public override Task WriteLineAsync(string? value)
     {
         if (value is null)
@@ -227,6 +359,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             {
                 if (!disposed)
                 {
+                    refreshTimer?.Dispose();
                     if (interactive)
                     {
                         writer.Write($"\u001b[?25h{Reset}\n");
@@ -249,6 +382,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
     private void RenderDashboard()
     {
+        if (dashboardFrozen)
+        {
+            return;
+        }
+
         var width = GetWidth();
         var line = new string('─', width);
         var builder = new StringBuilder();
@@ -265,18 +403,26 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             var stateColor = row.Activity switch
             {
                 AgentActivity.Working => Green,
-                AgentActivity.Recovering => Red,
+                AgentActivity.Recovering or AgentActivity.Retrying => Red,
                 AgentActivity.Cleaning or AgentActivity.Preparing or AgentActivity.Syncing or AgentActivity.Finalizing => Yellow,
                 AgentActivity.Starting => Magenta,
                 _ => Cyan,
             };
             var icon = row.Activity == AgentActivity.Working ? "●" : "○";
+            var elapsed = OutputExtensions.FormatDuration(DateTimeOffset.UtcNow - row.ChangedAt).PadLeft(7);
             var prefix = $" {icon} {Truncate(row.Name, nameWidth).PadRight(nameWidth)}  ";
             var status = state.PadRight(10);
-            var available = Math.Max(0, width - prefix.Length - 12);
+            var available = Math.Max(0, width - prefix.Length - 20);
             builder.Append(Color(stateColor, prefix + status));
-            builder.Append(' ').Append(Truncate(row.Detail, available));
+            builder.Append(Color(Dim, elapsed)).Append(' ').Append(Truncate(row.Detail, available));
             builder.Append("\u001b[K\n");
+
+            foreach (var metadata in FormatMetadataLines(row))
+            {
+                builder.Append(Color(Dim, $"   {new string(' ', nameWidth)}  ↳ "));
+                builder.Append(Truncate(metadata, Math.Max(0, width - nameWidth - 7)));
+                builder.Append("\u001b[K\n");
+            }
         }
 
         builder.Append(Color(Dim, line)).Append("\u001b[K\n");
@@ -294,6 +440,65 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     }
 
     private string Color(string ansi, string value) => color ? ansi + value + Reset : value;
+
+    private Task UpdateRowAsync(string agentName, Func<AgentRow, AgentRow> update)
+    {
+        lock (gate)
+        {
+            var row = agents.TryGetValue(agentName, out var current)
+                ? current
+                : AgentRow.Create(agentName);
+            agents[agentName] = update(row);
+            if (interactive)
+            {
+                RenderDashboard();
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void RefreshDashboard()
+    {
+        lock (gate)
+        {
+            if (!disposed && !dashboardFrozen && interactive)
+            {
+                RenderDashboard();
+            }
+        }
+    }
+
+    private static IEnumerable<string> FormatMetadataLines(AgentRow row)
+    {
+        if (row.IssueId is not null)
+        {
+            yield return row.TicketTitle is null
+                ? row.IssueId
+                : $"{row.IssueId} — {row.TicketTitle}";
+        }
+
+        var runParts = new List<string>();
+        if (row.RunLocation is not null)
+        {
+            runParts.Add(row.RunLocation);
+        }
+
+        if (row.RetryCount > 0)
+        {
+            runParts.Add($"retries {row.RetryCount}");
+        }
+
+        if (row.HasExitObservation)
+        {
+            runParts.Add($"last exit {row.LastExitCode?.ToString() ?? "unknown"}");
+        }
+
+        if (runParts.Count > 0)
+        {
+            yield return string.Join(" • ", runParts);
+        }
+    }
 
     private static string Truncate(string value, int width)
     {
@@ -319,5 +524,28 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         }
     }
 
-    private sealed record AgentRow(string Name, AgentActivity Activity, string Detail);
+    private sealed record AgentRow(
+        string Name,
+        AgentActivity Activity,
+        string Detail,
+        DateTimeOffset ChangedAt,
+        string? IssueId,
+        string? TicketTitle,
+        string? RunLocation,
+        int? LastExitCode,
+        bool HasExitObservation,
+        int RetryCount)
+    {
+        public static AgentRow Create(string name) => new(
+            name,
+            AgentActivity.Starting,
+            "Waiting for preflight",
+            DateTimeOffset.UtcNow,
+            null,
+            null,
+            null,
+            null,
+            false,
+            0);
+    }
 }

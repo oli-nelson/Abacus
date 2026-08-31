@@ -13,6 +13,7 @@ public sealed class OptionsTests
         var result = Options.Parse([
             "--tmux-session", "workers",
             "--tmux-window", "agents",
+            "--tmux-layout", "tiled",
             "--model", "provider/model",
             "--opencode-server", "127.0.0.1:1234",
             "-a", "alice", first,
@@ -23,6 +24,7 @@ public sealed class OptionsTests
         Assert.NotNull(result.Value);
         Assert.Equal("workers", result.Value.TmuxSession);
         Assert.Equal("agents", result.Value.TmuxWindow);
+        Assert.Equal("tiled", result.Value.TmuxLayout);
         Assert.Equal("provider/model", result.Value.Model);
         Assert.Equal("127.0.0.1:1234", result.Value.OpenCodeServer);
         Assert.False(result.Value.Verbose);
@@ -70,6 +72,50 @@ public sealed class OptionsTests
         ]));
 
         Assert.Contains("requires --tmux-session", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TmuxLayoutStillRequiresTmuxSession()
+    {
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-layout", "tiled",
+            "--model", "provider/model",
+            "--opencode-server", "127.0.0.1:1234",
+            "-a", "alice", "/tmp/a",
+        ]));
+
+        Assert.Contains("requires --tmux-session", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("even-horizontal")]
+    [InlineData("even-vertical")]
+    [InlineData("main-horizontal")]
+    [InlineData("main-vertical")]
+    [InlineData("tiled")]
+    public void ParsesSupportedTmuxLayouts(string layout)
+    {
+        var result = Options.Parse([
+            "--tmux-session", "s",
+            "--tmux-layout", layout,
+            "--model", "provider/model",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Equal(layout, result.Value!.TmuxLayout);
+    }
+
+    [Fact]
+    public void RejectsUnknownTmuxLayout()
+    {
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "s",
+            "--tmux-layout", "spiral",
+            "--model", "provider/model",
+            "-a", "alice", "/tmp/a",
+        ]));
+
+        Assert.Contains("must be one of", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]
