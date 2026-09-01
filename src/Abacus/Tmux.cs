@@ -113,6 +113,37 @@ public sealed class Tmux(
             }
 
             var run = new OpenCodeRun(paneId, runDirectory, promptPath, wrapperPath, markerPath);
+            var title = await runner.RunAsync(new CommandSpec(
+                executable,
+                [
+                    "set-option",
+                    "-p",
+                    "-t", run.PaneId,
+                    "allow-set-title", "off",
+                ],
+                temporaryRoot,
+                AgentName: agent.Name), CancellationToken.None);
+            if (!title.Succeeded)
+            {
+                await StopAndCleanupAsync(run, CancellationToken.None);
+                throw new TmuxException($"could not protect OpenCode pane title: {Beads.FailureDetail(title)}");
+            }
+
+            title = await runner.RunAsync(new CommandSpec(
+                executable,
+                [
+                    "select-pane",
+                    "-t", run.PaneId,
+                    "-T", EscapeFormat($"{agent.Name} • {issue.Id}"),
+                ],
+                temporaryRoot,
+                AgentName: agent.Name), CancellationToken.None);
+            if (!title.Succeeded)
+            {
+                await StopAndCleanupAsync(run, CancellationToken.None);
+                throw new TmuxException($"could not title OpenCode pane: {Beads.FailureDetail(title)}");
+            }
+
             if (tmuxLayout is not null)
             {
                 var layout = await runner.RunAsync(new CommandSpec(
@@ -266,6 +297,9 @@ public sealed class Tmux(
 
     internal static string ShellQuote(string value) =>
         $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";
+
+    internal static string EscapeFormat(string value) =>
+        value.Replace("#", "##", StringComparison.Ordinal);
 
     internal static string Target(string session, string? window) =>
         window is null ? session : $"{session}:{window}";

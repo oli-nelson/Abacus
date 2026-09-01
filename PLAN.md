@@ -189,6 +189,7 @@ All checks happen before any ticket is claimed or OpenCode run is created.
   - write the OpenCode exit code to an atomic exit-marker file;
   - remain alive briefly/idle until Abacus has observed the marker, so the pane does not disappear before cleanup.
 - Create a detached pane in the existing session's current window, or the explicit `session:window` target supplied through `--tmux-window`, with `tmux split-window -d -P -F '#{pane_id}'`; run the wrapper there and record the returned pane ID. When `--tmux-layout` is supplied, reapply that validated built-in layout after each split.
+- Give every created pane a stable `<agent> • <issue-id>` title with `tmux select-pane -T` and disable application title changes for that pane so OpenCode cannot replace the label.
 - When `--opencode-server` is supplied without tmux, start one `opencode run --attach` child directly per agent using `ProcessStartInfo.ArgumentList`, the agent workspace, and `BEADS_ACTOR`. Drain stdout and stderr asynchronously to preserve the dashboard and prevent blocked pipes.
 - Keep one small OpenCode host boundary so ticket supervision can observe exit and perform idempotent cleanup for either a pane or a direct process. This is a concrete lifecycle boundary, not a plugin system.
 - Interrupt direct children, wait a short grace period, then terminate the process tree if needed.

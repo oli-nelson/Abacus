@@ -137,6 +137,8 @@ public sealed class EndToEndTests
             Assert.Contains("ready --claim --exclude-label gt:slot --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
             Assert.Contains("send-keys -t %1 C-c", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Contains("split-window -t workers:agents", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
+            Assert.Contains("set-option -p -t %1 allow-set-title off", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
+            Assert.Contains("select-pane -t %1 -T alice • abc-1", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Contains("select-layout -t workers:agents tiled", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Empty(await stdout);
             Assert.Contains("[alice]", await stderr, StringComparison.Ordinal);
@@ -315,6 +317,8 @@ public sealed class EndToEndTests
               printf '%s' "$!" > "$root/pane-pid"
               printf '%%1\n'
             elif test "$1" = select-layout; then
+              exit 0
+            elif test "$1" = set-option || test "$1" = select-pane; then
               exit 0
             elif test "$1" = display-message; then
               pid=$(cat "$root/pane-pid")

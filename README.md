@@ -125,7 +125,7 @@ abacus \
   -a "$AGENT" "$REPO"
 ```
 
-Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch `opencode --mini` with the ticket prompt in an Abacus-owned pane. OpenCode receives the pane's terminal directly so Mini has a TTY. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
+Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch `opencode --mini` with the ticket prompt in an Abacus-owned pane. Each pane is given a stable `<agent> • <issue-id>` tmux title, and OpenCode is prevented from replacing it while that pane exists. tmux shows the active pane title in its default status line; configurations that display `#{pane_title}` in pane borders show every agent label beside its pane. OpenCode receives the pane's terminal directly so Mini has a TTY. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
 
 The default terminal display is a live dashboard with one row per agent. It shows the current lifecycle state (`STARTING`, `WAITING`, `IDLE`, `SYNCING`, `CLEANING`, `PREPARING`, `WORKING`, `FINALIZING`, `RECOVERING`, `RETRYING`, or `STOPPED`), elapsed time in that state, the active ticket ID and title, pane or process location, retry count, last observed exit code, and recent warnings. Idle polling is distinct from error retries. For raw diagnostics, add `--verbose` (or `--debug`/`-v`):
 

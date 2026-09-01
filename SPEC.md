@@ -49,7 +49,7 @@ abacus --tmux-session <session_name> \
 
 `--model` is required. Its OpenCode model ID is used for every agent started by that Abacus instance.
 
-Each local agent runs in its own tmux pane through `opencode --mini --prompt ...`, using its assigned Git workspace and the requested model. OpenCode must remain connected directly to the pane terminal so Mini has a TTY. When `--tmux-window` is supplied, Abacus verifies that the existing window belongs to the requested session and creates every agent pane there. Without it, tmux targets the session's current window as before. `--tmux-layout` is optional and reapplies a supported built-in layout (`even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`) to that target after each pane is spawned.
+Each local agent runs in its own tmux pane through `opencode --mini --prompt ...`, using its assigned Git workspace and the requested model. Each pane has a stable `<agent> • <issue-id>` tmux title that the child process cannot replace. OpenCode must remain connected directly to the pane terminal so Mini has a TTY. When `--tmux-window` is supplied, Abacus verifies that the existing window belongs to the requested session and creates every agent pane there. Without it, tmux targets the session's current window as before. `--tmux-layout` is optional and reapplies a supported built-in layout (`even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`) to that target after each pane is spawned.
 
 To connect the agents to an existing OpenCode server:
 

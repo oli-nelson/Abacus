@@ -105,6 +105,28 @@ public sealed class TmuxTests
     }
 
     [Fact]
+    public async Task PaneTitleIdentifiesAgentAndIssueAndCannotBeOverwrittenByOpenCode()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
+        var tmux = fixture.CreateTmux();
+
+        var run = await tmux.StartOpenCodeAsync(
+            Agent("alice #{pane_id}", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            "provider/model", null, CancellationToken.None);
+
+        var calls = await File.ReadAllLinesAsync(fixture.CallsPath);
+        Assert.Contains($"set-option -p -t {run.PaneId} allow-set-title off", calls);
+        Assert.Contains($"select-pane -t {run.PaneId} -T alice ##{{pane_id}} • abc-1", calls);
+    }
+
+    [Fact]
     public async Task RequestedLayoutIsAppliedToTheSpecifiedWindow()
     {
         if (OperatingSystem.IsWindows())
