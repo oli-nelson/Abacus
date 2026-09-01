@@ -15,6 +15,16 @@ public static class Prompt
         Commit your changes, then use the repository's serialized merge process to merge
         the branch into the latest main branch.
 
+        If the issue needs user awareness, a decision, or outside action, bring it to the
+        user's attention with:
+
+          bd update {{issueId}} --add-label {{Beads.NeedsUserAttentionLabel}} --append-notes "<decision or action needed>" --json
+
+        Continue working when possible. If work cannot continue, also mark the issue
+        blocked below. If user attention is no longer needed, remove the alert with:
+
+          bd update {{issueId}} --remove-label {{Beads.NeedsUserAttentionLabel}} --json
+
         When you are completely finished, update the ticket:
 
         - Success:

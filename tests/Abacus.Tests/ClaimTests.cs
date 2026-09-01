@@ -198,5 +198,41 @@ public sealed class ClaimTests
         }
     }
 
+    [Fact]
+    public async Task ListsAllIssuesNeedingUserAttentionByLabel()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-attention-");
+        try
+        {
+            var calls = Path.Combine(root.FullName, "calls");
+            var script = Path.Combine(root.FullName, "bd");
+            await File.WriteAllTextAsync(script, $$"""
+                #!/bin/sh
+                printf '%s actor=%s\n' "$*" "$BEADS_ACTOR" > {{Q(calls)}}
+                printf '[{"id":"abc-9","status":"closed","title":"Choose a save format"}]\n'
+                """);
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var issues = await new Beads(new CommandRunner(TextWriter.Null), script)
+                .GetIssuesNeedingUserAttentionAsync(root.FullName, "alice", CancellationToken.None);
+
+            var issue = Assert.Single(issues);
+            Assert.Equal("abc-9", issue.Id);
+            Assert.Equal("Choose a save format", issue.Title);
+            Assert.Equal(
+                "list --label abacus:needs-user-attention --all --limit 0 --json actor=alice",
+                (await File.ReadAllTextAsync(calls)).TrimEnd());
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     private static string Q(string value) => "'" + value.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
 }

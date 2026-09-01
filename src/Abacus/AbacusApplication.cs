@@ -16,6 +16,10 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
         {
             var beads = new Beads(runner, preflight.Tools.Bd);
             var git = new Git(runner, preflight.Tools.Git);
+            var attentionMonitor = MonitorUserAttentionAsync(
+                beads,
+                preflight.Agents[0],
+                linkedCancellation.Token);
             IOpenCodeHost openCodeHost = preflight.Options.TmuxSession is null
                 ? new DirectOpenCode(runner, log, preflight.Tools.OpenCode)
                 : new Tmux(
@@ -55,7 +59,22 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
                     TaskScheduler.Default);
             }
 
-            await Task.WhenAll(loops);
+            try
+            {
+                await Task.WhenAll(loops);
+            }
+            finally
+            {
+                linkedCancellation.Cancel();
+                try
+                {
+                    await attentionMonitor;
+                }
+                catch (OperationCanceledException)
+                {
+                    // The monitor shares the application lifetime.
+                }
+            }
         }
         finally
         {
@@ -70,6 +89,37 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
             }
 
             await log.SummaryAsync(summary.Snapshot());
+        }
+    }
+
+    private async Task MonitorUserAttentionAsync(
+        Beads beads,
+        ValidatedAgent agent,
+        CancellationToken cancellationToken)
+    {
+        string? lastFailure = null;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var issues = await beads.GetIssuesNeedingUserAttentionAsync(
+                    agent.WorkspacePath,
+                    agent.Name,
+                    cancellationToken);
+                await log.SetUserAttentionIssuesAsync(issues);
+                lastFailure = null;
+            }
+            catch (BeadsException exception)
+            {
+                if (!string.Equals(lastFailure, exception.Message, StringComparison.Ordinal))
+                {
+                    await log.WarningAsync("abacus", exception.Message);
+                    lastFailure = exception.Message;
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
         }
     }
 }

@@ -65,7 +65,7 @@ Without `--tmux-session`, each agent starts as a directly supervised, non-intera
 
 Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`.
 
-By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. On shutdown, Abacus prints a final per-agent run summary with elapsed time and counts for closed, reopened, blocked, and interrupted tickets.
+By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. On shutdown, Abacus prints a final per-agent run summary with elapsed time and counts for closed, reopened, blocked, and interrupted tickets.
 
 Abacus runs continuously unless a finite mode is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite modes fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without cleaning workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates required executables, workspace and Dolt configuration, the OpenCode server address, and any requested tmux session/window target. These three modes are mutually exclusive.
 
@@ -112,6 +112,16 @@ Read the ticket with:
 Work on the branch abacus/<issue_id> and satisfy the ticket's definition of done.
 Commit your changes, then use the repository's serialized merge process to merge
 the branch into the latest main branch.
+
+If the issue needs user awareness, a decision, or outside action, bring it to the
+user's attention with:
+
+  bd update <issue_id> --add-label abacus:needs-user-attention --append-notes "<decision or action needed>" --json
+
+Continue working when possible. If work cannot continue, also mark the issue
+blocked below. If user attention is no longer needed, remove the alert with:
+
+  bd update <issue_id> --remove-label abacus:needs-user-attention --json
 
 When you are completely finished, update the ticket:
 

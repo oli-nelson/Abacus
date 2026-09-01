@@ -244,6 +244,8 @@ public sealed class EndToEndTests
               else
                 printf '[]\n'
               fi
+            elif test "$1" = list; then
+              printf '[]\n'
             elif test "$1" = show; then
               status=$(cat "$root/status")
               printf '[{"id":"abc-1","status":"%s"}]\n' "$status"

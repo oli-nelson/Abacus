@@ -40,6 +40,7 @@ public sealed record BeadsIssue(string Id, IssueStatus Status, string? Title = n
 public sealed class Beads(CommandRunner runner, string executable = "bd")
 {
     private const string MergeSlotLabel = "gt:slot";
+    public const string NeedsUserAttentionLabel = "abacus:needs-user-attention";
 
     public async Task<BeadsIssue?> TryClaimReadyAsync(
         string workspace,
@@ -159,6 +160,20 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             1 => throw new BeadsException($"bd show returned unexpected issue '{issues[0].Id}'"),
             _ => throw new BeadsException($"bd show returned more than one issue for '{issueId}'"),
         };
+    }
+
+    public async Task<IReadOnlyList<BeadsIssue>> GetIssuesNeedingUserAttentionAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunWithActorAsync(
+            workspace,
+            agentName,
+            ["list", "--label", NeedsUserAttentionLabel, "--all", "--limit", "0", "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(result, "list issues needing user attention");
+        return ParseIssues(result.StandardOutput, "user-attention issue result");
     }
 
     public Task<CommandResult> PullAsync(

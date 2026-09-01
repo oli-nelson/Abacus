@@ -12,7 +12,7 @@ Abacus should own only the orchestration state machine. It should not reimplemen
 - Use `Process`/`ProcessStartInfo` to run `bd`, `git`, `opencode`, and `tmux` commands. Do not add Beads, Git, OpenCode, tmux, Dolt, or HTTP client libraries.
 - Use `opencode --mini --prompt ...` for local agents and `opencode run --attach ...` when a server is supplied; do not call the OpenCode server API.
 - Require one `--model <provider/model>` value per Abacus invocation and pass it unchanged to every OpenCode command.
-- Parse only the small amount of JSON emitted by `bd --json` that Abacus needs: issue ID, issue status, Dolt identity, and remote presence.
+- Parse only the small amount of JSON emitted by `bd --json` that Abacus needs: issue ID, issue title and status, Dolt identity, and remote presence. Query Beads by label rather than importing its issue model when the dashboard needs attention alerts.
 - Pass ordinary command arguments through `ProcessStartInfo.ArgumentList`, not interpolated shell strings. Use a generated shell wrapper only where tmux needs a pane command and process-exit marker.
 - Keep state in memory. A temporary per-run directory may contain prompt files, pane wrapper scripts, and exit markers; there is no Abacus database.
 - Run one asynchronous loop per configured agent. Do not introduce a scheduler, message bus, dependency-injection container, plugin model, web UI, or daemon.
@@ -114,7 +114,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   - concise, agent-prefixed logging.
 - Add Ctrl-C cancellation and one top-level error boundary.
 - Support finite execution without a scheduler: `--once` processes at most one ticket per agent, `--drain` runs until agents observe an empty ready queue, and `--check` exits after preflight without starting the application loop. Treat the modes as mutually exclusive and fail fast on orchestration errors during finite runs.
-- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Fall back to compact state-transition lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
+- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 
 ### Exit criteria
 

@@ -21,6 +21,7 @@ internal interface IAgentOutput
 {
     Task SetAgentAsync(string agentName, AgentActivity activity, string detail);
     Task SetTicketAsync(string agentName, string issueId, string? title);
+    Task SetUserAttentionIssuesAsync(IReadOnlyList<BeadsIssue> issues);
     Task ClearTicketAsync(string agentName);
     Task SetRunLocationAsync(string agentName, string location);
     Task SetLastExitCodeAsync(string agentName, int? exitCode);
@@ -59,6 +60,16 @@ internal static class OutputExtensions
         output is IAgentOutput agentOutput
             ? agentOutput.ClearTicketAsync(agentName)
             : Task.CompletedTask;
+
+    public static Task SetUserAttentionIssuesAsync(
+        this TextWriter output,
+        IReadOnlyList<BeadsIssue> issues) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.SetUserAttentionIssuesAsync(issues)
+            : issues.Count is 0
+                ? Task.CompletedTask
+                : output.WriteLineAsync(
+                    $"[abacus] ATTENTION: {string.Join(", ", issues.Select(FormatIssue))}");
 
     public static Task SetRunLocationAsync(this TextWriter output, string agentName, string location) =>
         output is IAgentOutput agentOutput
@@ -116,6 +127,10 @@ internal static class OutputExtensions
         : elapsed.TotalMinutes >= 1
             ? $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s"
             : $"{Math.Max(0, elapsed.Seconds)}s";
+
+    internal static string FormatIssue(BeadsIssue issue) => issue.Title is null
+        ? issue.Id
+        : $"{issue.Id} — {issue.Title}";
 }
 
 public sealed class ConsoleOutput : TextWriter, IAgentOutput
@@ -137,6 +152,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private readonly string model;
     private readonly Dictionary<string, AgentRow> agents;
     private readonly Queue<string> warnings = new();
+    private IReadOnlyList<BeadsIssue> userAttentionIssues = [];
     private readonly Timer? refreshTimer;
     private string systemStatus = "Running preflight checks";
     private bool rendered;
@@ -222,6 +238,43 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             RunLocation = null,
             RetryCount = 0,
         });
+
+    public Task SetUserAttentionIssuesAsync(IReadOnlyList<BeadsIssue> issues)
+    {
+        lock (gate)
+        {
+            var ordered = issues
+                .OrderBy(static issue => issue.Id, StringComparer.Ordinal)
+                .ToArray();
+            if (userAttentionIssues.Count == ordered.Length
+                && userAttentionIssues.Zip(ordered).All(static pair =>
+                    string.Equals(pair.First.Id, pair.Second.Id, StringComparison.Ordinal)
+                    && string.Equals(pair.First.Title, pair.Second.Title, StringComparison.Ordinal)))
+            {
+                return Task.CompletedTask;
+            }
+
+            var previouslyHadIssues = userAttentionIssues.Count > 0;
+            userAttentionIssues = ordered;
+            if (interactive)
+            {
+                RenderDashboard();
+            }
+            else if (ordered.Length > 0)
+            {
+                WriteEvent(
+                    "abacus",
+                    "ATTENTION",
+                    string.Join(", ", ordered.Select(OutputExtensions.FormatIssue)));
+            }
+            else if (previouslyHadIssues)
+            {
+                WriteEvent("abacus", "ATTENTION", "No issues currently need user attention");
+            }
+        }
+
+        return Task.CompletedTask;
+    }
 
     public Task ClearTicketAsync(string agentName) =>
         UpdateRowAsync(agentName, row => row with
@@ -421,6 +474,20 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             {
                 builder.Append(Color(Dim, $"   {new string(' ', nameWidth)}  ↳ "));
                 builder.Append(Truncate(metadata, Math.Max(0, width - nameWidth - 7)));
+                builder.Append("\u001b[K\n");
+            }
+        }
+
+        if (userAttentionIssues.Count > 0)
+        {
+            builder.Append(Color(Bold + Red, $" ! USER ATTENTION ({userAttentionIssues.Count})"));
+            builder.Append("\u001b[K\n");
+            foreach (var issue in userAttentionIssues)
+            {
+                builder.Append(Color(Red, "   ! "));
+                builder.Append(Truncate(
+                    OutputExtensions.FormatIssue(issue),
+                    Math.Max(0, width - 5)));
                 builder.Append("\u001b[K\n");
             }
         }

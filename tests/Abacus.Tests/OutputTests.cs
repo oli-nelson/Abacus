@@ -67,6 +67,8 @@ public sealed class OutputTests
             await output.SetAgentAsync("alice", AgentActivity.Retrying, "OpenCode failed; retrying soon");
             await output.SetLastExitCodeAsync("alice", 17);
             await output.WarningAsync("alice", "example warning");
+            await output.SetUserAttentionIssuesAsync(
+                [new BeadsIssue("abc-9", IssueStatus.Blocked, "Choose a save format")]);
         }
 
         var text = writer.ToString();
@@ -80,7 +82,35 @@ public sealed class OutputTests
         Assert.Contains("retries 1", text, StringComparison.Ordinal);
         Assert.Contains("last exit 17", text, StringComparison.Ordinal);
         Assert.Contains("example warning", text, StringComparison.Ordinal);
+        Assert.Contains("USER ATTENTION (1)", text, StringComparison.Ordinal);
+        Assert.Contains("abc-9 — Choose a save format", text, StringComparison.Ordinal);
         Assert.Contains("\u001b[?25h", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RedirectedOutputReportsAttentionChangesWithoutRepeatingThem()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: false,
+            interactive: false,
+            color: false);
+        var issue = new BeadsIssue("abc-9", IssueStatus.Open, "Choose a save format");
+
+        await output.SetUserAttentionIssuesAsync([issue]);
+        await output.SetUserAttentionIssuesAsync([issue with { Status = IssueStatus.Blocked }]);
+        await output.SetUserAttentionIssuesAsync([]);
+
+        var attentionLines = writer.ToString()
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(static line => line.Contains("ATTENTION", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(2, attentionLines.Length);
+        Assert.Contains("abc-9 — Choose a save format", attentionLines[0], StringComparison.Ordinal);
+        Assert.Contains("No issues currently need user attention", attentionLines[1], StringComparison.Ordinal);
     }
 
     [Fact]
