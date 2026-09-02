@@ -218,7 +218,7 @@ public sealed class EndToEndTests
             Assert.Equal(
                 ["--model", "provider/exact-model"],
                 await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
-            Assert.Contains("ready --claim --exclude-label gt:slot --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
+            Assert.Contains("ready --unassigned --exclude-label gt:slot --limit 0 --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
             Assert.Contains("send-keys -t %1 C-c", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Contains("split-window -t workers:agents", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Contains("set-option -p -t %1 allow-set-title off", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
@@ -413,15 +413,14 @@ public sealed class EndToEndTests
             elif test "$1" = dolt && test "$2" = remote; then
               test "$ABACUS_TEST_REMOTE" = 1 && printf '[{"name":"origin"}]\n' || printf '[]\n'
             elif test "$1" = ready; then
-              if test "$2" = --claim; then
+              if test "$2" = --unassigned; then
                 count=0
                 test -f "$root/ready-count" && count=$(cat "$root/ready-count")
                 count=$((count + 1))
                 printf '%s' "$count" > "$root/ready-count"
               fi
-              if test "$2" = --claim && ! test -f "$root/claimed"; then
-                touch "$root/claimed"; printf 'in_progress' > "$root/status"
-                printf '[{"id":"abc-1","title":"Implement remote control","status":"in_progress"}]\n'
+              if test "$2" = --unassigned && ! test -f "$root/claimed"; then
+                printf '[{"id":"abc-1","title":"Implement remote control","status":"open","priority":1,"comment_count":0}]\n'
               else
                 printf '[]\n'
               fi
@@ -431,8 +430,13 @@ public sealed class EndToEndTests
               status=$(cat "$root/status")
               printf '[{"id":"abc-1","title":"Implement remote control","status":"%s"}]\n' "$status"
             elif test "$1" = update; then
-              printf 'open' > "$root/status"
-              printf '[{"id":"abc-1","status":"open"}]\n'
+              if test "$3" = --claim; then
+                touch "$root/claimed"; printf 'in_progress' > "$root/status"
+                printf '[{"id":"abc-1","title":"Implement remote control","status":"in_progress"}]\n'
+              else
+                printf 'open' > "$root/status"
+                printf '[{"id":"abc-1","status":"open"}]\n'
+              fi
             elif test "$1" = dolt && test "$2" = pull; then
               exit 0
             elif test "$1" = dolt && test "$2" = push; then

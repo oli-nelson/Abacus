@@ -143,11 +143,11 @@ abacus --resolve-attention ab-123 "Approved option A"
 ```
 
 Without a message, Abacus performs one `bd update` that removes the label. When
-a message is present, Abacus first adds this Beads comment and then removes the
-label:
+a message is present, Abacus first adds the exact message as a Beads comment and
+then removes the label:
 
 ```text
-User Responded to a previous attention callout: Approved option A
+Approved option A
 ```
 
 If adding the comment fails, the attention label is left in place. The command
@@ -269,7 +269,7 @@ abacus \
 
 Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch the full OpenCode TUI with the ticket prompt in an Abacus-owned pane. Each pane is given a stable `<agent> • <issue-id>` tmux title, and OpenCode is prevented from replacing it while that pane exists. tmux shows the active pane title in its default status line; configurations that display `#{pane_title}` in pane borders show every agent label beside its pane. OpenCode receives the pane's terminal directly so the TUI has a TTY. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
 
-The default terminal display is a live dashboard with one row per agent. It shows the current lifecycle state (`STARTING`, `WAITING`, `IDLE`, `SYNCING`, `CLEANING`, `PREPARING`, `WORKING`, `FINALIZING`, `RECOVERING`, `RETRYING`, or `STOPPED`), elapsed time in that state, the active ticket ID and title, pane or process location, retry count, last observed exit code, and recent warnings. Idle polling is distinct from error retries. For raw diagnostics, add `--verbose` (or `--debug`/`-v`):
+The default terminal display is a live dashboard with one row per agent. It shows the current lifecycle state (`STARTING`, `WAITING`, `IDLE`, `SYNCING`, `CLEANING`, `PREPARING`, `WORKING`, `FINALIZING`, `RECOVERING`, `RETRYING`, or `STOPPED`), elapsed time in that state, the active ticket ID and title, pane or process location, retry count, last observed exit code, and recent warnings. At the bottom, a periodically refreshed log shows the latest 8 Beads comments by default. Each entry puts the issue ID, truncated issue title, and author on a header line, then uses an indented second line for the truncated comment. Attention-labelled issues are red, configured-agent authors are yellow, and unrecognized authors are cyan. Use `--latest-comments <count>` to show from 1 through 100 entries. Idle polling is distinct from error retries. For raw diagnostics, add `--verbose` (or `--debug`/`-v`):
 
 ```sh
 abacus --verbose \
@@ -473,6 +473,7 @@ abacus --mode <opencode|codex|claude> \
   [--label <label>] [--exclude-label <label>] \
   [--type <types>] [--priority <priority>] \
   [--ticket-timeout <duration>] \
+  [--latest-comments <count>] \
   [--notify <off|attention|all>] [--notify-sound] \
   [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
@@ -487,6 +488,7 @@ abacus --mode opencode-server --model <provider/model> [--effort <effort>] \
   [--label <label>] [--exclude-label <label>] \
   [--type <types>] [--priority <priority>] \
   [--ticket-timeout <duration>] \
+  [--latest-comments <count>] \
   [--notify <off|attention|all>] [--notify-sound] \
   [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
@@ -497,11 +499,15 @@ abacus --mode opencode-server --model <provider/model> [--effort <effort>] \
 
 Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
 
+`--latest-comments` sets the number of recent comments displayed at the bottom of the live dashboard. It defaults to 8 and accepts 1 through 100. Abacus refreshes attention detection and then this data in one shared five-second monitoring cycle, using `bd --readonly export` for comments; redirected and verbose output do not run or print the dashboard-only comment feed.
+
 `--notify` accepts `off`, `attention`, or `all` and defaults to `off`. `--notify-sound` requires an enabled notification mode.
 
 ### Dispatch filters and ticket timeout
 
-Dispatch filters are global to the run and are passed directly to every `bd ready` lookup. Repeat `--label` to require all listed labels and repeat `--exclude-label` to reject issues carrying any listed label. `--type` accepts one Beads type filter, including comma-separated values such as `bug,task`; `--priority` accepts 0 (highest) through 4 (lowest). The same filters apply to new atomic claims and ready work already assigned to that agent. Abacus always excludes the `gt:slot` merge bead as well.
+Dispatch filters are global to the run and are passed directly to every `bd ready` lookup. Repeat `--label` to require all listed labels and repeat `--exclude-label` to reject issues carrying any supplied excluded label. `--type` accepts one Beads type filter, including comma-separated values such as `bug,task`; `--priority` accepts 0 (highest) through 4 (lowest). The same filters apply to new atomic claims and ready work already assigned to that agent. Abacus always excludes the `gt:slot` merge bead as well.
+
+Beads priority remains the primary ordering. If multiple ready issues share the highest available priority after filtering, Abacus selects the issue with the newest comment. If none of those tied issues has a comment, it keeps the first issue in the Beads result. The selected issue is still claimed atomically, and Abacus refreshes the candidates if another agent wins the claim race.
 
 For example, expose only priority-1 bugs or tasks deliberately labelled for Abacus, while keeping human-owned work out of the queue:
 
@@ -547,7 +553,7 @@ Each agent has one asynchronous loop:
 
 1. In single-agent mode, pull Dolt before claiming when a remote exists.
 2. If the workspace is dirty, discard tracked and untracked non-ignored changes with `git reset --hard HEAD` and `git clean -fd` before claiming.
-3. Atomically claim with `BEADS_ACTOR=<agent> bd ready --claim --exclude-label gt:slot [dispatch filters] --json`. If an older run left matching ready work assigned to that same agent, reclaim it without taking another agent's work. Merge-slot beads are never dispatched as coding work.
+3. List all matching unassigned work with `BEADS_ACTOR=<agent> bd ready --unassigned --exclude-label gt:slot [dispatch filters] --limit 0 --json`. Preserve the highest Beads priority, break ties using the newest comment when available, then atomically claim the selected issue with `bd update <id> --claim --json`. If an older run left matching ready work assigned to that same agent, apply the same selection rule while reclaiming it without taking another agent's work. Merge-slot beads are never dispatched as coding work.
 4. Create or reuse `abacus/<issue-id>` and verify the workspace is clean.
 5. Start the selected OpenCode, Codex, or Claude CLI in a dedicated Abacus-owned tmux pane. Start attached OpenCode Server clients in a pane when tmux was supplied, otherwise as directly supervised child processes.
 6. Watch both the Beads status and the hosted agent run for exit or the optional ticket runtime limit.

@@ -13,7 +13,7 @@ Abacus should own only the orchestration state machine. It should not reimplemen
 - Support exactly four agent modes: interactive OpenCode, interactive Codex, interactive Claude Code, and OpenCode Server attachment. Do not call agent server APIs.
 - Accept `--remote` only for Claude Code. Keep Claude interactive and enable Remote Control with an explicit `<issue-id> • <issue-title>` session name. Do not implement the remote-control protocol in Abacus.
 - Require one `--model <model>` value per Abacus invocation. Accept one provider-specific `--effort <effort>` value, default it to `high`, and translate model and effort into the selected CLI's native arguments where supported. Preserve OpenCode's `provider/model` validation while allowing native Codex and Claude model identifiers. Interactive OpenCode 1.18.20 has no TUI variant option, so keep its model ID unchanged and let OpenCode use its configured or session-selected variant.
-- Parse only the small amount of JSON emitted by `bd --json` that Abacus needs: issue ID, issue title and status, Dolt identity, and remote presence. Query Beads by label rather than importing its issue model when the dashboard needs attention alerts.
+- Parse only the small amount of JSON/JSONL emitted by `bd` that Abacus needs: issue ID, issue title and status, Dolt identity, remote presence, and the comment fields and labels needed by the dashboard. Query Beads by label rather than importing its issue model when the dashboard needs attention alerts; use read-only `bd export` for the latest-comment snapshot so embedded and server-backed modes share one path.
 - Pass ordinary command arguments through `ProcessStartInfo.ArgumentList`, not interpolated shell strings. Use a generated shell wrapper only where tmux needs a pane command and process-exit marker.
 - Keep state in memory. A temporary per-run directory may contain prompt files, pane wrapper scripts, and exit markers; there is no Abacus database.
 - Run one asynchronous loop per configured agent. Do not introduce a scheduler, message bus, dependency-injection container, plugin model, web UI, or daemon.
@@ -55,7 +55,7 @@ Waiting -> Claimed -> PreparingWorkspace -> RunningAgent -> Finalizing -> Waitin
 
 1. Clean the workspace with `git reset --hard HEAD` and `git clean -fd` before looking for work.
 2. In single-agent mode, pull Beads before looking for work when a Dolt remote exists.
-3. Run `bd ready --claim --exclude-label gt:slot --json` in the agent workspace with `BEADS_ACTOR=<agent name>`.
+3. List matching work with `bd ready --unassigned --exclude-label gt:slot --limit 0 --json`, preserve Beads priority, use the newest comment to break a highest-priority tie, and atomically claim the selected issue with `bd update <id> --claim --json`, all with `BEADS_ACTOR=<agent name>`.
 4. If no issue is ready, sleep for a small fixed interval and try again.
 5. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
 6. Verify that the workspace is clean before the agent CLI starts.
@@ -75,7 +75,9 @@ Before building the loop, capture the exact behavior of the locally supported co
 
 - Record the minimum supported versions of `dotnet`, `bd`, `git`, `opencode`, `codex`, `claude`, and `tmux` in the README. The four-mode work was developed with Codex CLI 0.151.0, Claude Code 2.1.212, and OpenCode 1.18.20.
 - In a disposable Beads repository, save representative outputs and exit codes for:
-  - `bd ready --claim --exclude-label gt:slot --json` with and without ready work.
+  - `bd ready --unassigned --exclude-label gt:slot --limit 0 --json` with and without ready work.
+  - `bd show <ids...> --include-comments --json` for newest-comment tie-breaking.
+  - `bd update <id> --claim --json` for success and a lost claim race.
   - `bd show <id> --json` for `in_progress`, `open`, `blocked`, and `closed` issues.
   - `bd dolt show --json` and `bd dolt remote list --json` with and without a remote.
   - failed pulls and pushes.
@@ -120,6 +122,7 @@ Before building the loop, capture the exact behavior of the locally supported co
     [--label <label>] [--exclude-label <label>] \
     [--type <types>] [--priority <priority>] \
     [--ticket-timeout <duration>] \
+    [--latest-comments <count>] \
     [--notify <off|attention|all>] [--notify-sound] \
     [--opencode-server <host:port>] \
     [--once | --drain | --check] \
@@ -127,11 +130,10 @@ Before building the loop, capture the exact behavior of the locally supported co
     -a <agent_name> <git_workspace_path> [-a ...]
   ```
 
-- Support standalone user-attention resolution: optionally add a `bd comment`
-  containing `User Responded to a previous attention callout: <message>`, then
-  use `bd update` to remove the `abacus:needs-user-attention` label from the
-  requested issue. Do not run normal preflight or require agent options for this
-  operation.
+- Support standalone user-attention resolution: optionally add the exact
+  supplied message with `bd comment`, then use `bd update` to remove the
+  `abacus:needs-user-attention` label from the requested issue. Do not run normal
+  preflight or require agent options for this operation.
 
 - Reject a missing or malformed `--model` value, a malformed `--effort` value, `--remote` outside Claude mode, malformed or duplicate singular dispatch filters, malformed ticket timeouts, invalid mode/server/tmux combinations, other missing values, unknown options, duplicate agent names, duplicate canonical workspace paths, and zero agents. OpenCode model IDs use `provider/model`; Codex and Claude IDs must be nonempty and whitespace-free. Effort defaults to `high`; model and effort availability remain the selected CLI's responsibility. Dispatch labels are repeatable, priority is 0 through 4, and ticket timeouts are positive integer seconds, minutes, or hours.
 - Implement `CommandRunner` around `ProcessStartInfo` with:
@@ -152,7 +154,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   not fail—when no merge slot exists because the repository may provide another
   serialized merge process. Do not search the filesystem for separate clones or
   contact an OpenCode server.
-- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
+- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed latest-comments log at the bottom, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a header line, then the truncated comment on an indented line beneath it, colored red for attention-labelled issues, yellow for configured-agent authors, and cyan for unrecognized authors. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 - Keep desktop notifications dependency-free and owned by the orchestrator. `--notify attention` reports new user-attention issues, blocked tickets, and persistent recovery failures; `--notify all` also reports all ticket outcomes and the final run summary. Use `osascript` on macOS and optional `notify-send` on Linux through `ProcessStartInfo.ArgumentList`. Treat delivery as best effort, deduplicate polled attention issues, and use a terminal bell fallback only when `--notify-sound` was requested.
 
 ### Exit criteria
@@ -199,13 +201,15 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Work
 
-- Implement `Beads.TryClaimReadyAsync` as a thin call to:
+- Implement `Beads.TryClaimReadyAsync` as a short list, select, and atomic-claim sequence:
 
   ```sh
-  BEADS_ACTOR=<agent_name> bd ready --claim --exclude-label gt:slot --json
+  BEADS_ACTOR=<agent_name> bd ready --unassigned --exclude-label gt:slot --limit 0 --json
+  BEADS_ACTOR=<agent_name> bd show <commented-highest-priority-ids...> --include-comments --json
+  BEADS_ACTOR=<agent_name> bd update <selected-id> --claim --json
   ```
 
-- Append configured `--label`, `--exclude-label`, `--type`, and `--priority` values literally to both the atomic ready claim and the same-agent assigned-ready fallback. Keep the built-in `gt:slot` exclusion.
+- Append configured `--label`, `--exclude-label`, `--type`, and `--priority` values literally to both the unassigned ready lookup and the same-agent assigned-ready fallback. Keep the built-in `gt:slot` exclusion. Respect the priority ordering returned by Beads, then use the newest comment only to break a tie within the highest-priority group. If none of the tied issues has comments, select the first result. Claim the selected ID atomically and refresh selection after a lost claim race or Dolt serialization conflict.
 
 - In single-agent mode only, run `bd dolt pull` immediately before each claim attempt when a remote exists. A pull failure should log and delay the next attempt rather than claim against stale data.
 - Check workspace cleanliness before every claim. If a workspace is dirty, warn, discard tracked changes with `git reset --hard HEAD`, remove untracked non-ignored files and directories with `git clean -fd`, and verify the result is clean before claiming.

@@ -82,6 +82,7 @@ abacus --tmux-session <session_name> \
   [--label <label>] [--exclude-label <label>] \
   [--type <types>] [--priority <priority>] \
   [--ticket-timeout <duration>] \
+  [--latest-comments <count>] \
   [--notify <off|attention|all>] [--notify-sound] \
   [--once | --drain | --check] \
   [--verbose] \
@@ -93,20 +94,21 @@ abacus --tmux-session <session_name> \
 
 `--remote` is valid only with Claude Code. Abacus adds `--remote-control '<issue-id> • <issue-title>'` to the normal interactive command. Codex and both OpenCode modes reject the option.
 
-Dispatch filters are optional and apply to every fresh or same-agent resumed ready claim. `--label` and `--exclude-label` are repeatable literal passthroughs to `bd ready`; `--type` accepts one literal Beads type filter, including comma-separated types; and `--priority` accepts priorities 0 through 4. Abacus always excludes `gt:slot` in addition to user filters.
+Dispatch filters are optional and apply to every fresh or same-agent resumed ready claim. `--label` and `--exclude-label` are repeatable literal passthroughs to `bd ready`; `--type` accepts one literal Beads type filter, including comma-separated types; and `--priority` accepts priorities 0 through 4. Abacus always excludes `gt:slot` in addition to user filters. Beads priority remains the primary ordering. When multiple candidates share the highest available priority, Abacus prefers the candidate with the newest comment; if none of those candidates has a comment, it preserves the first candidate returned by Beads.
 
 `--ticket-timeout` is an optional positive integer duration with an `s`, `m`, or `h` suffix. The guard starts when the agent CLI starts. At the limit, Abacus attempts to stop and clean the hosted agent run, reopens the ticket only if it is still `in_progress`, verifies the result, and pushes when a Dolt remote is configured. A terminal ticket update that races with the timeout is preserved. Recovery or push failure stops that agent, keeps a persistent alert visible, and makes finite runs fail.
+
+`--latest-comments` controls the number of recent Beads comments shown at the bottom of the interactive dashboard. It defaults to 8 and accepts integers from 1 through 100. Abacus refreshes the snapshot in the same periodic monitoring cycle as user-attention detection, using the read-only Beads export command after the attention query. Each entry has a header line containing the issue ID, a width-truncated issue title, and the comment author, followed by an indented, width-truncated single-line comment. Comments on issues labelled `abacus:needs-user-attention` are red; otherwise comments authored by one of the configured Abacus agents are yellow and comments from unrecognized authors are cyan.
 
 `--notify` controls Abacus-owned desktop notifications and defaults to `off`. `attention` reports newly observed `abacus:needs-user-attention` issues, blocked tickets, and persistent recovery failures. `all` additionally reports every ticket outcome and the final run summary. On macOS Abacus uses `osascript`; on Linux it uses `notify-send` when available. Notification delivery is best effort and never changes orchestration outcomes. `--notify-sound` requests the platform notification sound and permits a terminal bell fallback if desktop delivery is unavailable; it requires `--notify attention` or `--notify all`.
 
 `--resolve-attention <issue-id> [<message>]` is a standalone operation. It runs
 `bd update` in the current directory to remove
 `abacus:needs-user-attention`. When the optional message is present, it first
-uses `bd comment` to add
-`User Responded to a previous attention callout: <message>`. The label is not
-removed if the comment fails. On success it prints a concise confirmation
-instead of the raw Beads JSON. It does not run agent preflight or require normal
-run options. The command fails if Beads cannot perform either operation.
+uses `bd comment` to add the exact supplied message. The label is not removed if
+the comment fails. On success it prints a concise confirmation instead of the
+raw Beads JSON. It does not run agent preflight or require normal run options.
+The command fails if Beads cannot perform either operation.
 
 Each local agent runs interactively in its own tmux pane using its assigned Git workspace and requested model:
 
@@ -137,7 +139,7 @@ Without `--tmux-session`, each agent starts as a directly supervised, non-intera
 
 For backward compatibility, supplying `--opencode-server` without `--mode` implies `opencode-server`. Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`. The server option is rejected for all other explicit modes.
 
-By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. On shutdown, Abacus prints a final per-agent run summary with elapsed time and counts for closed, reopened, blocked, and interrupted tickets.
+By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. On shutdown, Abacus prints a final per-agent run summary with elapsed time and counts for closed, reopened, blocked, and interrupted tickets.
 
 Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without cleaning workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected agent executable, workspace and Dolt configuration, the OpenCode server address when applicable, and any requested tmux session/window target. These three options are mutually exclusive.
 
@@ -174,13 +176,13 @@ Each Abacus agent follows this loop:
 
 1. Before claiming work, discard tracked and untracked non-ignored workspace changes with `git reset --hard HEAD` and `git clean -fd`.
 2. In single-agent mode, pull the latest Beads data if a remote is configured. Agents using a shared database already see the latest data.
-3. Abacus atomically claims a ready task using the agent name as the actor:
+3. Abacus lists every unassigned ready task using the agent name as the actor:
 
    ```sh
-   BEADS_ACTOR=<agent_name> bd ready --claim --exclude-label gt:slot --json
+   BEADS_ACTOR=<agent_name> bd ready --unassigned --exclude-label gt:slot --limit 0 --json
    ```
 
-   When dispatch filters are configured, their literal `--label`, `--exclude-label`, `--type`, and `--priority` arguments are added before `--json`. The same filters apply when resuming ready work already assigned to that agent.
+   When dispatch filters are configured, their literal `--label`, `--exclude-label`, `--type`, and `--priority` arguments are added before `--limit 0 --json`. The same filters apply when resuming ready work already assigned to that agent. Abacus keeps the priority ordering from Beads. If the highest-priority group contains multiple issues, it reads comments for the commented candidates using `bd show <ids...> --include-comments --json`, selects the issue with the newest comment, or keeps the first issue when none has a comment. It then atomically claims the selected issue with `bd update <id> --claim --json`. If another agent wins that claim race, Abacus refreshes the candidates and tries again.
 
 4. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
 5. Make sure the workspace has no local changes before starting the agent CLI.

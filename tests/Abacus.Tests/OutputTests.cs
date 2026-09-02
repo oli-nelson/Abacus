@@ -70,6 +70,11 @@ public sealed class OutputTests
             await output.SetUserAttentionIssuesAsync(
                 [new BeadsIssue("abc-9", IssueStatus.Blocked, "Choose a save format")]);
             await output.SetPersistentAlertAsync("alice", "Recovery could not be verified");
+            await output.SetLatestCommentsAsync([
+                Comment("comment-1", "abc-9", "Choose a save format", "alice", "Agent update", attention: true),
+                Comment("comment-2", "abc-2", "Implement parser", "alice", "Managed agent update"),
+                Comment("comment-3", "abc-3", "Review output", "reviewer", "Unknown author update"),
+            ]);
         }
 
         var text = writer.ToString();
@@ -86,7 +91,62 @@ public sealed class OutputTests
         Assert.Contains("USER ATTENTION (2)", text, StringComparison.Ordinal);
         Assert.Contains("abc-9 — Choose a save format", text, StringComparison.Ordinal);
         Assert.Contains("alice — Recovery could not be verified", text, StringComparison.Ordinal);
+        Assert.Contains("LATEST COMMENTS (3)", text, StringComparison.Ordinal);
+        Assert.Contains("abc-9", text, StringComparison.Ordinal);
+        Assert.Contains("Choose a save format", text, StringComparison.Ordinal);
+        Assert.Contains("Agent update", text, StringComparison.Ordinal);
+        Assert.Contains("Managed agent update", text, StringComparison.Ordinal);
+        Assert.Contains("Unknown author update", text, StringComparison.Ordinal);
         Assert.Contains("\u001b[?25h", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LatestCommentsUseAttentionAgentAndUnknownAuthorColors()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: false,
+            interactive: true,
+            color: true);
+
+        await output.SetLatestCommentsAsync([
+            Comment("comment-1", "abc-1", "Attention", "alice", "red", attention: true),
+            Comment("comment-2", "abc-2", "Agent", "alice", "yellow"),
+            Comment("comment-3", "abc-3", "Unknown", "reviewer", "cyan"),
+        ]);
+
+        var text = writer.ToString();
+        Assert.Contains("\u001b[31m • abc-1", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[31m   ↳ red", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[33m • abc-2", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[33m   ↳ yellow", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[36m • abc-3", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[36m   ↳ cyan", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LatestCommentLinesFlattenAndTruncateHeaderAndCommentToTerminalWidth()
+    {
+        var lines = ConsoleOutput.FormatLatestCommentLines(
+            Comment(
+                "comment-1",
+                "abc-123",
+                "A very long issue title\nthat continues on another line",
+                "external-reviewer",
+                "A very long comment\nthat also continues and must be truncated for the dashboard"),
+            52);
+
+        Assert.Equal(52, lines.Header.Length);
+        Assert.Equal(52, lines.Comment.Length);
+        Assert.DoesNotContain('\n', lines.Header);
+        Assert.DoesNotContain('\n', lines.Comment);
+        Assert.Contains('…', lines.Header);
+        Assert.Contains('…', lines.Comment);
+        Assert.StartsWith(" • abc-123", lines.Header, StringComparison.Ordinal);
+        Assert.StartsWith("   ↳ ", lines.Comment, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -147,4 +207,13 @@ public sealed class OutputTests
         Assert.Contains("USER ATTENTION", text, StringComparison.Ordinal);
         Assert.Contains("alice — Could not verify recovery", text, StringComparison.Ordinal);
     }
+
+    private static BeadsComment Comment(
+        string id,
+        string issueId,
+        string title,
+        string author,
+        string text,
+        bool attention = false) =>
+        new(id, issueId, title, author, text, DateTimeOffset.Parse("2026-09-02T12:00:00Z"), attention);
 }

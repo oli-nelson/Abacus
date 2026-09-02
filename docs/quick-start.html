@@ -1,0 +1,1620 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A practical quick-start guide for running Abacus with Git worktrees, Beads, Claude Code, tmux, the latest-comments log, user-attention resolution, filters, and desktop notifications.">
+  <title>Abacus Quick Start</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #0e100d;
+      --page-soft: #141712;
+      --panel: #191d17;
+      --panel-raised: #20251d;
+      --panel-code: #11140f;
+      --ink: #f5f1e7;
+      --muted: #b1b3a9;
+      --faint: #7c8177;
+      --line: #343a30;
+      --line-strong: #4a5344;
+      --green: #a4ec77;
+      --green-soft: #253820;
+      --blue: #76cbff;
+      --blue-soft: #193443;
+      --yellow: #ffd36e;
+      --yellow-soft: #3a301a;
+      --red: #ff8178;
+      --red-soft: #40231f;
+      --violet: #c6a9ff;
+      --violet-soft: #302747;
+      --cyan: #77e1d5;
+      --shadow: 0 22px 70px rgb(0 0 0 / 30%);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 28px;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 4% 2%, rgb(164 236 119 / 9%), transparent 28rem),
+        radial-gradient(circle at 93% 9%, rgb(118 203 255 / 8%), transparent 34rem),
+        linear-gradient(180deg, #11140f 0, var(--page) 38rem);
+      font-family: var(--sans);
+      line-height: 1.58;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    a:hover { color: #b7e5ff; }
+
+    code, pre, kbd { font-family: var(--mono); }
+
+    code {
+      color: #dcf7cc;
+      font-size: .92em;
+    }
+
+    kbd {
+      display: inline-block;
+      padding: .08rem .42rem;
+      border: 1px solid var(--line-strong);
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      color: var(--ink);
+      background: #22261f;
+      font-size: .82em;
+      line-height: 1.35;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1040px);
+      gap: clamp(28px, 5vw, 72px);
+      width: min(1400px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: 30px 0 84px;
+    }
+
+    .side-nav {
+      position: sticky;
+      top: 22px;
+      align-self: start;
+      max-height: calc(100vh - 44px);
+      overflow: auto;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgb(24 28 22 / 88%);
+      box-shadow: 0 14px 42px rgb(0 0 0 / 18%);
+      backdrop-filter: blur(12px);
+    }
+
+    .side-brand {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 17px;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: -.01em;
+    }
+
+    .mark {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      border: 1px solid #5b7b4b;
+      border-radius: 9px;
+      color: #14200f;
+      background: var(--green);
+      font: 900 17px/1 var(--mono);
+    }
+
+    .side-nav ol {
+      display: grid;
+      gap: 3px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: nav;
+    }
+
+    .side-nav li { counter-increment: nav; }
+
+    .side-nav a {
+      display: grid;
+      grid-template-columns: 23px 1fr;
+      gap: 7px;
+      padding: 7px 8px;
+      border-radius: 8px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .side-nav a::before {
+      content: counter(nav, decimal-leading-zero);
+      color: var(--faint);
+      font: 700 10px/1.8 var(--mono);
+    }
+
+    .side-nav a:hover,
+    .side-nav a.active {
+      color: var(--ink);
+      background: var(--panel-raised);
+    }
+
+    .side-nav a.active::before { color: var(--green); }
+
+    .side-note {
+      margin: 18px 4px 0;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      color: var(--faint);
+      font: 11px/1.55 var(--mono);
+    }
+
+    main { min-width: 0; }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      min-height: 470px;
+      padding: clamp(30px, 6vw, 68px);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background:
+        linear-gradient(125deg, rgb(164 236 119 / 9%), transparent 42%),
+        linear-gradient(315deg, rgb(118 203 255 / 8%), transparent 43%),
+        var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgb(255 255 255 / 2.2%) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(255 255 255 / 2.2%) 1px, transparent 1px);
+      background-size: 32px 32px;
+      content: "";
+      mask-image: linear-gradient(to bottom, black, transparent 80%);
+    }
+
+    .eyebrow {
+      position: relative;
+      z-index: 1;
+      margin: 0 0 16px;
+      color: var(--green);
+      font: 800 12px/1 var(--mono);
+      letter-spacing: .17em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      position: relative;
+      z-index: 1;
+      max-width: 820px;
+      margin: 0;
+      font-size: clamp(48px, 8vw, 92px);
+      font-weight: 780;
+      letter-spacing: -.065em;
+      line-height: .92;
+    }
+
+    .hero-copy {
+      position: relative;
+      z-index: 1;
+      max-width: 720px;
+      margin: 25px 0 30px;
+      color: var(--muted);
+      font-size: clamp(17px, 2.2vw, 21px);
+    }
+
+    .hero-badges {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+    }
+
+    .badge {
+      padding: 8px 11px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgb(12 15 11 / 50%);
+      font: 700 11px/1 var(--mono);
+    }
+
+    .badge.good { color: var(--green); border-color: #506c43; }
+
+    .route {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin: 18px 0 54px;
+    }
+
+    .route a {
+      position: relative;
+      padding: 15px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--muted);
+      background: var(--panel);
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .route strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--green);
+      font: 800 10px/1 var(--mono);
+    }
+
+    article { margin-top: 62px; }
+
+    .section-heading {
+      display: grid;
+      grid-template-columns: 58px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+      margin-bottom: 22px;
+    }
+
+    .section-number {
+      display: grid;
+      width: 52px;
+      height: 52px;
+      place-items: center;
+      border: 1px solid #5b794b;
+      border-radius: 14px;
+      color: var(--green);
+      background: var(--green-soft);
+      font: 850 15px/1 var(--mono);
+    }
+
+    h2 {
+      margin: 0;
+      font-size: clamp(29px, 4.2vw, 46px);
+      font-weight: 750;
+      letter-spacing: -.04em;
+      line-height: 1.05;
+    }
+
+    .section-intro {
+      max-width: 780px;
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    h3 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      letter-spacing: -.025em;
+    }
+
+    h4 {
+      margin: 0 0 8px;
+      color: var(--ink);
+      font-size: 14px;
+      letter-spacing: .01em;
+    }
+
+    p { margin: 0 0 14px; }
+
+    .muted { color: var(--muted); }
+    .small { font-size: 13px; }
+
+    .grid-2,
+    .grid-3 {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    .card {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: var(--panel);
+    }
+
+    .card.accent-green { border-top: 3px solid var(--green); }
+    .card.accent-blue { border-top: 3px solid var(--blue); }
+    .card.accent-yellow { border-top: 3px solid var(--yellow); }
+    .card.accent-red { border-top: 3px solid var(--red); }
+
+    .card p,
+    .card li { color: var(--muted); }
+
+    .kicker {
+      margin: 0 0 9px;
+      color: var(--green);
+      font: 800 10px/1 var(--mono);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    .callout {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      gap: 12px;
+      margin: 16px 0;
+      padding: 17px 18px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel-raised);
+    }
+
+    .callout .icon {
+      color: var(--yellow);
+      font: 900 17px/1.45 var(--mono);
+    }
+
+    .callout strong { color: var(--ink); }
+    .callout p { margin: 0; color: var(--muted); font-size: 14px; }
+    .callout.danger { border-color: #68403a; background: var(--red-soft); }
+    .callout.danger .icon { color: var(--red); }
+    .callout.info { border-color: #355b70; background: var(--blue-soft); }
+    .callout.info .icon { color: var(--blue); }
+    .callout.success { border-color: #46613b; background: var(--green-soft); }
+    .callout.success .icon { color: var(--green); }
+
+    .code-block {
+      position: relative;
+      overflow: hidden;
+      margin: 14px 0 18px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: var(--panel-code);
+    }
+
+    .code-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: center;
+      padding: 9px 12px;
+      border-bottom: 1px solid #282d25;
+      color: var(--faint);
+      background: #171a15;
+      font: 700 10px/1 var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .copy-button {
+      appearance: none;
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      background: #20251d;
+      font: 700 10px/1 var(--mono);
+      cursor: pointer;
+    }
+
+    .copy-button:hover { color: var(--ink); border-color: var(--line-strong); }
+
+    pre {
+      overflow: auto;
+      margin: 0;
+      padding: 17px 18px 19px;
+      color: #e1edd9;
+      font-size: 12.5px;
+      line-height: 1.6;
+      tab-size: 2;
+      scrollbar-color: #46503f transparent;
+    }
+
+    .comment { color: #788173; }
+    .cmd { color: var(--green); }
+    .flag { color: var(--blue); }
+    .value { color: var(--yellow); }
+
+    .steps {
+      display: grid;
+      gap: 14px;
+      margin: 18px 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: steps;
+    }
+
+    .steps > li {
+      position: relative;
+      padding: 18px 18px 18px 57px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      color: var(--muted);
+      background: var(--panel);
+      counter-increment: steps;
+    }
+
+    .steps > li::before {
+      position: absolute;
+      top: 17px;
+      left: 17px;
+      display: grid;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border-radius: 8px;
+      color: #14200f;
+      background: var(--green);
+      content: counter(steps);
+      font: 900 11px/1 var(--mono);
+    }
+
+    .steps strong { color: var(--ink); }
+
+    .choice {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .choice::before {
+      position: absolute;
+      top: 0;
+      right: 0;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+      border-bottom-left-radius: 10px;
+      color: var(--faint);
+      background: #151813;
+      font: 800 9px/1 var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      content: attr(data-fit);
+    }
+
+    .comparison {
+      width: 100%;
+      margin: 16px 0;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .comparison th,
+    .comparison td {
+      padding: 12px 14px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .comparison th:last-child,
+    .comparison td:last-child { border-right: 0; }
+    .comparison tr:last-child td { border-bottom: 0; }
+    .comparison thead th { color: var(--ink); background: var(--panel-raised); }
+    .comparison tbody tr:nth-child(even) { background: rgb(255 255 255 / 1.4%); }
+
+    .terminal {
+      overflow: hidden;
+      margin: 18px 0;
+      border: 1px solid #3b4237;
+      border-radius: 15px;
+      background: #0c0f0b;
+      box-shadow: 0 16px 44px rgb(0 0 0 / 24%);
+    }
+
+    .terminal-bar {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      padding: 11px 14px;
+      border-bottom: 1px solid #272c24;
+      color: var(--faint);
+      background: #171a15;
+      font: 650 10px/1 var(--mono);
+    }
+
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #565d51; }
+    .dot.red { background: #e36b64; }
+    .dot.yellow { background: #d7ae55; }
+    .dot.green { background: #78bc58; }
+    .terminal-title { margin-left: 6px; }
+
+    .terminal pre {
+      min-height: 150px;
+      color: #d7ddd1;
+      font-size: 12px;
+      line-height: 1.62;
+    }
+
+    .t-cyan { color: var(--cyan); }
+    .t-green { color: var(--green); }
+    .t-yellow { color: var(--yellow); }
+    .t-red { color: var(--red); }
+    .t-violet { color: var(--violet); }
+    .t-dim { color: #70786c; }
+
+    .state-key {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 9px;
+      margin: 16px 0 24px;
+    }
+
+    .state {
+      padding: 11px 12px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      color: var(--muted);
+      background: var(--panel);
+      font-size: 12px;
+    }
+
+    .state strong {
+      display: block;
+      margin-bottom: 3px;
+      font: 800 11px/1.3 var(--mono);
+    }
+
+    .notification {
+      display: grid;
+      grid-template-columns: 36px minmax(0, 1fr);
+      gap: 12px;
+      margin: 12px 0;
+      padding: 14px;
+      border: 1px solid #495143;
+      border-radius: 13px;
+      background: linear-gradient(135deg, #242921, #191d17);
+      box-shadow: 0 9px 24px rgb(0 0 0 / 20%);
+    }
+
+    .notification-icon {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border-radius: 10px;
+      color: #14200f;
+      background: var(--green);
+      font: 900 17px/1 var(--mono);
+    }
+
+    .notification strong { display: block; font-size: 13px; }
+    .notification span { color: var(--muted); font-size: 12px; }
+
+    .pill {
+      display: inline-block;
+      margin: 2px 3px 2px 0;
+      padding: 4px 7px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      color: var(--muted);
+      font: 700 10px/1 var(--mono);
+    }
+
+    .checklist {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin: 18px 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      position: relative;
+      padding: 13px 13px 13px 40px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--muted);
+      background: var(--panel);
+      font-size: 13px;
+    }
+
+    .checklist li::before {
+      position: absolute;
+      top: 12px;
+      left: 13px;
+      color: var(--green);
+      content: "✓";
+      font-weight: 900;
+    }
+
+    .source-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .source-list li {
+      padding: 11px 13px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel);
+      font-size: 13px;
+    }
+
+    footer {
+      margin-top: 70px;
+      padding: 24px 0 8px;
+      border-top: 1px solid var(--line);
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    @media (max-width: 1050px) {
+      .layout { grid-template-columns: 1fr; }
+      .side-nav {
+        position: relative;
+        top: auto;
+        max-height: none;
+      }
+      .side-nav ol { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .side-note { display: none; }
+    }
+
+    @media (max-width: 760px) {
+      .layout { width: min(100% - 20px, 1040px); padding-top: 10px; }
+      .side-nav ol, .grid-2, .grid-3, .state-key, .checklist { grid-template-columns: 1fr; }
+      .route { grid-template-columns: 1fr 1fr; }
+      .hero { min-height: 0; padding: 30px 23px; border-radius: 18px; }
+      .section-heading { grid-template-columns: 44px minmax(0, 1fr); gap: 12px; }
+      .section-number { width: 40px; height: 40px; border-radius: 11px; }
+      .comparison { display: block; overflow-x: auto; }
+    }
+
+    @media print {
+      :root { color-scheme: light; }
+      body { color: #151713; background: #fff; }
+      .layout { display: block; width: 100%; padding: 0; }
+      .side-nav, .copy-button { display: none; }
+      .hero, .card, .steps > li, .terminal, .code-block, .callout { box-shadow: none; break-inside: avoid; }
+      article { break-before: auto; }
+      a { color: #195c78; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav class="side-nav" aria-label="Guide sections">
+      <div class="side-brand"><span class="mark">A</span> Abacus quick start</div>
+      <ol>
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#repository">Git repository</a></li>
+        <li><a href="#worktrees">Agent worktrees</a></li>
+        <li><a href="#beads">Beads storage</a></li>
+        <li><a href="#skills">Bundled agent skills</a></li>
+        <li><a href="#single-agent">One Claude agent</a></li>
+        <li><a href="#multi-agent">Multiple agents</a></li>
+        <li><a href="#dashboard">Dashboard &amp; TUI</a></li>
+        <li><a href="#attention">User attention</a></li>
+        <li><a href="#filters">Issue filters</a></li>
+        <li><a href="#notifications">Notifications</a></li>
+        <li><a href="#operations">Operating safely</a></li>
+      </ol>
+      <p class="side-note">Code-derived guide<br>Abacus + Beads 1.2.2<br>macOS / Linux</p>
+    </nav>
+
+    <main>
+      <header class="hero">
+        <p class="eyebrow">Repository → worktrees → agents</p>
+        <h1>Run Abacus with confidence.</h1>
+        <p class="hero-copy">A practical path from an empty Git repository to one remotely steerable Claude Code agent—or a concurrent team sharing the same Beads queue.</p>
+        <div class="hero-badges" aria-label="Guide highlights">
+          <span class="badge good">single HTML file</span>
+          <span class="badge">embedded + shared Dolt</span>
+          <span class="badge">Claude Remote Control</span>
+          <span class="badge">dashboard anatomy</span>
+          <span class="badge">filters + notifications</span>
+        </div>
+      </header>
+
+      <nav class="route" aria-label="Fast path">
+        <a href="#repository"><strong>01</strong>Create the repo</a>
+        <a href="#beads"><strong>02</strong>Choose storage</a>
+        <a href="#worktrees"><strong>03</strong>Add worktrees</a>
+        <a href="#single-agent"><strong>04</strong>Start tmux + Abacus</a>
+        <a href="#dashboard"><strong>05</strong>Watch and steer</a>
+      </nav>
+
+      <article id="prerequisites">
+        <div class="section-heading">
+          <span class="section-number">01</span>
+          <div>
+            <h2>Install the command-line tools</h2>
+            <p class="section-intro">Abacus orchestrates existing CLIs. It does not replace Git, Beads, Claude Code, or tmux, and it supports macOS and Linux.</p>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <section class="card accent-green">
+            <p class="kicker">Required for this guide</p>
+            <h3>Runtime tools</h3>
+            <p><span class="pill">Git 2.55+</span> <span class="pill">bd 1.2.2+</span> <span class="pill">Claude Code 2.1.212+</span> <span class="pill">tmux 3.6a+</span></p>
+            <p class="small">Abacus also supports OpenCode and Codex, but the runnable examples below use Claude Code.</p>
+          </section>
+          <section class="card accent-blue">
+            <p class="kicker">Building Abacus</p>
+            <h3>.NET 10</h3>
+            <p>The .NET 10.0.101 SDK is needed to build. A self-contained publish does not require .NET on the destination machine.</p>
+          </section>
+        </div>
+
+        <div class="code-block">
+          <div class="code-label"><span>Verify the toolchain</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>git --version
+bd version
+claude --version
+tmux -V
+abacus --help</code></pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-label"><span>Build and publish Abacus</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code><span class="comment"># Run in the Abacus source repository.</span>
+dotnet publish src/Abacus -c Release -o artifacts/publish
+export PATH="$PWD/artifacts/publish:$PATH"
+abacus --help</code></pre>
+        </div>
+
+        <div class="callout info">
+          <span class="icon">i</span>
+          <p><strong>Health is the fastest diagnostic.</strong> Run <code>abacus --health</code> inside the target repository. It reports tool versions, Beads storage, server connectivity, merge-slot status, Git worktrees, installed Abacus skills, and single-/multi-agent readiness.</p>
+        </div>
+      </article>
+
+      <article id="repository">
+        <div class="section-heading">
+          <span class="section-number">02</span>
+          <div>
+            <h2>Create a clean Git repository</h2>
+            <p class="section-intro">Abacus treats assigned workspaces as disposable execution areas. Begin with a committed baseline and keep the primary checkout for administration.</p>
+          </div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-label"><span>New repository</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>mkdir -p ~/work/acme-widget
+cd ~/work/acme-widget
+git init -b main
+
+printf '# Acme Widget\n' &gt; README.md
+git add README.md
+git commit -m "Create project"
+
+export REPO="$PWD"
+export WORKTREES="$HOME/work/acme-widget-agents"
+git status --short</code></pre>
+        </div>
+
+        <div class="callout danger">
+          <span class="icon">!</span>
+          <p><strong>Assigned worktrees must contain nothing precious.</strong> Before each claim, Abacus runs <code>git reset --hard HEAD</code> and <code>git clean -fd</code> when a workspace is dirty. Tracked edits and untracked, non-ignored files are discarded. Commit or move anything you need first.</p>
+        </div>
+
+        <ul class="checklist">
+          <li>The base branch exists and has a commit.</li>
+          <li>The administrative checkout is clean.</li>
+          <li>Repository instructions define a serialized merge process.</li>
+          <li>Every future agent receives a distinct path.</li>
+        </ul>
+      </article>
+
+      <article id="worktrees">
+        <div class="section-heading">
+          <span class="section-number">03</span>
+          <div>
+            <h2>Give every agent a worktree</h2>
+            <p class="section-intro">A worktree is a second working directory attached to the same Git repository. Abacus never creates one for you and rejects duplicate resolved workspace paths.</p>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <section class="card">
+            <p class="kicker">Topology</p>
+            <h3>Keep main out of the pool</h3>
+            <p>Use <code>$REPO</code> to create issues, inspect health, and coordinate merges. Put disposable agent checkouts under <code>$WORKTREES</code>.</p>
+          </section>
+          <section class="card">
+            <p class="kicker">Branch ownership</p>
+            <h3>Start detached</h3>
+            <p>Abacus creates or reuses <code>abacus/&lt;issue-id&gt;</code> after claiming a ticket, so detached worktrees are a clean starting point.</p>
+          </section>
+        </div>
+
+        <div class="code-block">
+          <div class="code-label"><span>Create two candidate agent worktrees</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>mkdir -p "$WORKTREES"
+git -C "$REPO" worktree add --detach "$WORKTREES/alice" main
+git -C "$REPO" worktree add --detach "$WORKTREES/bob" main
+git -C "$REPO" worktree list --porcelain</code></pre>
+        </div>
+
+        <div class="callout info">
+          <span class="icon">i</span>
+          <p><strong>Beads follows the Git common directory.</strong> Linked worktrees automatically discover the primary repository’s Beads workspace. Initialize Beads once from <code>$REPO</code>; do not initialize a separate database inside every worktree.</p>
+        </div>
+
+        <p class="muted small">If Beads initialization adds project files or agent instructions after you create these worktrees, commit those files and recreate or update the detached worktrees to that commit before running agents.</p>
+      </article>
+
+      <article id="beads">
+        <div class="section-heading">
+          <span class="section-number">04</span>
+          <div>
+            <h2>Choose the Beads storage mode</h2>
+            <p class="section-intro">Both modes use Dolt. “Embedded” means the engine runs in each <code>bd</code> process; “shared server” means concurrent clients connect to one SQL server and one database.</p>
+          </div>
+        </div>
+
+        <div class="callout danger">
+          <span class="icon">!</span>
+          <p><strong>These are alternative initialization tracks—not consecutive commands.</strong> Do not run both initializers against the same existing <code>.beads</code> directory. If you outgrow embedded mode, use the <a href="https://github.com/gastownhall/beads/blob/main/docs/DOLT.md#migrating-between-backends">Beads backup/restore migration</a> rather than destructive reinitialization.</p>
+        </div>
+
+        <div class="grid-2">
+          <section class="card choice accent-green" data-fit="one agent">
+            <p class="kicker">Track A · simplest</p>
+            <h3>Embedded Dolt</h3>
+            <p>Use for one Abacus agent. It needs no server and is the default Beads mode.</p>
+            <div class="code-block">
+              <div class="code-label"><span>Initialize embedded</span><button class="copy-button" type="button">Copy</button></div>
+              <pre><code>cd "$REPO"
+bd init --non-interactive
+bd dolt show --json
+bd where
+abacus --install-skills
+abacus --health</code></pre>
+            </div>
+            <p class="small">Expect <code>"embedded": true</code>. Abacus permits exactly one configured agent with this storage mode.</p>
+          </section>
+
+          <section class="card choice accent-blue" data-fit="2+ agents">
+            <p class="kicker">Track B · concurrent</p>
+            <h3>Shared Dolt server</h3>
+            <p>Use for multiple Abacus agents. Beads manages one machine-wide server and isolates projects by database name.</p>
+            <div class="code-block">
+              <div class="code-label"><span>Initialize shared server</span><button class="copy-button" type="button">Copy</button></div>
+              <pre><code>cd "$REPO"
+bd init --shared-server --non-interactive
+bd dolt start
+bd dolt status
+bd dolt show --json
+abacus --install-skills
+bd merge-slot create
+abacus --health</code></pre>
+            </div>
+            <p class="small">Expect <code>"embedded": false</code>, a reachable host/port, and <code>"connection_ok": true</code>.</p>
+          </section>
+        </div>
+
+        <table class="comparison">
+          <thead><tr><th>Property</th><th>Embedded</th><th>Shared server</th></tr></thead>
+          <tbody>
+            <tr><td>Initializer</td><td><code>bd init</code></td><td><code>bd init --shared-server</code></td></tr>
+            <tr><td>Writers</td><td>One at a time</td><td>Multiple concurrent clients</td></tr>
+            <tr><td>Abacus use</td><td>Single configured agent</td><td>Single or multiple agents</td></tr>
+            <tr><td>Typical data location</td><td><code>.beads/embeddeddolt/</code></td><td><code>~/.beads/shared-server/dolt/&lt;database&gt;/</code></td></tr>
+            <tr><td>Preflight identity</td><td>Embedded database name</td><td>Normalized host + port + database</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Verify every worktree sees the same database</h3>
+        <div class="code-block">
+          <div class="code-label"><span>Identity check</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>bd -C "$WORKTREES/alice" dolt show --json
+bd -C "$WORKTREES/bob" dolt show --json</code></pre>
+        </div>
+        <p class="muted">For a multi-agent run, Abacus requires both outputs to identify the same reachable host, port, and database. Keep host spelling consistent—do not mix <code>localhost</code> and <code>127.0.0.1</code>.</p>
+
+        <details class="card">
+          <summary><strong>Using an externally managed Dolt server</strong></summary>
+          <p class="muted small">If your team already owns a <code>dolt sql-server</code>, initialize Beads with explicit connection details. Abacus does not start or manage that external service.</p>
+          <div class="code-block">
+            <div class="code-label"><span>External server example</span><button class="copy-button" type="button">Copy</button></div>
+            <pre><code>bd init --server --external --non-interactive \
+  --server-host 127.0.0.1 \
+  --server-port 3307 \
+  --server-user root \
+  --database acme_widget
+bd dolt test
+bd dolt show --json</code></pre>
+          </div>
+        </details>
+
+        <h3>Create ready work</h3>
+        <div class="code-block">
+          <div class="code-label"><span>First issue</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>cd "$REPO"
+bd create "Add a health endpoint" \
+  --description "Add an HTTP health endpoint and cover it with tests." \
+  --acceptance "The endpoint returns success and the test suite passes." \
+  --type task \
+  --priority 2 \
+  --json
+
+bd ready --json</code></pre>
+        </div>
+
+        <div class="callout success">
+          <span class="icon">✓</span>
+          <p><strong>Optional merge guard.</strong> <code>bd merge-slot create</code> gives repository instructions a shared exclusive gate for serialized merges. Abacus excludes the <code>gt:slot</code> bead from claims. A missing slot produces a health warning, not a startup failure, because your repository may serialize merges another way.</p>
+        </div>
+      </article>
+
+      <article id="skills">
+        <div class="section-heading">
+          <span class="section-number">05</span>
+          <div>
+            <h2>Use the bundled agent skills</h2>
+            <p class="section-intro">Abacus can install three focused Beads skills into a repository. Installation makes them discoverable to compatible coding agents; it does not run them automatically or change the Beads database.</p>
+          </div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-label"><span>Install once from anywhere in the repository</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>cd "$REPO"
+abacus --install-skills
+
+<span class="comment"># Installed under the Git root:</span>
+find .agents/skills -maxdepth 2 -name SKILL.md -print</code></pre>
+        </div>
+
+        <div class="callout info">
+          <span class="icon">i</span>
+          <p><strong>Existing skill directories are protected.</strong> If a bundled skill already exists, Abacus names the affected skills and asks before replacing their complete directories. Declining leaves every skill unchanged; unrelated skills are never removed.</p>
+        </div>
+
+        <div class="grid-3">
+          <section class="card accent-green">
+            <p class="kicker">1 · Shape the work</p>
+            <h3>Beads Planner</h3>
+            <p class="small">Turns a product or engineering concept into a reviewable epic, focused child issues, real blocking dependencies, priorities, labels, and testable acceptance criteria.</p>
+            <p><span class="pill">draft first</span> <span class="pill">approval before writes</span></p>
+          </section>
+          <section class="card accent-yellow">
+            <p class="kicker">2 · Check readiness</p>
+            <h3>Beads Doctor</h3>
+            <p class="small">Audits issue content, fields, boundaries, labels, metadata, and graph direction for agent readiness. It reports evidence and proposed corrections before making repairs.</p>
+            <p><span class="pill">diagnose first</span> <span class="pill">confirm repairs</span></p>
+          </section>
+          <section class="card accent-red">
+            <p class="kicker">3 · Triage decisions</p>
+            <h3>Beads Attention</h3>
+            <p class="small">Finds every <code>abacus:needs-user-attention</code> issue—including closed ones—and summarizes the decisions, access, outside actions, and failures that need a person.</p>
+            <p><span class="pill">read-only report</span> <span class="pill">highest impact first</span></p>
+          </section>
+        </div>
+
+        <h3>Ask for the skill explicitly</h3>
+        <p class="muted">Start a compatible coding-agent session in the repository and name the skill in your request. The dollar-prefixed form makes the intent unambiguous.</p>
+
+        <div class="code-block">
+          <div class="code-label"><span>Plan a new body of work</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>Use $abacus-beads-planner to turn this concept into an execution-ready
+Beads epic and issue graph:
+
+Add offline synchronization to the desktop client. Separate protocol,
+storage, UI, migration, and end-to-end verification work where useful.
+Show me the proposed graph and execution waves before creating anything.</code></pre>
+        </div>
+        <p class="muted small">The planner inspects repository guidance, related issues, labels, and Beads conventions. It presents temporary issue keys, dependencies as “A depends on B,” acceptance criteria, and expected execution waves. Approve or revise that draft before it creates any durable issues.</p>
+
+        <div class="code-block">
+          <div class="code-label"><span>Audit work before dispatch</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>Use $abacus-beads-doctor to audit epic ab-123 and all of its descendants
+for agent readiness. Check scope, acceptance criteria, dependency direction,
+parallelism, labels, priorities, and the ready set. Report findings first;
+do not repair anything until I approve the proposed patch set.</code></pre>
+        </div>
+        <p class="muted small">The doctor classifies findings as agent-stoppers, graph errors, quality warnings, or suggestions. It complements the CLI’s database-health <code>bd doctor</code>; it is primarily a content and execution-readiness review. Approved repairs are read back and graph-checked afterward.</p>
+
+        <div class="code-block">
+          <div class="code-label"><span>See what needs a person</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>Use $abacus-beads-attention to summarize everything that needs my attention.
+Group the report into decisions, outside actions or access, blockers or
+failures, and possibly stale requests. Tell me what to look at first.</code></pre>
+        </div>
+        <p class="muted small">The attention skill queries exactly the label used by the dashboard and reads each matching issue for context. It does not infer attention from <code>blocked</code> alone, and it does not clear labels or mutate tickets unless you explicitly ask after reviewing the report.</p>
+
+        <h3>A practical cadence</h3>
+        <ol class="steps">
+          <li><strong>Plan.</strong> Turn the concept into a graph, review execution waves, then approve creation.</li>
+          <li><strong>Doctor.</strong> Audit the epic before agents start, approve precise repairs, and verify the resulting ready set.</li>
+          <li><strong>Execute.</strong> Start Abacus with filters that select the approved work. The coding agents claim and complete individual tickets.</li>
+          <li><strong>Triage attention.</strong> Use the attention skill when the dashboard or desktop toast says a human decision or outside action is pending.</li>
+        </ol>
+
+        <div class="callout success">
+          <span class="icon">✓</span>
+          <p><strong>The boundaries are intentional.</strong> The planner is not an implementation agent, the doctor does not silently rewrite plans or change lifecycle state, and the attention skill is not a general backlog review. Their reports keep durable planning, issue quality, execution, and human decisions separate.</p>
+        </div>
+      </article>
+
+      <article id="single-agent">
+        <div class="section-heading">
+          <span class="section-number">06</span>
+          <div>
+            <h2>Run one Claude Code agent</h2>
+            <p class="section-intro">Claude Code runs interactively inside an Abacus-owned tmux pane. The Abacus dashboard stays in your current terminal while the full Claude interface lives in tmux.</p>
+          </div>
+        </div>
+
+        <ol class="steps">
+          <li><strong>Create the tmux target.</strong> Abacus verifies an existing session and optional window; it never creates either.</li>
+          <li><strong>Check the disposable workspace.</strong> Use the Alice worktree or the clean primary checkout for a one-agent run.</li>
+          <li><strong>Start Abacus.</strong> The model is required; effort defaults to <code>high</code>.</li>
+        </ol>
+
+        <div class="code-block">
+          <div class="code-label"><span>Single Claude agent</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>export SESSION=abacus-work
+export WINDOW=agents
+export MODEL=sonnet
+export AGENT_WORKTREE="$WORKTREES/alice"
+
+tmux new-session -d -s "$SESSION" -n "$WINDOW"
+git -C "$AGENT_WORKTREE" status --short
+
+abacus \
+  --mode claude \
+  --tmux-session "$SESSION" \
+  --tmux-window "$WINDOW" \
+  --tmux-layout tiled \
+  --model "$MODEL" \
+  --effort high \
+  --notify attention \
+  --notify-sound \
+  -a alice "$AGENT_WORKTREE"</code></pre>
+        </div>
+
+        <p>Attach to the Claude pane with <code>tmux attach-session -t "$SESSION"</code>. Detach without stopping it using <kbd>Ctrl-b</kbd>, then <kbd>d</kbd>.</p>
+
+        <section class="card accent-blue">
+          <p class="kicker">Optional · Claude Remote Control</p>
+          <h3>Add <code>--remote</code></h3>
+          <p>In Claude mode, Abacus’s <code>--remote</code> switch keeps the session running locally and adds Claude’s <code>--remote-control "&lt;issue-id&gt; • &lt;issue-title&gt;"</code>. You can then steer the same local session from claude.ai or the Claude mobile app.</p>
+          <div class="code-block">
+            <div class="code-label"><span>Remotely steerable local session</span><button class="copy-button" type="button">Copy</button></div>
+            <pre><code>abacus --mode claude --remote \
+  --tmux-session "$SESSION" --tmux-window "$WINDOW" \
+  --model "$MODEL" --effort high \
+  --notify all --notify-sound \
+  -a alice "$AGENT_WORKTREE"</code></pre>
+          </div>
+          <p class="small"><strong>This is not Claude’s cloud-execution <code>--remote</code> flag.</strong> Abacus maps its switch to Remote Control. The agent process, files, tools, and network access remain on your machine. Sign into Claude Code with a claude.ai subscription and accept workspace trust before relying on unattended startup; Team and Enterprise organizations may also need an administrator to enable Remote Control.</p>
+        </section>
+
+        <div class="callout danger">
+          <span class="icon">!</span>
+          <p><strong>Ticket status ends the session.</strong> Claude must close the issue, reopen/unassign it for retry, or mark it blocked only after its code, commit, merge, and issue notes are complete. A process exit by itself is not success; Abacus reopens an issue that remains <code>in_progress</code>.</p>
+        </div>
+      </article>
+
+      <article id="multi-agent">
+        <div class="section-heading">
+          <span class="section-number">07</span>
+          <div>
+            <h2>Scale to multiple agents</h2>
+            <p class="section-intro">Each agent gets its own worktree and tmux pane, while every claim is made atomically against the same shared server-backed Beads database.</p>
+          </div>
+        </div>
+
+        <div class="callout danger">
+          <span class="icon">!</span>
+          <p><strong>Embedded mode will be rejected.</strong> Multi-agent preflight succeeds only when every worktree reports the same reachable server host, port, and database.</p>
+        </div>
+
+        <div class="code-block">
+          <div class="code-label"><span>Create enough independent work</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>cd "$REPO"
+bd create "Add health endpoint" --type task --priority 1 --json
+bd create "Document health endpoint" --type task --priority 2 --json
+bd ready --json
+
+bd -C "$WORKTREES/alice" dolt show --json
+bd -C "$WORKTREES/bob" dolt show --json
+abacus --health</code></pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-label"><span>Two Claude agents</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>abacus \
+  --mode claude \
+  --tmux-session "$SESSION" \
+  --tmux-window "$WINDOW" \
+  --tmux-layout tiled \
+  --model "$MODEL" \
+  --effort high \
+  --notify all \
+  --notify-sound \
+  -a alice "$WORKTREES/alice" \
+  -a bob "$WORKTREES/bob"</code></pre>
+        </div>
+
+        <div class="grid-3">
+          <section class="card">
+            <p class="kicker">Claim</p>
+            <h3>Atomic</h3>
+            <p class="small">Each loop lists unassigned ready work, keeps the highest Beads priority, and uses the newest comment to break a tie. The selected issue is claimed atomically with its own <code>BEADS_ACTOR</code>; lost races retry with bounded backoff and jitter.</p>
+          </section>
+          <section class="card">
+            <p class="kicker">Workspace</p>
+            <h3>Isolated</h3>
+            <p class="small">Alice and Bob can never resolve to the same directory. Each ticket gets an <code>abacus/&lt;id&gt;</code> branch.</p>
+          </section>
+          <section class="card">
+            <p class="kicker">Queue</p>
+            <h3>Shared</h3>
+            <p class="small">Both agents see ticket changes immediately through the shared Dolt server and cannot successfully claim the same issue.</p>
+          </section>
+        </div>
+      </article>
+
+      <article id="dashboard">
+        <div class="section-heading">
+          <span class="section-number">08</span>
+          <div>
+            <h2>Read the Abacus dashboard</h2>
+            <p class="section-intro">The main terminal is a live orchestration view—not the agent’s chat UI. Claude’s interactive interface remains in its tmux pane.</p>
+          </div>
+        </div>
+
+        <h3>Startup and an empty queue</h3>
+        <div class="terminal" aria-label="Example idle dashboard">
+          <div class="terminal-bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="terminal-title">abacus · waiting for work</span></div>
+          <pre><span class="t-cyan"> ABACUS</span>  <span class="t-dim">2 agents  •  sonnet  •  Ctrl-C to stop</span>
+<span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
+ <span class="t-cyan">○ alice     WAITING</span>              <span class="t-dim">2s</span> Looking for a ready ticket
+ <span class="t-cyan">○ bob       IDLE</span>                 <span class="t-dim">4s</span> No ready tickets; checking again soon
+<span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
+ <span class="t-dim">Agent loops started</span>
+<span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
+ LATEST COMMENTS (0)
+ <span class="t-dim">  No comments yet</span></pre>
+        </div>
+        <p class="muted small">Before preflight finishes, every row begins as <code>STARTING — Waiting for preflight</code> and the bottom status reads <code>Running preflight checks</code>. <code>IDLE</code> means the queue is healthy but empty; it is deliberately distinct from a red <code>RETRYING</code> state.</p>
+
+        <div class="terminal" aria-label="Example working dashboard">
+          <div class="terminal-bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="terminal-title">abacus · active work</span></div>
+          <pre><span class="t-cyan"> ABACUS</span>  <span class="t-dim">2 agents  •  sonnet  •  Ctrl-C to stop</span>
+<span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
+ <span class="t-green">● alice     WORKING</span>       <span class="t-dim">4m 12s</span> ab-a31 • agent CLI in pane %3
+              <span class="t-dim">↳ ab-a31 — Add health endpoint</span>
+              <span class="t-dim">↳ pane %3</span>
+ <span class="t-yellow">○ bob       PREPARING</span>          <span class="t-dim">8s</span> ab-f09 • preparing workspace and branch
+              <span class="t-dim">↳ ab-f09 — Document health endpoint</span>
+<span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
+ <span class="t-dim">Agent loops started</span>
+<span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
+ LATEST COMMENTS (3)
+ <span class="t-red">• ab-c72 — Choose the public endpoint name          • alice</span>
+ <span class="t-red">  ↳ Need approval for the public endpoint before I continue.</span>
+ <span class="t-yellow">• ab-a31 — Add health endpoint                       • alice</span>
+ <span class="t-yellow">  ↳ Endpoint implementation is ready for review.</span>
+ <span class="t-cyan">• ab-f09 — Document health endpoint                  • reviewer</span>
+ <span class="t-cyan">  ↳ Could we include a curl example in the guide?</span></pre>
+        </div>
+
+        <h3>Follow the latest Beads comments</h3>
+        <p>The dashboard polls Beads in the same five-second cycle used for user-attention detection, then places the newest comments at the very bottom, newest first. It shows up to 8 entries by default. Each entry puts the issue ID, a width-aware truncated issue title, and the comment author on a header line. The comment appears on the indented line beneath it, giving the text nearly the full terminal width before truncation. Newlines and repeated whitespace within the comment are collapsed onto that one body line.</p>
+
+        <table class="comparison">
+          <thead><tr><th>Color</th><th>Meaning</th><th>Precedence</th></tr></thead>
+          <tbody>
+            <tr><td><span class="t-red">Red</span></td><td>The comment belongs to an issue currently labelled <code>abacus:needs-user-attention</code>.</td><td>Highest; attention stays red even when an agent wrote it.</td></tr>
+            <tr><td><span class="t-yellow">Yellow</span></td><td>The author exactly matches a name configured with <code>-a</code>.</td><td>Used when the issue does not need user attention.</td></tr>
+            <tr><td><span class="t-cyan">Cyan</span></td><td>The author is not one of the agents managed by this Abacus run.</td><td>Default for human and other external authors.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-label"><span>Change the number of visible comments</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code><span class="comment"># The default is 8; valid values are 1 through 100.</span>
+abacus --latest-comments 12 \
+  --mode claude \
+  --tmux-session "$SESSION" \
+  --model "$MODEL" \
+  -a alice "$WORKTREES/alice" \
+  -a bob "$WORKTREES/bob"</code></pre>
+        </div>
+
+        <div class="callout info">
+          <span class="icon">i</span>
+          <p><strong>The feed belongs to the live TUI.</strong> Abacus reads it with <code>bd --readonly export</code>, which works with embedded and server-backed Beads storage. <code>--verbose</code> and redirected stderr use append-only logs instead, so they do not poll or print the latest-comments feed.</p>
+        </div>
+
+        <div class="state-key">
+          <div class="state"><strong class="t-violet">STARTING</strong>Pane or process startup.</div>
+          <div class="state"><strong class="t-cyan">WAITING</strong>Looking for a ready ticket.</div>
+          <div class="state"><strong class="t-cyan">IDLE</strong>No ready work; not a failure.</div>
+          <div class="state"><strong class="t-yellow">SYNCING</strong>Pulling remote Beads data.</div>
+          <div class="state"><strong class="t-yellow">CLEANING</strong>Discarding workspace changes.</div>
+          <div class="state"><strong class="t-yellow">PREPARING</strong>Selecting the issue branch.</div>
+          <div class="state"><strong class="t-green">WORKING</strong>Agent CLI is supervised.</div>
+          <div class="state"><strong class="t-yellow">FINALIZING</strong>Ticket terminal; cleaning up.</div>
+          <div class="state"><strong class="t-red">RECOVERING</strong>Preserving or reopening work.</div>
+          <div class="state"><strong class="t-red">RETRYING</strong>A command or loop failed.</div>
+          <div class="state"><strong class="t-cyan">STOPPED</strong>Finite run, shutdown, or halt.</div>
+        </div>
+
+        <h3>What each row carries</h3>
+        <table class="comparison">
+          <thead><tr><th>Field</th><th>Meaning</th><th>When visible</th></tr></thead>
+          <tbody>
+            <tr><td>Icon</td><td><code>●</code> for working; <code>○</code> for every other lifecycle state.</td><td>Always</td></tr>
+            <tr><td>Agent + state</td><td>Stable agent name and current lifecycle phase.</td><td>Always</td></tr>
+            <tr><td>Elapsed</td><td>Time since the lifecycle state last changed, refreshed every second.</td><td>Always</td></tr>
+            <tr><td>Detail</td><td>Human description such as “Looking for a ready ticket” or “ticket status unavailable.”</td><td>Always</td></tr>
+            <tr><td>Ticket</td><td>Issue ID and title.</td><td>After a claim until the row is cleared</td></tr>
+            <tr><td>Run location</td><td>tmux pane ID (for example <code>pane %3</code>) or direct process location.</td><td>After agent startup</td></tr>
+            <tr><td>Retries</td><td>Number of transitions into <code>RETRYING</code> for the current ticket.</td><td>When nonzero</td></tr>
+            <tr><td>Last exit</td><td>Observed agent process exit code, or <code>unknown</code>.</td><td>After process exit is observed</td></tr>
+          </tbody>
+        </table>
+
+        <div class="terminal" aria-label="Example recovery dashboard">
+          <div class="terminal-bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="terminal-title">abacus · recovery and attention</span></div>
+          <pre><span class="t-cyan"> ABACUS</span>  <span class="t-dim">2 agents  •  sonnet  •  Ctrl-C to stop</span>
+<span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
+ <span class="t-green">● alice     WORKING</span>          <span class="t-dim">1m 3s</span> ab-a31 • agent CLI in pane %3
+              <span class="t-dim">↳ ab-a31 — Add health endpoint</span>
+              <span class="t-dim">↳ pane %3</span>
+ <span class="t-red">○ bob       RETRYING</span>           <span class="t-dim">14s</span> Agent loop failed; retrying soon
+              <span class="t-dim">↳ ab-f09 — Document health endpoint</span>
+              <span class="t-dim">↳ pane %4 • retries 2 • last exit 17</span>
+<span class="t-red"> ! USER ATTENTION (2)</span>
+<span class="t-red">   ! ab-c72 — Choose the public endpoint name</span>
+<span class="t-red">   ! bob — All Beads push attempts failed; no more work will be claimed</span>
+<span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
+ <span class="t-dim">Agent loops started</span>
+ <span class="t-yellow">! bob: Agent CLI exited with code 17 while ab-f09 remained in_progress</span>
+<span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
+ LATEST COMMENTS (2)
+ <span class="t-red">• ab-c72 — Choose the public endpoint name          • alice</span>
+ <span class="t-red">  ↳ Need approval for the public endpoint before I continue.</span>
+ <span class="t-cyan">• ab-f09 — Document health endpoint                  • reviewer</span>
+ <span class="t-cyan">  ↳ Please retry after the push failure is resolved.</span></pre>
+        </div>
+
+        <div class="grid-2">
+          <section class="card">
+            <p class="kicker">Bottom area</p>
+            <h3>Status, warnings, comments</h3>
+            <p>The current system status appears beneath the divider, followed by the three most recent warnings and the latest-comments log.</p>
+          </section>
+          <section class="card">
+            <p class="kicker">Terminal behavior</p>
+            <h3>Interactive vs. logs</h3>
+            <p><code>--verbose</code> replaces the dashboard with timestamped state, warning, and external-command lines. Redirected stderr uses compact event lines. <code>NO_COLOR=1</code> keeps the live layout without ANSI colors.</p>
+          </section>
+        </div>
+
+        <details class="card">
+          <summary><strong>What <code>--verbose</code> looks like</strong></summary>
+          <p class="muted small">Verbose mode stops repainting the live dashboard and emits append-only event lines suitable for diagnostics.</p>
+          <div class="terminal" aria-label="Example verbose output">
+            <div class="terminal-bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="terminal-title">abacus --verbose</span></div>
+            <pre>14:22:01 [abacus] INFO       Preflight complete; starting Claude Code agent loops
+14:22:01 [alice] WAITING    Looking for a ready ticket
+14:22:01 [alice] DEBUG      bd ready --unassigned --exclude-label gt:slot --limit 0 --json
+14:22:01 [alice] DEBUG      bd update ab-a31 --claim --json
+14:22:02 [alice] PREPARING  ab-a31 • preparing workspace and branch
+14:22:03 [alice] WORKING    ab-a31 • agent CLI in pane %3
+14:22:08 [alice] WARNING    could not poll ab-a31 (1/3): command timed out</pre>
+          </div>
+        </details>
+
+        <h3>Shutdown summary</h3>
+        <div class="terminal" aria-label="Example run summary">
+          <div class="terminal-bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="terminal-title">abacus · final summary</span></div>
+          <pre>ABACUS RUN SUMMARY  •  18m 42s  •  5 outcomes
+────────────────────────────────────────────────────────────────────────
+alice            closed 2  reopened 0  blocked 0  interrupted 0
+bob              closed 1  reopened 1  blocked 1  interrupted 0
+USER ATTENTION
+! bob — All Beads push attempts failed; no more work will be claimed</pre>
+        </div>
+      </article>
+
+      <article id="attention">
+        <div class="section-heading">
+          <span class="section-number">09</span>
+          <div>
+            <h2>Ask for user attention without blocking</h2>
+            <p class="section-intro">Attention is a persistent Beads label, separate from ticket status. An agent can request a decision and continue working, or combine the label with <code>blocked</code> when it cannot proceed.</p>
+          </div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-label"><span>Raise, resolve, and block</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code><span class="comment"># Ask for awareness or a decision while continuing when possible.</span>
+bd comment &lt;issue-id&gt; "Choose the public endpoint name."
+bd update &lt;issue-id&gt; --add-label abacus:needs-user-attention --json
+
+<span class="comment"># Record your response as a comment, then remove the persistent alert.</span>
+abacus --resolve-attention &lt;issue-id&gt; "Approved: use public-api"
+
+<span class="comment"># Or remove the alert without adding a response comment.</span>
+abacus --resolve-attention &lt;issue-id&gt;
+
+<span class="comment"># If no work can continue, also mark the ticket blocked.</span>
+bd comment &lt;issue-id&gt; "Waiting for the API name decision."
+bd update &lt;issue-id&gt; --status blocked --json</code></pre>
+        </div>
+
+        <div class="grid-2">
+          <section class="card accent-green">
+            <p class="kicker">Resolve with context</p>
+            <h3>Leave a durable response</h3>
+            <p class="small">When you supply a quoted message, Abacus first adds that exact message as a Beads comment, then removes the attention label. If the comment fails, the label stays in place.</p>
+          </section>
+          <section class="card accent-blue">
+            <p class="kicker">Standalone command</p>
+            <h3>No agent run required</h3>
+            <p class="small">Run the command from the current Beads project. It does not require a model, worktree, tmux session, or agent harness, and it prints a concise confirmation instead of raw Beads JSON.</p>
+          </section>
+        </div>
+
+        <ul class="checklist">
+          <li>Abacus polls the attention label about every five seconds.</li>
+          <li>The dashboard shows issue ID and title, including closed issues.</li>
+          <li>The alert persists until the label is removed.</li>
+          <li>Desktop notices deduplicate by issue ID while the label remains.</li>
+          <li>Remove and later restore the label to notify again.</li>
+          <li>Persistent recovery failures also occupy the attention panel.</li>
+        </ul>
+
+        <div class="callout info">
+          <span class="icon">i</span>
+          <p><strong>Attention alerts and comments have separate views.</strong> The attention panel and desktop notification carry only the issue ID and title. Recent decision requests and responses can appear in the dashboard’s latest-comments log; use <code>bd show &lt;issue-id&gt;</code> when you need the complete, untruncated discussion.</p>
+        </div>
+      </article>
+
+      <article id="filters">
+        <div class="section-heading">
+          <span class="section-number">10</span>
+          <div>
+            <h2>Control which issues enter the pool</h2>
+            <p class="section-intro">Dispatch filters are global to the Abacus run and are passed literally to every fresh claim and same-agent resume lookup.</p>
+          </div>
+        </div>
+
+        <table class="comparison">
+          <thead><tr><th>Argument</th><th>Repeat?</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>--label &lt;label&gt;</code></td><td>Yes</td><td>Require the label. Repeating it requires all supplied labels.</td></tr>
+            <tr><td><code>--exclude-label &lt;label&gt;</code></td><td>Yes</td><td>Reject issues carrying any supplied excluded label.</td></tr>
+            <tr><td><code>--type &lt;types&gt;</code></td><td>No</td><td>Pass one Beads type filter; comma-separated values such as <code>bug,task</code> are allowed.</td></tr>
+            <tr><td><code>--priority &lt;0…4&gt;</code></td><td>No</td><td>Match one exact priority: <code>0</code> is highest, <code>4</code> is lowest.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-label"><span>Filtered multi-agent run</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>abacus --mode claude \
+  --tmux-session "$SESSION" --tmux-window "$WINDOW" \
+  --model "$MODEL" \
+  --label abacus-ready \
+  --label team:platform \
+  --exclude-label needs-human \
+  --exclude-label on-hold \
+  --type bug,task \
+  --priority 1 \
+  -a alice "$WORKTREES/alice" \
+  -a bob "$WORKTREES/bob"</code></pre>
+        </div>
+
+        <div class="callout success">
+          <span class="icon">✓</span>
+          <p><strong>Beads still decides readiness.</strong> Dependencies and ticket status continue to govern <code>bd ready</code>. Abacus always adds <code>--exclude-label gt:slot</code>, so the merge coordination bead can never become coding work.</p>
+        </div>
+
+        <p class="muted small">Filter values must be nonempty and contain no whitespace. <code>--type</code> and <code>--priority</code> may each appear only once. There are no per-agent filter sets in one invocation.</p>
+      </article>
+
+      <article id="notifications">
+        <div class="section-heading">
+          <span class="section-number">11</span>
+          <div>
+            <h2>Choose the right notification level</h2>
+            <p class="section-intro">Desktop notifications are generated by Abacus itself, so the behavior is the same for Claude Code, Codex, OpenCode, and attached OpenCode Server sessions.</p>
+          </div>
+        </div>
+
+        <table class="comparison">
+          <thead><tr><th>Mode</th><th>What reaches the desktop</th><th>Good fit</th></tr></thead>
+          <tbody>
+            <tr><td><code>--notify off</code></td><td>Nothing. This is the default.</td><td>Foreground supervision or CI</td></tr>
+            <tr><td><code>--notify attention</code></td><td>New attention-labelled issues, blocked outcomes, and persistent recovery failures.</td><td>Long-running work with low noise</td></tr>
+            <tr><td><code>--notify all</code></td><td>Everything in <code>attention</code>, plus closed, reopened, and interrupted outcomes and the final run totals.</td><td>Demos and unattended runs</td></tr>
+          </tbody>
+        </table>
+
+        <div class="grid-2">
+          <div>
+            <div class="notification">
+              <span class="notification-icon">A</span>
+              <div><strong>Abacus needs your attention</strong><span>ab-c72 — Choose the public endpoint name</span></div>
+            </div>
+            <div class="notification">
+              <span class="notification-icon">A</span>
+              <div><strong>Abacus: alice closed</strong><span>ab-a31 — Add health endpoint was closed.</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="notification">
+              <span class="notification-icon">!</span>
+              <div><strong>Abacus: bob needs attention</strong><span>All Beads push attempts failed; no more work will be claimed</span></div>
+            </div>
+            <div class="notification">
+              <span class="notification-icon">A</span>
+              <div><strong>Abacus run finished</strong><span>5 outcomes: 3 closed, 1 reopened, 1 blocked, 0 interrupted.</span></div>
+            </div>
+          </div>
+        </div>
+
+        <h3>Payload and urgency</h3>
+        <table class="comparison">
+          <thead><tr><th>Event</th><th>Title/body information</th><th>Urgency</th></tr></thead>
+          <tbody>
+            <tr><td>Attention label</td><td>Issue ID and title</td><td>Critical</td></tr>
+            <tr><td>Ticket outcome</td><td>Agent name, outcome, issue ID, and title</td><td>Critical when blocked; normal otherwise</td></tr>
+            <tr><td>Persistent failure</td><td>Agent/source and the recovery, cleanup, or synchronization error</td><td>Critical</td></tr>
+            <tr><td>Final summary</td><td>Total closed, reopened, blocked, and interrupted counts</td><td>Critical if any issue was blocked</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-label"><span>Notification examples</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code><span class="comment"># Important events only.</span>
+abacus --notify attention --notify-sound ...
+
+<span class="comment"># Every outcome and the run summary.</span>
+abacus --notify all --notify-sound ...</code></pre>
+        </div>
+
+        <div class="grid-2">
+          <section class="card">
+            <p class="kicker">macOS</p>
+            <h3><code>osascript</code></h3>
+            <p class="small">Abacus invokes <code>/usr/bin/osascript</code>. Notification text is supplied through environment variables rather than interpolated into AppleScript.</p>
+          </section>
+          <section class="card">
+            <p class="kicker">Linux</p>
+            <h3><code>notify-send</code></h3>
+            <p class="small">Install <code>notify-send</code> and run within a graphical notification session. Abacus passes title/body as separate process arguments.</p>
+          </section>
+        </div>
+
+        <div class="callout info">
+          <span class="icon">i</span>
+          <p><strong>Sound is opt-in.</strong> <code>--notify-sound</code> requires <code>attention</code> or <code>all</code>. It requests the platform sound; when desktop delivery fails, Abacus may emit a terminal bell. Delivery is best effort, appears only in verbose diagnostics when unavailable, and never changes orchestration outcomes.</p>
+        </div>
+
+        <p class="muted small">Notification text can expose issue titles and operational errors on the desktop. Persistent errors may contain an issue ID, path, pane/process location, or exception message. Notes, prompts, source code, and command output are not intentionally included.</p>
+      </article>
+
+      <article id="operations">
+        <div class="section-heading">
+          <span class="section-number">12</span>
+          <div>
+            <h2>Operate and stop safely</h2>
+            <p class="section-intro">Abacus is designed to make terminal states explicit and to return unfinished claims to the queue when a process disappears or the orchestrator stops.</p>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <section class="card accent-green">
+            <p class="kicker">Continuous</p>
+            <h3>Default</h3>
+            <p class="small">Wait forever, poll every five seconds, and retry transient orchestration failures.</p>
+          </section>
+          <section class="card accent-blue">
+            <p class="kicker">Finite</p>
+            <h3><code>--once</code> / <code>--drain</code></h3>
+            <p class="small">Process one ticket per agent, or empty the ready queue, then print a summary and exit.</p>
+          </section>
+          <section class="card accent-yellow">
+            <p class="kicker">Validation</p>
+            <h3><code>--check</code></h3>
+            <p class="small">Run preflight without cleaning, claiming, creating panes, or printing a run summary.</p>
+          </section>
+        </div>
+
+        <div class="code-block">
+          <div class="code-label"><span>Useful operator commands</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>abacus --health
+bd ready --json
+bd list --all
+bd show &lt;issue-id&gt; --json
+tmux list-panes -t "$SESSION" -F '#{pane_id} #{pane_title}'
+tmux attach-session -t "$SESSION"</code></pre>
+        </div>
+
+        <ol class="steps">
+          <li><strong>Stop Abacus with <kbd>Ctrl-C</kbd>.</strong> It interrupts active panes, checks ticket state, and attempts to reopen work still marked <code>in_progress</code>.</li>
+          <li><strong>Read the run summary.</strong> Confirm closed, reopened, blocked, and interrupted counts and inspect any persistent attention section.</li>
+          <li><strong>Remove tmux yourself.</strong> Abacus owns its panes, not your session or window: <code>tmux kill-session -t "$SESSION"</code>.</li>
+          <li><strong>Inspect worktrees before reuse.</strong> Agents are responsible for committing and following the repository’s serialized merge workflow.</li>
+        </ol>
+
+        <h3>Source notes</h3>
+        <ul class="source-list">
+          <li><a href="../SPEC.md">Abacus product specification</a> and <a href="../README.md">repository README</a></li>
+          <li>Bundled skill definitions: <a href="../skills/abacus-beads-planner/SKILL.md">planner</a>, <a href="../skills/abacus-beads-doctor/SKILL.md">doctor</a>, and <a href="../skills/abacus-beads-attention/SKILL.md">attention</a></li>
+          <li><a href="https://github.com/gastownhall/beads/blob/main/docs/DOLT.md">Beads: Dolt backend and storage modes</a></li>
+          <li><a href="https://github.com/gastownhall/beads/blob/main/docs/reference/faq.md">Beads FAQ: worktrees, embedded mode, and server mode</a></li>
+          <li><a href="https://code.claude.com/docs/en/remote-control">Claude Code: Remote Control</a></li>
+          <li><a href="https://code.claude.com/docs/en/cli-usage">Claude Code CLI reference</a></li>
+        </ul>
+      </article>
+
+      <footer>
+        <p>Abacus quick start · self-contained HTML · derived from the repository’s CLI, preflight, output, notification, and supervision code.</p>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    for (const button of document.querySelectorAll('.copy-button')) {
+      button.addEventListener('click', async () => {
+        const code = button.closest('.code-block')?.querySelector('code')?.innerText;
+        if (!code) return;
+        try {
+          await navigator.clipboard.writeText(code);
+          const previous = button.textContent;
+          button.textContent = 'Copied';
+          setTimeout(() => { button.textContent = previous; }, 1200);
+        } catch {
+          button.textContent = 'Select text';
+        }
+      });
+    }
+
+    const links = [...document.querySelectorAll('.side-nav a')];
+    const targets = links
+      .map(link => document.querySelector(link.getAttribute('href')))
+      .filter(Boolean);
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries
+        .filter(entry => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (!visible) return;
+      for (const link of links) {
+        link.classList.toggle('active', link.getAttribute('href') === `#${visible.target.id}`);
+      }
+    }, { rootMargin: '-15% 0px -72% 0px', threshold: 0 });
+    for (const target of targets) observer.observe(target);
+  </script>
+</body>
+</html>

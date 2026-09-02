@@ -22,6 +22,7 @@ internal interface IAgentOutput
     Task SetAgentAsync(string agentName, AgentActivity activity, string detail);
     Task SetTicketAsync(string agentName, string issueId, string? title);
     Task SetUserAttentionIssuesAsync(IReadOnlyList<BeadsIssue> issues);
+    Task SetLatestCommentsAsync(IReadOnlyList<BeadsComment> comments);
     Task SetPersistentAlertAsync(string source, string message);
     Task ClearTicketAsync(string agentName);
     Task SetRunLocationAsync(string agentName, string location);
@@ -71,6 +72,13 @@ internal static class OutputExtensions
                 ? Task.CompletedTask
                 : output.WriteLineAsync(
                     $"[abacus] ATTENTION: {string.Join(", ", issues.Select(FormatIssue))}");
+
+    public static Task SetLatestCommentsAsync(
+        this TextWriter output,
+        IReadOnlyList<BeadsComment> comments) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.SetLatestCommentsAsync(comments)
+            : Task.CompletedTask;
 
     public static Task SetPersistentAlertAsync(
         this TextWriter output,
@@ -163,6 +171,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private readonly Queue<string> warnings = new();
     private readonly Dictionary<string, string> persistentAlerts = new(StringComparer.Ordinal);
     private IReadOnlyList<BeadsIssue> userAttentionIssues = [];
+    private IReadOnlyList<BeadsComment> latestComments = [];
     private readonly Timer? refreshTimer;
     private string systemStatus = "Running preflight checks";
     private bool rendered;
@@ -204,6 +213,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     }
 
     public override Encoding Encoding => writer.Encoding;
+
+    internal bool IsInteractiveDashboard => interactive;
 
     public Task SetAgentAsync(string agentName, AgentActivity activity, string detail)
     {
@@ -300,6 +311,26 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             else if (changed)
             {
                 WriteEvent(source, "ATTENTION", message);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task SetLatestCommentsAsync(IReadOnlyList<BeadsComment> comments)
+    {
+        lock (gate)
+        {
+            var snapshot = comments.ToArray();
+            if (latestComments.SequenceEqual(snapshot))
+            {
+                return Task.CompletedTask;
+            }
+
+            latestComments = snapshot;
+            if (interactive)
+            {
+                RenderDashboard();
             }
         }
 
@@ -546,6 +577,27 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             builder.Append("\u001b[K\n");
         }
 
+        builder.Append(Color(Dim, line)).Append("\u001b[K\n");
+        builder.Append(Color(Bold, $" LATEST COMMENTS ({latestComments.Count})")).Append("\u001b[K\n");
+        if (latestComments.Count == 0)
+        {
+            builder.Append(Color(Dim, "   No comments yet")).Append("\u001b[K\n");
+        }
+        else
+        {
+            foreach (var comment in latestComments)
+            {
+                var commentColor = comment.NeedsUserAttention
+                    ? Red
+                    : agents.ContainsKey(comment.Author) ? Yellow : Cyan;
+                var lines = FormatLatestCommentLines(comment, width);
+                builder.Append(Color(commentColor, lines.Header));
+                builder.Append("\u001b[K\n");
+                builder.Append(Color(commentColor, lines.Comment));
+                builder.Append("\u001b[K\n");
+            }
+        }
+
         builder.Append("\u001b[J");
         writer.Write(builder.ToString());
         writer.Flush();
@@ -613,7 +665,39 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         }
     }
 
-    private static string Truncate(string value, int width)
+    internal static (string Header, string Comment) FormatLatestCommentLines(BeadsComment comment, int width)
+    {
+        if (width <= 0)
+        {
+            return (string.Empty, string.Empty);
+        }
+
+        var issueWidth = Math.Clamp(width / 5, 8, 18);
+        var authorWidth = Math.Clamp(width / 7, 6, 16);
+        const int headerSeparatorsWidth = 9;
+        var titleWidth = Math.Max(1, width - issueWidth - authorWidth - headerSeparatorsWidth);
+        var issueTitle = string.IsNullOrWhiteSpace(comment.IssueTitle)
+            ? "(untitled)"
+            : SingleLine(comment.IssueTitle);
+        var author = string.IsNullOrWhiteSpace(comment.Author)
+            ? "(unknown)"
+            : SingleLine(comment.Author);
+        const string commentPrefix = "   ↳ ";
+
+        var header = $" • {Truncate(SingleLine(comment.IssueId), issueWidth).PadRight(issueWidth)}" +
+            $" — {Truncate(issueTitle, titleWidth).PadRight(titleWidth)}" +
+            $" • {Truncate(author, authorWidth).PadRight(authorWidth)}";
+        var commentLine = commentPrefix + Truncate(
+            SingleLine(comment.Text),
+            Math.Max(0, width - commentPrefix.Length));
+
+        return (Truncate(header, width), Truncate(commentLine, width));
+    }
+
+    private static string SingleLine(string value) =>
+        string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    internal static string Truncate(string value, int width)
     {
         if (width <= 0)
         {

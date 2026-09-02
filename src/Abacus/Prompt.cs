@@ -27,7 +27,7 @@ public static class Prompt
           bd comment {{issueId}} "<why user attention is no longer needed>"
           bd update {{issueId}} --remove-label {{Beads.NeedsUserAttentionLabel}} --json
 
-        When you are completely finished, add a summary of what you did as a comment:
+        When you are completely finished, add a small message of what you did as a comment:
 
           bd comment {{issueId}} "<summary of completed work>"
 

@@ -37,12 +37,21 @@ public enum IssueStatus
 
 public sealed record BeadsIssue(string Id, IssueStatus Status, string? Title = null);
 
+public sealed record BeadsComment(
+    string Id,
+    string IssueId,
+    string? IssueTitle,
+    string Author,
+    string Text,
+    DateTimeOffset CreatedAt,
+    bool NeedsUserAttention);
+
 public sealed class Beads(CommandRunner runner, string executable = "bd")
 {
+    private sealed record ReadyCandidate(BeadsIssue Issue, int? Priority, bool HasComments);
+
     private const string MergeSlotLabel = "gt:slot";
     public const string NeedsUserAttentionLabel = "abacus:needs-user-attention";
-    public const string UserAttentionResponsePrefix =
-        "User Responded to a previous attention callout: ";
 
     public async Task<CommandResult> ResolveUserAttentionAsync(
         string workspace,
@@ -55,7 +64,7 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             var comment = await RunAsync(
                 workspace,
                 agentName: null,
-                ["comment", issueId, UserAttentionResponsePrefix + message, "--json"],
+                ["comment", issueId, message, "--json"],
                 cancellationToken);
             EnsureCommandSuccess(comment, $"record user response for '{issueId}'");
         }
@@ -81,77 +90,158 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         DispatchFilters filters,
         CancellationToken cancellationToken)
     {
-        var result = await RunClaimWithRetryAsync(workspace, agentName, filters, cancellationToken);
-        EnsureCommandSuccess(result, "claim ready work");
-
-        var claim = ParseSingleClaim(result.StandardOutput, "claim result");
+        var claim = await TryClaimPreferredReadyAsync(
+            workspace,
+            agentName,
+            filters,
+            assignee: null,
+            cancellationToken);
         if (claim is not null)
         {
             return claim;
         }
 
         // Reopened work created by older Abacus versions can remain assigned to
-        // this agent. It is invisible to bd ready --claim, so resume only work
-        // already owned by this identity and leave other agents' work alone.
-        var assignedResult = await RunWithActorAsync(
+        // this agent. It is excluded by the fresh unassigned lookup, so resume
+        // only work already owned by this identity and leave other agents' work alone.
+        return await TryClaimPreferredReadyAsync(
             workspace,
             agentName,
-            ReadyArguments(filters, agentName),
-            cancellationToken);
-        EnsureCommandSuccess(assignedResult, "find ready work assigned to this agent");
-
-        var assignedIssues = ParseIssues(assignedResult.StandardOutput, "assigned ready result");
-        if (assignedIssues.Count is 0)
-        {
-            return null;
-        }
-
-        var assignedIssue = assignedIssues[0];
-        if (assignedIssue.Status is not IssueStatus.Open)
-        {
-            throw new BeadsException($"ready issue '{assignedIssue.Id}' was not open");
-        }
-
-        var reclaimResult = await RunWithActorAsync(
-            workspace,
+            filters,
             agentName,
-            ["update", assignedIssue.Id, "--claim", "--json"],
             cancellationToken);
-        EnsureCommandSuccess(reclaimResult, $"reclaim ready work '{assignedIssue.Id}'");
-        return ParseSingleClaim(reclaimResult.StandardOutput, "reclaim result")
-            ?? throw new BeadsException($"bd update --claim returned no issue for '{assignedIssue.Id}'");
     }
 
-    private async Task<CommandResult> RunClaimWithRetryAsync(
+    private async Task<BeadsIssue?> TryClaimPreferredReadyAsync(
         string workspace,
         string agentName,
         DispatchFilters filters,
+        string? assignee,
         CancellationToken cancellationToken)
     {
         for (var attempt = 1; ; attempt++)
         {
-            var result = await RunWithActorAsync(
+            var readyResult = await RunWithActorAsync(
                 workspace,
                 agentName,
-                ReadyArguments(filters, claim: true),
+                ReadyArguments(filters, assignee, unassigned: assignee is null),
                 cancellationToken);
-            if (result.Succeeded
-                || !IsSerializationFailure(result))
+            EnsureCommandSuccess(
+                readyResult,
+                assignee is null
+                    ? "find ready work"
+                    : "find ready work assigned to this agent");
+
+            var candidates = ParseReadyCandidates(readyResult.StandardOutput, "ready result");
+            if (candidates.Count is 0)
             {
-                return result;
+                return null;
             }
 
-            // Dolt uses optimistic concurrency. A conflicting transaction is
-            // rolled back safely and reports SQL error 1213/SQLSTATE 40001,
-            // so retry the complete atomic claim with capped backoff and
-            // jitter. This is process-independent when several Abacus instances
-            // share the same Beads database.
-            var exponentialMilliseconds = 25 * (1 << Math.Min(attempt - 1, 4));
-            var jitterMilliseconds = Random.Shared.Next(0, exponentialMilliseconds + 1);
-            await Task.Delay(
-                TimeSpan.FromMilliseconds(exponentialMilliseconds + jitterMilliseconds),
+            var selected = await SelectPreferredCandidateAsync(
+                workspace,
+                agentName,
+                candidates,
                 cancellationToken);
+            if (selected.Issue.Status is not IssueStatus.Open)
+            {
+                throw new BeadsException($"ready issue '{selected.Issue.Id}' was not open");
+            }
+
+            var claimResult = await RunWithActorAsync(
+                workspace,
+                agentName,
+                ["update", selected.Issue.Id, "--claim", "--json"],
+                cancellationToken);
+            if (claimResult.Succeeded)
+            {
+                return ParseSingleClaim(claimResult.StandardOutput, "claim result")
+                    ?? throw new BeadsException(
+                        $"bd update --claim returned no issue for '{selected.Issue.Id}'");
+            }
+
+            if (!IsClaimContention(claimResult))
+            {
+                EnsureCommandSuccess(claimResult, $"claim ready work '{selected.Issue.Id}'");
+            }
+
+            // The chosen issue can be claimed by another agent after the ready
+            // snapshot. Dolt serialization failures represent the same safe,
+            // rolled-back race. Re-read the complete candidate set so the next
+            // atomic claim honors both Beads priority and the comment tie-break.
+            await DelayClaimRetryAsync(attempt, cancellationToken);
         }
+    }
+
+    private async Task<ReadyCandidate> SelectPreferredCandidateAsync(
+        string workspace,
+        string agentName,
+        IReadOnlyList<ReadyCandidate> candidates,
+        CancellationToken cancellationToken)
+    {
+        var first = candidates[0];
+        var finalists = first.Priority is null
+            ? candidates
+            : candidates.Where(candidate => candidate.Priority == first.Priority).ToArray();
+        if (finalists.Count is 1)
+        {
+            return first;
+        }
+
+        var candidatesWithComments = finalists.Where(static candidate => candidate.HasComments).ToArray();
+        if (candidatesWithComments.Length is 0)
+        {
+            return first;
+        }
+
+        var arguments = new List<string> { "show" };
+        arguments.AddRange(candidatesWithComments.Select(static candidate => candidate.Issue.Id));
+        arguments.Add("--include-comments");
+        arguments.Add("--json");
+        var detailsResult = await RunWithActorAsync(
+            workspace,
+            agentName,
+            arguments,
+            cancellationToken);
+        EnsureCommandSuccess(detailsResult, "read ready issue comments");
+
+        var newestComments = ParseNewestCommentTimes(detailsResult.StandardOutput);
+        var selected = first;
+        DateTimeOffset? newestSelectedComment = null;
+        foreach (var candidate in finalists)
+        {
+            if (!newestComments.TryGetValue(candidate.Issue.Id, out var newestComment)
+                || newestSelectedComment is not null && newestComment <= newestSelectedComment)
+            {
+                continue;
+            }
+
+            selected = candidate;
+            newestSelectedComment = newestComment;
+        }
+
+        return selected;
+    }
+
+    private static bool IsClaimContention(CommandResult result)
+    {
+        if (IsSerializationFailure(result))
+        {
+            return true;
+        }
+
+        var detail = $"{result.StandardOutput}\n{result.StandardError}";
+        return detail.Contains("already claimed", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("issue not claimable", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task DelayClaimRetryAsync(int attempt, CancellationToken cancellationToken)
+    {
+        var exponentialMilliseconds = 25 * (1 << Math.Min(attempt - 1, 4));
+        var jitterMilliseconds = Random.Shared.Next(0, exponentialMilliseconds + 1);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(exponentialMilliseconds + jitterMilliseconds),
+            cancellationToken);
     }
 
     public Task<BeadsIssue?> TryClaimReadyAsync(
@@ -163,12 +253,12 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
     private static IReadOnlyList<string> ReadyArguments(
         DispatchFilters filters,
         string? assignee = null,
-        bool claim = false)
+        bool unassigned = false)
     {
         var arguments = new List<string> { "ready" };
-        if (claim)
+        if (unassigned)
         {
-            arguments.Add("--claim");
+            arguments.Add("--unassigned");
         }
 
         if (assignee is not null)
@@ -203,6 +293,8 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             arguments.Add(filters.Priority.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
+        arguments.Add("--limit");
+        arguments.Add("0");
         arguments.Add("--json");
         return arguments;
     }
@@ -262,6 +354,26 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             cancellationToken);
         EnsureCommandSuccess(result, "list issues needing user attention");
         return ParseIssues(result.StandardOutput, "user-attention issue result");
+    }
+
+    public async Task<IReadOnlyList<BeadsComment>> GetLatestCommentsAsync(
+        string workspace,
+        string agentName,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
+
+        // Export is available in both embedded and server-backed Dolt modes,
+        // unlike bd sql. Read-only mode guards this dashboard-only query from
+        // accidentally mutating the project as the CLI evolves.
+        var result = await RunWithActorAsync(
+            workspace,
+            agentName,
+            ["--readonly", "export"],
+            cancellationToken);
+        EnsureCommandSuccess(result, "read latest comments");
+        return ParseLatestComments(result.StandardOutput, count);
     }
 
     public Task<CommandResult> PullAsync(
@@ -402,6 +514,191 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
         {
             throw new BeadsException($"Beads returned invalid {context} JSON: {exception.Message}");
+        }
+    }
+
+    private static IReadOnlyList<ReadyCandidate> ParseReadyCandidates(string json, string context)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind is not JsonValueKind.Array)
+            {
+                throw new JsonException("expected an array");
+            }
+
+            var candidates = new List<ReadyCandidate>();
+            foreach (var element in document.RootElement.EnumerateArray())
+            {
+                var id = element.GetProperty("id").GetString();
+                var status = element.GetProperty("status").GetString();
+                var title = element.TryGetProperty("title", out var titleElement)
+                    ? titleElement.GetString()
+                    : null;
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(status))
+                {
+                    throw new JsonException("issue id or status is missing");
+                }
+
+                int? priority = element.TryGetProperty("priority", out var priorityElement)
+                    && priorityElement.TryGetInt32(out var parsedPriority)
+                    ? parsedPriority
+                    : null;
+                var hasComments = element.TryGetProperty("comment_count", out var commentCountElement)
+                    && commentCountElement.TryGetInt32(out var commentCount)
+                    && commentCount > 0;
+                candidates.Add(new ReadyCandidate(
+                    new BeadsIssue(id, ParseStatus(status), title),
+                    priority,
+                    hasComments));
+            }
+
+            return candidates;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            throw new BeadsException($"Beads returned invalid {context} JSON: {exception.Message}");
+        }
+    }
+
+    private static IReadOnlyDictionary<string, DateTimeOffset> ParseNewestCommentTimes(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind is not JsonValueKind.Array)
+            {
+                throw new JsonException("expected an array");
+            }
+
+            var newestComments = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+            foreach (var issue in document.RootElement.EnumerateArray())
+            {
+                var issueId = issue.GetProperty("id").GetString();
+                if (string.IsNullOrWhiteSpace(issueId))
+                {
+                    throw new JsonException("issue id is missing");
+                }
+
+                if (!issue.TryGetProperty("comments", out var comments)
+                    || comments.ValueKind is not JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var comment in comments.EnumerateArray())
+                {
+                    var createdAtText = comment.GetProperty("created_at").GetString();
+                    if (!DateTimeOffset.TryParse(
+                        createdAtText,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal
+                            | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                        out var createdAt))
+                    {
+                        throw new JsonException($"comment timestamp is missing for issue '{issueId}'");
+                    }
+
+                    if (!newestComments.TryGetValue(issueId, out var existing)
+                        || createdAt > existing)
+                    {
+                        newestComments[issueId] = createdAt;
+                    }
+                }
+            }
+
+            return newestComments;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            throw new BeadsException($"Beads returned invalid ready issue comment JSON: {exception.Message}");
+        }
+    }
+
+    internal static IReadOnlyList<BeadsComment> ParseLatestComments(string jsonLines, int count)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
+
+        try
+        {
+            var comments = new List<BeadsComment>();
+            using var reader = new StringReader(jsonLines);
+            while (reader.ReadLine() is { } line)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                using var document = JsonDocument.Parse(line);
+                var issue = document.RootElement;
+                if (!issue.TryGetProperty("id", out var issueIdElement))
+                {
+                    continue;
+                }
+
+                var issueId = issueIdElement.GetString();
+                if (string.IsNullOrWhiteSpace(issueId))
+                {
+                    throw new JsonException("issue id is missing");
+                }
+
+                var issueTitle = issue.TryGetProperty("title", out var titleElement)
+                    ? titleElement.GetString()
+                    : null;
+                var needsUserAttention = issue.TryGetProperty("labels", out var labelsElement)
+                    && labelsElement.ValueKind is JsonValueKind.Array
+                    && labelsElement.EnumerateArray().Any(static label =>
+                        string.Equals(
+                            label.GetString(),
+                            NeedsUserAttentionLabel,
+                            StringComparison.Ordinal));
+
+                if (!issue.TryGetProperty("comments", out var commentsElement)
+                    || commentsElement.ValueKind is not JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var comment in commentsElement.EnumerateArray())
+                {
+                    var id = comment.GetProperty("id").GetString();
+                    var author = comment.GetProperty("author").GetString();
+                    var text = comment.GetProperty("text").GetString();
+                    var createdAtText = comment.GetProperty("created_at").GetString();
+                    if (string.IsNullOrWhiteSpace(id)
+                        || author is null
+                        || text is null
+                        || !DateTimeOffset.TryParse(
+                            createdAtText,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.AssumeUniversal
+                                | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                            out var createdAt))
+                    {
+                        throw new JsonException($"comment data is missing for issue '{issueId}'");
+                    }
+
+                    comments.Add(new BeadsComment(
+                        id,
+                        issueId,
+                        issueTitle,
+                        author,
+                        text,
+                        createdAt,
+                        needsUserAttention));
+                }
+            }
+
+            return comments
+                .OrderByDescending(static comment => comment.CreatedAt)
+                .ThenByDescending(static comment => comment.Id, StringComparer.Ordinal)
+                .Take(count)
+                .ToArray();
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            throw new BeadsException($"Beads returned invalid comment export JSON: {exception.Message}");
         }
     }
 

@@ -51,7 +51,8 @@ public sealed record Options(
     DispatchFilters? DispatchFilters = null,
     TimeSpan? TicketTimeout = null,
     NotificationMode NotificationMode = NotificationMode.Off,
-    bool NotificationSound = false)
+    bool NotificationSound = false,
+    int LatestCommentCount = 8)
 {
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -69,7 +70,8 @@ public sealed record Options(
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <model> [--effort <effort>] [--remote] " +
         "[--label <label>] [--exclude-label <label>] [--type <types>] [--priority <priority>] " +
-        "[--ticket-timeout <duration>] [--notify <off|attention|all>] [--notify-sound] " +
+        "[--ticket-timeout <duration>] [--latest-comments <count>] " +
+        "[--notify <off|attention|all>] [--notify-sound] " +
         "[--opencode-server <host:port>] [--once | --drain | --check] [--verbose] " +
         "-a <agent_name> <git_workspace_path> [-a ...]";
 
@@ -89,6 +91,7 @@ public sealed record Options(
             [--label <label>] [--exclude-label <label>] \
             [--type <types>] [--priority <priority>] \
             [--ticket-timeout <duration>] \
+            [--latest-comments <count>] \
             [--notify <off|attention|all>] [--notify-sound] \
             [--opencode-server <host:port>] \
             [--once | --drain | --check] \
@@ -109,10 +112,12 @@ public sealed record Options(
         Resolve user attention:
           --resolve-attention removes the abacus:needs-user-attention label from
           one Beads issue. If a quoted message is supplied, Abacus first adds a
-          Beads comment: "User Responded to a previous attention callout: <message>".
+          Beads comment containing that exact message.
 
         Output:
-          The default interactive display is a live dashboard of agent activity.
+          The default interactive display is a live dashboard of agent activity
+          with the latest Beads comments at the bottom. --latest-comments sets
+          the number shown from 1 through 100 and defaults to 8.
           Use --verbose (or -v) for timestamped state changes and subprocess commands.
 
         Agent modes:
@@ -134,6 +139,8 @@ public sealed record Options(
           --label and --exclude-label are repeatable. --type accepts the literal
           Beads type filter, including comma-separated values. --priority accepts
           0 (highest) through 4 (lowest). Filters apply to every ready claim.
+          Highest-priority ties prefer the issue with the newest comment, or the
+          first Beads result when none of the tied issues has comments.
 
         Ticket runtime guard:
           --ticket-timeout interrupts an agent after a positive duration such as
@@ -245,6 +252,8 @@ public sealed record Options(
         var notificationMode = NotificationMode.Off;
         var notificationModeSpecified = false;
         var notificationSound = false;
+        var latestCommentCount = 8;
+        var latestCommentCountSpecified = false;
         var agents = new List<AgentOptions>();
 
         for (var index = 0; index < arguments.Count; index++)
@@ -314,6 +323,15 @@ public sealed record Options(
                     }
 
                     ticketTimeout = ParseDuration(ReadValue(arguments, ref index, argument));
+                    break;
+                case "--latest-comments":
+                    if (latestCommentCountSpecified)
+                    {
+                        throw new OptionsException("--latest-comments can only be specified once");
+                    }
+
+                    latestCommentCount = ParseLatestCommentCount(ReadValue(arguments, ref index, argument));
+                    latestCommentCountSpecified = true;
                     break;
                 case "--notify":
                     if (notificationModeSpecified)
@@ -478,7 +496,8 @@ public sealed record Options(
                 new DispatchFilters(labels.AsReadOnly(), excludedLabels.AsReadOnly(), issueType, priority),
                 ticketTimeout,
                 notificationMode,
-                notificationSound),
+                notificationSound,
+                latestCommentCount),
             ShowHelp: false);
     }
 
@@ -504,6 +523,16 @@ public sealed record Options(
         }
 
         return priority;
+    }
+
+    private static int ParseLatestCommentCount(string value)
+    {
+        if (!int.TryParse(value, out var count) || count is < 1 or > 100)
+        {
+            throw new OptionsException("--latest-comments must be an integer from 1 through 100");
+        }
+
+        return count;
     }
 
     private static TimeSpan ParseDuration(string value)

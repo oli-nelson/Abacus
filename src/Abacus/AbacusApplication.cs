@@ -21,9 +21,11 @@ public sealed class AbacusApplication(
             await log.SystemAsync("Agent loops started");
             var beads = new Beads(runner, preflight.Tools.Bd);
             var git = new Git(runner, preflight.Tools.Git);
-            var attentionMonitor = MonitorUserAttentionAsync(
+            var dashboardMonitor = MonitorDashboardAsync(
                 beads,
                 preflight.Agents[0],
+                preflight.Options.LatestCommentCount,
+                includeLatestComments: log is ConsoleOutput { IsInteractiveDashboard: true },
                 linkedCancellation.Token);
             IAgentHost agentHost = preflight.Options.TmuxSession is null
                 ? new DirectOpenCodeServerHost(runner, log, preflight.Tools.AgentExecutable)
@@ -91,7 +93,7 @@ public sealed class AbacusApplication(
                 linkedCancellation.Cancel();
                 try
                 {
-                    await attentionMonitor;
+                    await dashboardMonitor;
                 }
                 catch (OperationCanceledException)
                 {
@@ -117,12 +119,15 @@ public sealed class AbacusApplication(
         }
     }
 
-    private async Task MonitorUserAttentionAsync(
+    private async Task MonitorDashboardAsync(
         Beads beads,
         ValidatedAgent agent,
+        int latestCommentCount,
+        bool includeLatestComments,
         CancellationToken cancellationToken)
     {
-        string? lastFailure = null;
+        string? lastAttentionFailure = null;
+        string? lastCommentsFailure = null;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -134,14 +139,36 @@ public sealed class AbacusApplication(
                     cancellationToken);
                 notifier.UserAttentionChanged(issues);
                 await log.SetUserAttentionIssuesAsync(issues);
-                lastFailure = null;
+                lastAttentionFailure = null;
             }
             catch (BeadsException exception)
             {
-                if (!string.Equals(lastFailure, exception.Message, StringComparison.Ordinal))
+                if (!string.Equals(lastAttentionFailure, exception.Message, StringComparison.Ordinal))
                 {
                     await log.WarningAsync("abacus", exception.Message);
-                    lastFailure = exception.Message;
+                    lastAttentionFailure = exception.Message;
+                }
+            }
+
+            if (includeLatestComments)
+            {
+                try
+                {
+                    var comments = await beads.GetLatestCommentsAsync(
+                        agent.WorkspacePath,
+                        agent.Name,
+                        latestCommentCount,
+                        cancellationToken);
+                    await log.SetLatestCommentsAsync(comments);
+                    lastCommentsFailure = null;
+                }
+                catch (BeadsException exception)
+                {
+                    if (!string.Equals(lastCommentsFailure, exception.Message, StringComparison.Ordinal))
+                    {
+                        await log.WarningAsync("abacus", exception.Message);
+                        lastCommentsFailure = exception.Message;
+                    }
                 }
             }
 

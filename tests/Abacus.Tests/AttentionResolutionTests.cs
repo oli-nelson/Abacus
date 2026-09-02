@@ -47,7 +47,7 @@ public sealed class AttentionResolutionTests
             [
                 "comment",
                 "ab-456",
-                "User Responded to a previous attention callout: " + message,
+                message,
                 "--json",
                 "update",
                 "ab-456",
@@ -101,7 +101,7 @@ public sealed class AttentionResolutionTests
             [
                 "comment",
                 "ab-789",
-                "User Responded to a previous attention callout: Need another revision",
+                "Need another revision",
                 "--json",
             ],
             await File.ReadAllLinesAsync(fixture.CallsPath));

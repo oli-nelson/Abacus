@@ -65,6 +65,46 @@ public sealed class OptionsTests
         Assert.False(result.Value.Remote);
         Assert.Equal(NotificationMode.Off, result.Value.NotificationMode);
         Assert.False(result.Value.NotificationSound);
+        Assert.Equal(8, result.Value.LatestCommentCount);
+    }
+
+    [Fact]
+    public void ParsesLatestCommentCount()
+    {
+        var result = Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--latest-comments", "24",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Equal(24, result.Value!.LatestCommentCount);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("101")]
+    [InlineData("many")]
+    public void RejectsInvalidLatestCommentCount(string count)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--latest-comments", count,
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
+    [Fact]
+    public void RejectsDuplicateLatestCommentCount()
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--latest-comments", "8",
+            "--latest-comments", "12",
+            "-a", "alice", "/tmp/a",
+        ]));
     }
 
     [Theory]
