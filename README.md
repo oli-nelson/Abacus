@@ -55,14 +55,16 @@ Abacus supports exactly four modes:
 
 | `--mode` | Hosting | Command |
 | --- | --- | --- |
-| `opencode` | Interactive tmux pane | `opencode --mini --prompt <prompt> --model <provider/model>#<effort>` |
+| `opencode` | Interactive tmux pane | `opencode --prompt <prompt> --model <provider/model>` |
 | `codex` | Interactive tmux pane | `codex --cd <workspace> --model <model> --config model_reasoning_effort=<effort> --approve-for-me <prompt>` |
 | `claude` | Interactive tmux pane | `claude --model <model> --effort <effort> --permission-mode auto --name <agent-ticket> <prompt>` |
 | `opencode-server` | Direct process or tmux pane | `opencode run <prompt> --model <provider/model> --variant <effort> --attach <url> --dir <workspace>` |
 
-`--mode` defaults to `opencode`, and `--effort` defaults to `high`. For compatibility with earlier releases, using `--opencode-server` without `--mode` implies `opencode-server`. OpenCode modes require models in `provider/model` form. Codex and Claude modes accept their native model IDs or aliases. Effort and variant names are provider- and model-specific; Abacus passes them through and lets the selected CLI validate availability.
+`--mode` defaults to `opencode`, and `--effort` defaults to `high`. For compatibility with earlier releases, using `--opencode-server` without `--mode` implies `opencode-server`. OpenCode modes require models in `provider/model` form. Codex and Claude modes accept their native model IDs or aliases. Effort and variant names are provider- and model-specific; Abacus passes them through and lets the selected CLI validate availability, except in interactive OpenCode mode. OpenCode 1.18.20 does not expose a variant option for its interactive TUI, so Abacus leaves the model ID intact and OpenCode uses its configured or session-selected variant. OpenCode Server mode continues to pass `--variant <effort>`.
 
 The Codex and Claude commands remain interactive and receive a real pane TTY. Abacus does not use `codex exec` or `claude --print`. Both start with their automatic permission reviewers, preventing an unattended pane from waiting indefinitely for ordinary approvals without disabling vendor safety boundaries.
+
+Add `--remote` in Claude mode to make the interactive session remotely controllable. Claude receives `--remote-control '<issue-id> • <issue-title>'`. `--remote` is rejected for Codex, OpenCode, and OpenCode Server.
 
 Examples using the same existing tmux target:
 
@@ -73,7 +75,7 @@ abacus --mode opencode --tmux-session workers --model anthropic/claude-sonnet-4-
 abacus --mode codex --tmux-session workers --model gpt-5.6-terra --effort high \
   -a alice /work/repo-a
 
-abacus --mode claude --tmux-session workers --model sonnet --effort high \
+abacus --mode claude --tmux-session workers --model sonnet --effort high --remote \
   -a alice /work/repo-a
 ```
 
@@ -157,7 +159,7 @@ abacus \
   -a "$AGENT" "$REPO"
 ```
 
-Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch `opencode --mini` with the ticket prompt in an Abacus-owned pane. Each pane is given a stable `<agent> • <issue-id>` tmux title, and OpenCode is prevented from replacing it while that pane exists. tmux shows the active pane title in its default status line; configurations that display `#{pane_title}` in pane borders show every agent label beside its pane. OpenCode receives the pane's terminal directly so Mini has a TTY. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
+Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch the full OpenCode TUI with the ticket prompt in an Abacus-owned pane. Each pane is given a stable `<agent> • <issue-id>` tmux title, and OpenCode is prevented from replacing it while that pane exists. tmux shows the active pane title in its default status line; configurations that display `#{pane_title}` in pane borders show every agent label beside its pane. OpenCode receives the pane's terminal directly so the TUI has a TTY. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
 
 The default terminal display is a live dashboard with one row per agent. It shows the current lifecycle state (`STARTING`, `WAITING`, `IDLE`, `SYNCING`, `CLEANING`, `PREPARING`, `WORKING`, `FINALIZING`, `RECOVERING`, `RETRYING`, or `STOPPED`), elapsed time in that state, the active ticket ID and title, pane or process location, retry count, last observed exit code, and recent warnings. Idle polling is distinct from error retries. For raw diagnostics, add `--verbose` (or `--debug`/`-v`):
 
@@ -248,6 +250,7 @@ abacus --mode <opencode|codex|claude> \
   --tmux-layout <layout> \
   --model <model> \
   [--effort <effort>] \
+  [--remote] \
   [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
@@ -263,7 +266,7 @@ abacus --mode opencode-server --model <provider/model> [--effort <effort>] \
   -a <agent_name> <git_workspace_path>
 ```
 
-`--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific effort or variant name without whitespace. OpenCode modes require `provider/model`; Codex and Claude accept nonempty native model IDs without whitespace. OpenCode, Codex, and Claude modes require `--tmux-session`. With OpenCode Server mode, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--tmux-layout` is also tmux-only and accepts `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`; Abacus reapplies it after each pane is spawned. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
+`--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific effort or variant name without whitespace. `--remote` is valid only for Claude. OpenCode modes require `provider/model`; Codex and Claude accept nonempty native model IDs without whitespace. OpenCode, Codex, and Claude modes require `--tmux-session`. With OpenCode Server mode, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--tmux-layout` is also tmux-only and accepts `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`; Abacus reapplies it after each pane is spawned. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
 
 Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
 
@@ -360,7 +363,7 @@ Abacus does **not**:
 - merge branches or decide whether agent work is correct;
 - choose ticket outcomes for an agent;
 - integrate directly with Git, tmux, Dolt, Beads, OpenCode, Codex, or Claude APIs/protocols;
-- use Codex app-server or Claude Remote Control/background sessions;
+- integrate directly with Codex app-server or the Claude Remote Control protocol instead of their CLI commands;
 - provide a daemon, web dashboard, persistent queue, dynamic pool, or Windows support.
 
 The observed external command contracts and fixtures are documented in [`docs/contracts/cli-contracts.md`](docs/contracts/cli-contracts.md).

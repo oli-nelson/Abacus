@@ -50,7 +50,8 @@ public sealed class TmuxAgentHost(
     string temporaryRoot,
     TimeSpan? interruptGracePeriod = null,
     string? tmuxWindow = null,
-    string? tmuxLayout = null) : IAgentHost
+    string? tmuxLayout = null,
+    bool remote = false) : IAgentHost
 {
     private readonly TimeSpan gracePeriod = interruptGracePeriod ?? TimeSpan.FromSeconds(1);
     private readonly string splitTarget = Target(tmuxSession, tmuxWindow);
@@ -263,7 +264,9 @@ public sealed class TmuxAgentHost(
             agent.WorkspacePath,
             serverUrl,
             $"{agent.Name} • {issue.Id}",
-            effort);
+            effort,
+            remote,
+            RemoteSessionName(issue));
         var arguments = new List<string>
         {
             ShellQuote(command.Executable),
@@ -300,6 +303,16 @@ public sealed class TmuxAgentHost(
 
     internal static string Target(string session, string? window) =>
         window is null ? session : $"{session}:{window}";
+
+    internal static string RemoteSessionName(BeadsIssue issue)
+    {
+        var title = string.Join(
+            ' ',
+            (issue.Title ?? string.Empty).Split(
+                (char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries));
+        return title.Length == 0 ? issue.Id : $"{issue.Id} • {title}";
+    }
 
     private static TmuxAgentRun RequireTmuxRun(IAgentRun run) =>
         run as TmuxAgentRun

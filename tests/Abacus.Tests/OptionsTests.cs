@@ -62,6 +62,48 @@ public sealed class OptionsTests
 
         Assert.Equal(AgentMode.OpenCode, result.Value!.AgentMode);
         Assert.Equal("high", result.Value.Effort);
+        Assert.False(result.Value.Remote);
+    }
+
+    [Fact]
+    public void ParsesRemoteForClaudeMode()
+    {
+        var result = Options.Parse([
+            "--mode", "claude",
+            "--tmux-session", "workers",
+            "--model", "sonnet",
+            "--remote",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.True(result.Value!.Remote);
+    }
+
+    [Theory]
+    [InlineData("codex")]
+    [InlineData("opencode")]
+    [InlineData("opencode-server")]
+    public void RejectsRemoteForUnsupportedModes(string mode)
+    {
+        var arguments = new List<string>
+        {
+            "--mode", mode,
+            "--model", "provider/model",
+            "--remote",
+        };
+        if (mode == "opencode-server")
+        {
+            arguments.AddRange(["--opencode-server", "127.0.0.1:1234"]);
+        }
+        else
+        {
+            arguments.AddRange(["--tmux-session", "workers"]);
+        }
+
+        arguments.AddRange(["-a", "alice", "/tmp/a"]);
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse(arguments));
+
+        Assert.Contains("--mode claude", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]

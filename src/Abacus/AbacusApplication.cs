@@ -8,12 +8,12 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
             Path.GetTempPath(),
             $"abacus-{Environment.ProcessId}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(temporaryRoot);
-        await log.SystemAsync("Agent loops started");
         var summary = new RunSummary(preflight.Agents.Select(static agent => agent.Name));
 
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
+            await log.SystemAsync("Agent loops started");
             var beads = new Beads(runner, preflight.Tools.Bd);
             var git = new Git(runner, preflight.Tools.Git);
             var attentionMonitor = MonitorUserAttentionAsync(
@@ -30,7 +30,8 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
                     preflight.Options.TmuxSession,
                     temporaryRoot,
                     tmuxWindow: preflight.Options.TmuxWindow,
-                    tmuxLayout: preflight.Options.TmuxLayout);
+                    tmuxLayout: preflight.Options.TmuxLayout,
+                    remote: preflight.Options.Remote);
 
             var loops = preflight.Agents.Select(agent =>
             {

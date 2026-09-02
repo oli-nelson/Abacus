@@ -24,41 +24,87 @@ public static class AgentCommandFactory
         string workspacePath,
         string? serverUrl,
         string sessionName,
-        string effort = "high") => mode switch
+        string effort = "high",
+        bool remote = false,
+        string? remoteSessionName = null)
     {
-        AgentMode.OpenCode => new AgentCommand(
-            executable,
-            ["--mini", "--prompt"],
-            ["--model", $"{model}#{effort}"]),
-        AgentMode.Codex => new AgentCommand(
-            executable,
-            [
-                "--cd", workspacePath,
-                "--model", model,
-                "--config", $"model_reasoning_effort={effort}",
-                "--approve-for-me",
-            ],
-            []),
-        AgentMode.Claude => new AgentCommand(
-            executable,
-            [
-                "--model", model,
-                "--effort", effort,
-                "--permission-mode", "auto",
-                "--name", sessionName,
-            ],
-            []),
-        AgentMode.OpenCodeServer => new AgentCommand(
-            executable,
-            ["run"],
-            [
-                "--model", model,
-                "--variant", effort,
-                "--attach", RequireServerUrl(serverUrl),
-                "--dir", workspacePath,
-            ]),
-        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "unknown agent mode"),
-    };
+        if (remote && mode is not AgentMode.Claude)
+        {
+            throw new ArgumentException("remote control is supported only for Claude Code", nameof(mode));
+        }
+
+        return mode switch
+        {
+            // The interactive OpenCode TUI has no variant option. A #suffix is parsed as part of the model ID.
+            AgentMode.OpenCode => new AgentCommand(
+                executable,
+                ["--prompt"],
+                ["--model", model]),
+            AgentMode.Codex => CreateCodex(executable, model, workspacePath, effort),
+            AgentMode.Claude => CreateClaude(
+                executable,
+                model,
+                effort,
+                sessionName,
+                remote,
+                remoteSessionName),
+            AgentMode.OpenCodeServer => new AgentCommand(
+                executable,
+                ["run"],
+                [
+                    "--model", model,
+                    "--variant", effort,
+                    "--attach", RequireServerUrl(serverUrl),
+                    "--dir", workspacePath,
+                ]),
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "unknown agent mode"),
+        };
+    }
+
+    private static AgentCommand CreateCodex(
+        string executable,
+        string model,
+        string workspacePath,
+        string effort)
+    {
+        var arguments = new List<string>([
+            "--cd", workspacePath,
+            "--model", model,
+            "--config", $"model_reasoning_effort={effort}",
+            "--approve-for-me",
+        ]);
+        return new AgentCommand(executable, arguments, []);
+    }
+
+    private static AgentCommand CreateClaude(
+        string executable,
+        string model,
+        string effort,
+        string sessionName,
+        bool remote,
+        string? remoteSessionName)
+    {
+        var arguments = new List<string>
+        {
+            "--model", model,
+            "--effort", effort,
+            "--permission-mode", "auto",
+            "--name", sessionName,
+        };
+        if (remote)
+        {
+            if (string.IsNullOrWhiteSpace(remoteSessionName))
+            {
+                throw new ArgumentException(
+                    "Claude Code remote control requires a session name",
+                    nameof(remoteSessionName));
+            }
+
+            arguments.AddRange(["--remote-control", remoteSessionName]);
+        }
+
+        return new AgentCommand(executable, arguments, []);
+    }
 
     public static string ExecutableName(AgentMode mode) => mode switch
     {

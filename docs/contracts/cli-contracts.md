@@ -23,13 +23,13 @@ Representative failure transcripts and exit codes are in `command-outcomes.json`
 
 ## OpenCode 1.18.20
 
-Interactive local mode uses the Mini TUI directly in a tmux pane:
+Interactive local mode uses the full TUI directly in a tmux pane:
 
 ```sh
-opencode --mini --prompt '<ticket prompt>' --model provider/model#high
+opencode --prompt '<ticket prompt>' --model provider/model
 ```
 
-The process must remain connected directly to the pane terminal; piping it would remove the TTY expected by Mini.
+The process must remain connected directly to the pane terminal; piping it would remove the TTY expected by the interactive interface.
 
 Local mode was exercised as:
 
@@ -54,7 +54,7 @@ opencode run 'Reply with exactly ATTACHED.' \
 
 The server log recorded a newly-created session with the requested directory and `providerID=opencode modelID=big-pickle`. The client exited 0. This proves Abacus can create attached client sessions entirely through the CLI; no HTTP integration is needed. The `--format json` flag was used only to make this contract check observable and is not required by Abacus.
 
-The [OpenCode model documentation](https://opencode.ai/v2/docs/models) defines variants as provider-specific overlays used for settings such as reasoning effort. Mini has no separate top-level `--variant` flag, so Abacus passes `provider/model#effort` to `--model`. The `run` command accepts `--variant <effort>` directly, including attached-server runs. Variant availability remains model-specific.
+The [OpenCode model documentation](https://opencode.ai/v2/docs/models) defines variants as provider-specific overlays used for settings such as reasoning effort. OpenCode 1.18.20's TUI entry point has no `--variant` flag, and its model parser treats a `#variant` suffix as part of the model ID rather than as variant metadata. This [upstream OpenCode issue](https://github.com/anomalyco/opencode/issues/7354) tracks the missing top-level variant option. Abacus therefore passes the interactive model ID unchanged; OpenCode uses its configured or session-selected variant. The `run` command accepts `--variant <effort>` directly, including attached-server runs, so OpenCode Server mode applies the requested effort normally. Variant availability remains model-specific.
 
 ## Codex CLI 0.151.0
 
@@ -80,10 +80,11 @@ claude --model <model> \
   --effort <effort> \
   --permission-mode auto \
   --name '<agent> • <issue-id>' \
+  [--remote-control '<issue-id> • <issue-title>'] \
   '<ticket prompt>'
 ```
 
-There is deliberately no `--print`. `--effort` applies the requested model-specific effort to the interactive session. Automatic permission mode performs background safety checks without requiring a human to answer ordinary approval prompts. Abacus does not use Claude background agents, Remote Control, worktree creation, or the Agent SDK.
+There is deliberately no `--print`. `--effort` applies the requested model-specific effort to the interactive session. Automatic permission mode performs background safety checks without requiring a human to answer ordinary approval prompts. With Abacus `--remote`, the command additionally receives `--remote-control '<issue-id> • <issue-title>'`; the [official Claude Code Remote Control documentation](https://code.claude.com/docs/en/remote-control) confirms that this preserves the full local interactive session while giving the remote session an explicit name. Abacus does not use Claude background agents, worktree creation, or the Agent SDK.
 
 ## tmux 3.6a
 

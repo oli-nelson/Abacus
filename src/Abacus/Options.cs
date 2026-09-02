@@ -28,7 +28,8 @@ public sealed record Options(
     ExecutionMode ExecutionMode = ExecutionMode.Continuous,
     bool CheckOnly = false,
     AgentMode AgentMode = AgentMode.OpenCode,
-    string Effort = "high")
+    string Effort = "high",
+    bool Remote = false)
 {
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -42,7 +43,7 @@ public sealed record Options(
     public const string ShortUsage =
         "Usage: abacus [--mode <opencode|codex|claude|opencode-server>] " +
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
-        "--model <model> [--effort <effort>] " +
+        "--model <model> [--effort <effort>] [--remote] " +
         "[--opencode-server <host:port>] [--once | --drain | --check] [--verbose] " +
         "-a <agent_name> <git_workspace_path> [-a ...]";
 
@@ -54,6 +55,7 @@ public sealed record Options(
             [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
             --model <model> \
             [--effort <effort>] \
+            [--remote] \
             [--opencode-server <host:port>] \
             [--once | --drain | --check] \
             [--verbose] \
@@ -64,10 +66,19 @@ public sealed record Options(
           Use --verbose (or -v) for timestamped state changes and subprocess commands.
 
         Agent modes:
-          opencode        Run interactive OpenCode Mini in tmux (default).
+          opencode        Run the interactive OpenCode TUI in tmux (default).
           codex           Run the interactive Codex TUI in tmux.
           claude          Run interactive Claude Code in tmux.
           opencode-server Attach OpenCode clients to --opencode-server; tmux is optional.
+
+        Effort:
+          --effort defaults to high. Codex, Claude Code, and OpenCode Server
+          receive it through their native CLI options. The interactive OpenCode TUI
+          has no variant option and uses its configured or session-selected variant.
+
+        Remote control:
+          --remote enables Claude Code Remote Control while keeping the session
+          interactive and naming it after the Beads issue.
 
         Finite execution:
           --once   Process at most one ready ticket per agent, then exit.
@@ -115,6 +126,7 @@ public sealed record Options(
         var once = false;
         var drain = false;
         var checkOnly = false;
+        var remote = false;
         var agents = new List<AgentOptions>();
 
         for (var index = 0; index < arguments.Count; index++)
@@ -152,6 +164,9 @@ public sealed record Options(
                 case "--check":
                     checkOnly = true;
                     break;
+                case "--remote":
+                    remote = true;
+                    break;
                 case "--verbose":
                 case "--debug":
                 case "-v":
@@ -182,6 +197,11 @@ public sealed record Options(
         if (agentMode is AgentMode.OpenCodeServer && server is null)
         {
             throw new OptionsException("--mode opencode-server requires --opencode-server");
+        }
+
+        if (remote && agentMode is not AgentMode.Claude)
+        {
+            throw new OptionsException("--remote can only be used with --mode claude");
         }
 
         if (tmuxSession is null && agentMode is not AgentMode.OpenCodeServer)
@@ -288,7 +308,8 @@ public sealed record Options(
                 executionMode,
                 checkOnly,
                 agentMode,
-                effort),
+                effort,
+                remote),
             ShowHelp: false);
     }
 

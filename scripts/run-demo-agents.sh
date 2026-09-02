@@ -13,13 +13,27 @@ die() {
 }
 
 usage() {
-  printf 'usage: %s <opencode|codex|claude|opencode-server> [model] [effort]\n' "${0##*/}" >&2
+  printf 'usage: %s <opencode|codex|claude|opencode-server> [model] [effort] [--remote]\n' "${0##*/}" >&2
   exit 2
 }
 
-(( $# >= 1 && $# <= 3 )) || usage
+(( $# >= 1 )) || usage
 
 agent_mode=$1
+shift
+
+remote=false
+positionals=()
+for argument; do
+  if [[ "$argument" == --remote ]]; then
+    [[ "$remote" == false ]] || usage
+    remote=true
+  else
+    positionals+=("$argument")
+  fi
+done
+(( ${#positionals[@]} <= 2 )) || usage
+
 case "$agent_mode" in
   opencode)
     fallback_model="openai/gpt-5.6-sol"
@@ -38,12 +52,15 @@ case "$agent_mode" in
     ;;
 esac
 
-model="${2:-${ABACUS_MODEL:-$fallback_model}}"
-effort="${3:-${ABACUS_EFFORT:-high}}"
+model="${positionals[0]:-${ABACUS_MODEL:-$fallback_model}}"
+effort="${positionals[1]:-${ABACUS_EFFORT:-high}}"
 [[ -n "$model" && "$model" != *[[:space:]]* ]] || die "model must be nonempty and contain no whitespace"
 [[ -n "$effort" && "$effort" != *[[:space:]#]* ]] || die "effort must be nonempty and contain no whitespace or '#'"
 if [[ "$agent_mode" == opencode || "$agent_mode" == opencode-server ]]; then
   [[ "$model" == */* ]] || die "model must use OpenCode's provider/model format"
+fi
+if [[ "$remote" == true && "$agent_mode" != claude ]]; then
+  die "--remote is only supported for claude mode"
 fi
 
 root="$PWD"
@@ -69,6 +86,10 @@ abacus_args=(
   --model "$model"
   --effort "$effort"
 )
+
+if [[ "$remote" == true ]]; then
+  abacus_args+=(--remote)
+fi
 
 if [[ "$agent_mode" == opencode-server ]]; then
   opencode_server="${ABACUS_OPENCODE_SERVER:-127.0.0.1:${ABACUS_OPENCODE_PORT:-4096}}"

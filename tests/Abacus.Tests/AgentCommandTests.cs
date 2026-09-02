@@ -5,7 +5,7 @@ namespace Abacus.Tests;
 public sealed class AgentCommandTests
 {
     [Fact]
-    public void OpenCodeCommandMatchesMiniContract()
+    public void OpenCodeCommandKeepsVariantOutOfModelId()
     {
         var command = AgentCommandFactory.Create(
             AgentMode.OpenCode,
@@ -18,7 +18,7 @@ public sealed class AgentCommandTests
 
         Assert.Equal("/bin/opencode", command.Executable);
         Assert.Equal(
-            ["--mini", "--prompt", "ticket prompt", "--model", "provider/model#xhigh"],
+            ["--prompt", "ticket prompt", "--model", "provider/model"],
             command.WithPrompt("ticket prompt"));
     }
 
@@ -69,6 +69,26 @@ public sealed class AgentCommandTests
             command.WithPrompt("ticket prompt"));
         Assert.DoesNotContain("--print", command.WithPrompt("ticket prompt"));
         Assert.DoesNotContain("-p", command.WithPrompt("ticket prompt"));
+    }
+
+    [Fact]
+    public void RemoteClaudeUsesIssueIdAndTitleAsRemoteSessionName()
+    {
+        var command = AgentCommandFactory.Create(
+            AgentMode.Claude,
+            "/bin/claude",
+            "opus",
+            "/work/repo",
+            null,
+            "alice • abc-1",
+            "high",
+            remote: true,
+            remoteSessionName: "abc-1 • Add remote control");
+
+        Assert.Contains("--remote-control", command.ArgumentsBeforePrompt);
+        var remoteIndex = command.ArgumentsBeforePrompt.ToList().IndexOf("--remote-control");
+        Assert.Equal("abc-1 • Add remote control", command.ArgumentsBeforePrompt[remoteIndex + 1]);
+        Assert.DoesNotContain("--print", command.WithPrompt("ticket prompt"));
     }
 
     [Fact]

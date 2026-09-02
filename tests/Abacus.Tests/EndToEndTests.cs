@@ -132,7 +132,7 @@ public sealed class EndToEndTests
             Assert.Equal(Prompt.Render("alice", "abc-1", workspace),
                 await File.ReadAllTextAsync(Path.Combine(root.FullName, "opencode-prompt")));
             Assert.Equal(
-                ["--model", "provider/exact-model#high"],
+                ["--model", "provider/exact-model"],
                 await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
             Assert.Contains("ready --claim --exclude-label gt:slot --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
             Assert.Contains("send-keys -t %1 C-c", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
@@ -224,11 +224,13 @@ public sealed class EndToEndTests
     }
 
     [Theory]
-    [InlineData("codex", "gpt-5.6-terra")]
-    [InlineData("claude", "sonnet")]
+    [InlineData("codex", "gpt-5.6-terra", false)]
+    [InlineData("claude", "sonnet", false)]
+    [InlineData("claude", "sonnet", true)]
     public async Task InteractiveCodexAndClaudeRunInTmuxWithPromptModelWorkspaceAndActor(
         string mode,
-        string model)
+        string model,
+        bool remote)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -249,7 +251,7 @@ public sealed class EndToEndTests
                 RedirectStandardError = true,
                 UseShellExecute = false,
             };
-            foreach (var argument in new[]
+            var startArguments = new List<string>
             {
                 typeof(Program).Assembly.Location,
                 "--mode", mode,
@@ -258,7 +260,13 @@ public sealed class EndToEndTests
                 "--effort", "xhigh",
                 "--once",
                 "-a", "alice", workspace,
-            })
+            };
+            if (remote)
+            {
+                startArguments.Insert(startArguments.IndexOf("--once"), "--remote");
+            }
+
+            foreach (var argument in startArguments)
             {
                 startInfo.ArgumentList.Add(argument);
             }
@@ -285,6 +293,8 @@ public sealed class EndToEndTests
                 Assert.Contains("--approve-for-me", arguments);
                 Assert.Contains("model_reasoning_effort=xhigh", arguments);
                 Assert.DoesNotContain("exec", arguments);
+                Assert.DoesNotContain("--remote", arguments);
+                Assert.DoesNotContain("unix://", arguments);
             }
             else
             {
@@ -295,6 +305,8 @@ public sealed class EndToEndTests
                 Assert.Contains("--name", arguments);
                 Assert.Contains("alice • abc-1", arguments);
                 Assert.DoesNotContain("--print", arguments);
+                Assert.Equal(remote, arguments.Contains("--remote-control"));
+                Assert.Equal(remote, arguments.Contains("abc-1 • Implement remote control"));
             }
 
             Assert.Empty(await stdout);
@@ -325,7 +337,7 @@ public sealed class EndToEndTests
               fi
               if test "$2" = --claim && ! test -f "$root/claimed"; then
                 touch "$root/claimed"; printf 'in_progress' > "$root/status"
-                printf '[{"id":"abc-1","status":"in_progress"}]\n'
+                printf '[{"id":"abc-1","title":"Implement remote control","status":"in_progress"}]\n'
               else
                 printf '[]\n'
               fi
@@ -333,7 +345,7 @@ public sealed class EndToEndTests
               printf '[]\n'
             elif test "$1" = show; then
               status=$(cat "$root/status")
-              printf '[{"id":"abc-1","status":"%s"}]\n' "$status"
+              printf '[{"id":"abc-1","title":"Implement remote control","status":"%s"}]\n' "$status"
             elif test "$1" = update; then
               printf 'open' > "$root/status"
               printf '[{"id":"abc-1","status":"open"}]\n'
@@ -365,9 +377,7 @@ public sealed class EndToEndTests
             #!/bin/sh
             root={{Q(root)}}
             direct=0
-            if test "$1" = --mini; then
-              shift
-              test "$1" = --prompt || exit 2
+            if test "$1" = --prompt; then
               shift
               printf '%s' "$1" > "$root/opencode-prompt"
               shift

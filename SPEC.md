@@ -43,19 +43,22 @@ abacus --tmux-session <session_name> \
   [--tmux-layout <layout>] \
   --model <model> \
   [--effort <effort>] \
+  [--remote] \
   [--once | --drain | --check] \
   [--verbose] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
 
-`--mode` defaults to `opencode`. `--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific variant name without whitespace. OpenCode modes require a `provider/model` ID; Codex and Claude accept their native model IDs and aliases. Model and effort availability remain the selected CLI's responsibility.
+`--mode` defaults to `opencode`. `--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific variant name without whitespace. OpenCode modes require a `provider/model` ID; Codex and Claude accept their native model IDs and aliases. Model and effort availability remain the selected CLI's responsibility. Interactive OpenCode is the exception: OpenCode 1.18.20's TUI entry point does not expose variant selection, so Abacus passes the model unchanged and OpenCode uses its configured or session-selected variant.
+
+`--remote` is valid only with Claude Code. Abacus adds `--remote-control '<issue-id> • <issue-title>'` to the normal interactive command. Codex and both OpenCode modes reject the option.
 
 Each local agent runs interactively in its own tmux pane using its assigned Git workspace and requested model:
 
-- OpenCode: `opencode --mini --prompt <prompt> --model <provider/model>#<effort>`
+- OpenCode: `opencode --prompt <prompt> --model <provider/model>`
 - Codex: `codex --cd <workspace> --model <model> --config model_reasoning_effort=<effort> --approve-for-me <prompt>`
-- Claude Code: `claude --model <model> --effort <effort> --permission-mode auto --name <agent-ticket> <prompt>`
+- Claude Code: `claude --model <model> --effort <effort> --permission-mode auto --name <agent-ticket> [--remote-control <issue-ticket>] <prompt>`
 
 These commands deliberately start the interactive interfaces rather than Codex `exec` or Claude `--print`. Codex and Claude use their automatic permission reviewers so ordinary approvals do not block an unattended Abacus pane while actions still receive background safety checks.
 
@@ -93,7 +96,7 @@ Each Abacus agent follows this loop:
 
 4. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
 5. Make sure the workspace has no local changes before starting the agent CLI.
-6. Start the selected local agent CLI interactively in tmux, or start an attached OpenCode Server client either directly or in tmux. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the requested model, effort, and a prompt describing the issue and its ticket-state responsibilities.
+6. Start the selected local agent CLI interactively in tmux, or start an attached OpenCode Server client either directly or in tmux. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the requested model and a prompt describing the issue and its ticket-state responsibilities. Pass the requested effort where the selected CLI exposes it; interactive OpenCode uses its configured or session-selected variant because its TUI has no variant CLI option.
 7. While the agent CLI is running, Abacus monitors the ticket status through Beads.
 8. The coding agent does the work and changes the ticket status when it is finished:
 

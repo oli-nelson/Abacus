@@ -75,9 +75,10 @@ public sealed class TmuxAgentHostTests
         Assert.NotEqual(local.PaneId, attached.PaneId);
         var localWrapper = await File.ReadAllTextAsync(local.WrapperPath);
         var attachedWrapper = await File.ReadAllTextAsync(attached.WrapperPath);
-        Assert.Contains("'--mini' '--prompt' \"$prompt\" '--model' 'provider/exact-model#high'", localWrapper, StringComparison.Ordinal);
+        Assert.Contains("'--prompt' \"$prompt\" '--model' 'provider/exact-model'", localWrapper, StringComparison.Ordinal);
         Assert.Contains("'--model' 'provider/exact-model'", attachedWrapper, StringComparison.Ordinal);
         Assert.DoesNotContain("'run'", localWrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain("'--mini'", localWrapper, StringComparison.Ordinal);
         Assert.DoesNotContain("'--mini'", attachedWrapper, StringComparison.Ordinal);
         Assert.DoesNotContain("'--attach'", localWrapper, StringComparison.Ordinal);
         Assert.Contains("'run' \"$prompt\" '--model' 'provider/exact-model' '--variant' 'high' '--attach' 'http://server:1234'", attachedWrapper, StringComparison.Ordinal);
@@ -138,6 +139,33 @@ public sealed class TmuxAgentHostTests
         Assert.Contains("'--permission-mode' 'auto'", wrapper, StringComparison.Ordinal);
         Assert.Contains("'--name' 'alice • abc-1' \"$prompt\"", wrapper, StringComparison.Ordinal);
         Assert.DoesNotContain("'--print'", wrapper, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RemoteClaudeNamesRemoteSessionAfterIssueIdAndTitle()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "claude-remote")).FullName;
+        var tmux = fixture.CreateTmux(mode: AgentMode.Claude, remote: true);
+
+        var run = await tmux.StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, "  Add   remote\ncontrol  "),
+            "opus",
+            "high",
+            null,
+            CancellationToken.None);
+
+        var wrapper = await File.ReadAllTextAsync(run.WrapperPath);
+        Assert.Contains(
+            "'--remote-control' 'abc-1 • Add remote control'",
+            wrapper,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -313,7 +341,8 @@ public sealed class TmuxAgentHostTests
             TimeSpan? gracePeriod = null,
             string? window = null,
             string? layout = null,
-            AgentMode mode = AgentMode.OpenCode) => new(
+            AgentMode mode = AgentMode.OpenCode,
+            bool remote = false) => new(
             new CommandRunner(TextWriter.Null),
             TmuxPath,
             AgentExecutablePath,
@@ -322,7 +351,8 @@ public sealed class TmuxAgentHostTests
             TemporaryRoot,
             gracePeriod,
             window,
-            layout);
+            layout,
+            remote);
 
         private static string QuoteForShell(string value) =>
             $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";
