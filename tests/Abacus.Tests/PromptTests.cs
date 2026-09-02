@@ -30,7 +30,11 @@ public sealed class PromptTests
 
               bd update abc-123 --remove-label abacus:needs-user-attention --json
 
-            When you are completely finished, update the ticket:
+            When you are completely finished, add a summary of what you did to the ticket notes:
+
+              bd update abc-123 --append-notes "<summary of completed work>" --json
+
+            Then finally update the ticket:
 
             - Success:
                 bd close abc-123 --reason "<summary of completed work>" --json

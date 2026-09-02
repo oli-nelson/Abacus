@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Abacus — Single Agent Loop</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f6f2e8;
+      --muted: #aaa99f;
+      --faint: #74756f;
+      --paper: #121311;
+      --panel: #191b18;
+      --panel-2: #20231f;
+      --line: #5b6058;
+      --green: #9fe870;
+      --green-dark: #243522;
+      --yellow: #ffd166;
+      --yellow-dark: #3b301b;
+      --blue: #75c8ff;
+      --blue-dark: #1c3040;
+      --red: #ff7b72;
+      --red-dark: #3d2220;
+      --violet: #c3a6ff;
+      --violet-dark: #302744;
+      --shadow: 0 20px 60px rgb(0 0 0 / 28%);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 0%, rgb(159 232 112 / 8%), transparent 28rem),
+        radial-gradient(circle at 92% 12%, rgb(117 200 255 / 8%), transparent 30rem),
+        var(--paper);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    .page {
+      width: min(1540px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 54px 0 72px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 32px;
+      align-items: end;
+      margin-bottom: 30px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--green);
+      font: 700 12px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 900px;
+      font-size: clamp(40px, 6vw, 82px);
+      font-weight: 760;
+      letter-spacing: -.055em;
+      line-height: .94;
+    }
+
+    .lede {
+      max-width: 800px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: clamp(16px, 2vw, 20px);
+    }
+
+    .stamp {
+      min-width: 220px;
+      padding: 16px 18px;
+      border: 1px solid #343832;
+      border-radius: 12px;
+      background: rgb(25 27 24 / 72%);
+      color: var(--muted);
+      font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .stamp strong { color: var(--ink); font-weight: 650; }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .toolbar-label {
+      margin-right: 4px;
+      color: var(--faint);
+      font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid #3b4039;
+      border-radius: 999px;
+      padding: 9px 14px;
+      color: var(--muted);
+      background: #1b1e1a;
+      font: 650 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      cursor: pointer;
+      transition: border-color .16s ease, color .16s ease, background .16s ease;
+    }
+
+    button:hover { color: var(--ink); border-color: #62695e; }
+    button[aria-pressed="true"] { color: #13200f; border-color: var(--green); background: var(--green); }
+
+    .chart-shell {
+      overflow: auto;
+      border: 1px solid #30342e;
+      border-radius: 18px;
+      background: rgb(20 22 19 / 82%);
+      box-shadow: var(--shadow);
+      scrollbar-color: #51564d #1a1c19;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      min-width: 1080px;
+      height: auto;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+
+    .section-bg { fill: #171916; stroke: #2b2f2a; stroke-width: 1; }
+    .section-kicker { fill: var(--green); font-size: 13px; font-weight: 800; letter-spacing: 2.2px; }
+    .section-title { fill: var(--ink); font-size: 31px; font-weight: 760; letter-spacing: -1px; }
+    .section-copy { fill: var(--muted); font-size: 15px; }
+    .rail-label { fill: #6f756c; font-size: 12px; font-weight: 750; letter-spacing: 1.4px; }
+
+    .edge {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 2.25;
+      marker-end: url(#arrow);
+    }
+
+    .edge.success { stroke: #688b56; }
+    .edge.warn { stroke: #917943; }
+    .edge.fail { stroke: #8e4e49; }
+    .edge.shutdown { stroke: #806fa2; stroke-dasharray: 7 6; }
+    .edge.loop { stroke-dasharray: 6 6; }
+
+    .edge-label-bg { fill: #171916; }
+    .edge-label { fill: #b7b8b1; font-size: 12px; font-weight: 750; letter-spacing: .5px; }
+
+    .node .body { fill: var(--panel-2); stroke: #3e433c; stroke-width: 1.4; }
+    .node.state .body { fill: var(--green-dark); stroke: #60824e; }
+    .node.action .body { fill: var(--blue-dark); stroke: #426d89; }
+    .node.decision .body { fill: var(--yellow-dark); stroke: #8b713b; }
+    .node.recovery .body { fill: var(--red-dark); stroke: #874944; }
+    .node.stop .body { fill: var(--violet-dark); stroke: #74609a; }
+    .node.note .body { fill: #1c1e1b; stroke: #3b4039; stroke-dasharray: 5 4; }
+
+    .node-title { fill: var(--ink); font-size: 17px; font-weight: 800; letter-spacing: .2px; }
+    .node-kicker { fill: var(--green); font-size: 11px; font-weight: 850; letter-spacing: 1.55px; }
+    .node.action .node-kicker { fill: var(--blue); }
+    .node.decision .node-kicker { fill: var(--yellow); }
+    .node.recovery .node-kicker { fill: var(--red); }
+    .node.stop .node-kicker { fill: var(--violet); }
+    .node.note .node-kicker { fill: #aeb2a9; }
+    .node-copy { fill: #c8c8c1; font-size: 13px; }
+    .node-code { fill: #dcefd1; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    .flow-item { transition: opacity .2s ease, filter .2s ease; }
+    svg.focused .flow-item:not(.active) { opacity: .13; filter: saturate(.35); }
+    svg.focused .flow-item.active { opacity: 1; }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      padding: 16px 18px;
+      border-top: 1px solid #30342e;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend span { display: flex; gap: 8px; align-items: center; }
+    .swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
+
+    .notes-grid {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 18px;
+      margin-top: 20px;
+    }
+
+    .card {
+      padding: 24px;
+      border: 1px solid #30342e;
+      border-radius: 16px;
+      background: var(--panel);
+    }
+
+    .card h2 {
+      margin: 0 0 14px;
+      font-size: 20px;
+      letter-spacing: -.02em;
+    }
+
+    .card p, .card li { color: var(--muted); font-size: 14px; }
+    .card p:last-child { margin-bottom: 0; }
+    .card ul { margin: 0; padding-left: 20px; }
+    .card li + li { margin-top: 9px; }
+
+    code {
+      color: #d9f2ca;
+      font: .92em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .state-table {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 9px 18px;
+      margin: 0;
+    }
+
+    .state-table dt {
+      color: var(--ink);
+      font: 750 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .state-table dd { margin: 0; color: var(--muted); font-size: 13px; }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      margin-top: 22px;
+      padding: 0 4px;
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    footer a { color: #aabca1; text-decoration: none; }
+    footer a:hover { color: var(--green); }
+
+    @media (max-width: 900px) {
+      .page { width: min(100% - 20px, 1540px); padding-top: 30px; }
+      header, .notes-grid { grid-template-columns: 1fr; }
+      .stamp { min-width: 0; }
+      .legend { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      footer { flex-direction: column; }
+    }
+
+    @media print {
+      :root { color-scheme: light; }
+      body { background: #fff; }
+      .page { width: 100%; padding: 0; }
+      .toolbar { display: none; }
+      .chart-shell, .card { box-shadow: none; break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div>
+        <p class="eyebrow">Implementation map · one configured agent</p>
+        <h1>The Abacus agent loop</h1>
+        <p class="lede">From a clean workspace to an atomic Beads claim, a supervised coding session, and a safe return to the queue.</p>
+      </div>
+      <aside class="stamp" aria-label="Document scope">
+        <strong>Scope</strong> single <code>AgentLoop</code><br>
+        <strong>Polling</strong> every 5 seconds<br>
+        <strong>Recovery</strong> 3 attempts / 15 seconds<br>
+        <strong>Finalization</strong> 30-second budget<br>
+        <strong>Runtime</strong> optional ticket timeout
+      </aside>
+    </header>
+
+    <nav class="toolbar" aria-label="Highlight a flow through the diagram">
+      <span class="toolbar-label">Trace a path</span>
+      <button type="button" data-focus="all" aria-pressed="true">Everything</button>
+      <button type="button" data-focus="happy" aria-pressed="false">Completed ticket</button>
+      <button type="button" data-focus="idle" aria-pressed="false">No ready work</button>
+      <button type="button" data-focus="crash" aria-pressed="false">Unexpected CLI exit</button>
+      <button type="button" data-focus="shutdown" aria-pressed="false">Ctrl-C shutdown</button>
+    </nav>
+
+    <section class="chart-shell" aria-label="Flowchart of a single Abacus agent loop">
+      <svg id="flowchart" viewBox="0 0 1480 2850" role="img" aria-labelledby="chart-title chart-desc">
+        <title id="chart-title">Flowchart of a single Abacus agent loop</title>
+        <desc id="chart-desc">The loop checks and cleans a workspace, optionally pulls Beads data, claims a ticket, prepares a branch, starts an agent, supervises ticket status and process state, recovers failures, cleans up, pushes Beads data, and either repeats or stops.</desc>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/>
+          </marker>
+          <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+            <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#252824" stroke-width="1"/>
+          </pattern>
+        </defs>
+
+        <rect width="1480" height="2850" fill="url(#grid)" opacity=".7"/>
+        <rect class="section-bg" x="28" y="28" width="1424" height="1124" rx="16"/>
+        <rect class="section-bg" x="28" y="1172" width="1424" height="1006" rx="16"/>
+        <rect class="section-bg" x="28" y="2198" width="1424" height="624" rx="16"/>
+
+        <text class="section-kicker" x="58" y="74">01 · ACQUIRE</text>
+        <text class="section-title" x="58" y="112">Claim work without stranding it</text>
+        <text class="section-copy" x="58" y="141">Workspace hygiene happens before every claim; preparation failures are recovered immediately.</text>
+
+        <text class="section-kicker" x="58" y="1218">02 · EXECUTE</text>
+        <text class="section-title" x="58" y="1256">Run the coding agent under supervision</text>
+        <text class="section-copy" x="58" y="1285">Ticket status is the completion signal. Process exit is only an observation—not proof of success.</text>
+
+        <text class="section-kicker" x="58" y="2244">03 · FINALIZE</text>
+        <text class="section-title" x="58" y="2282">Clean up, synchronize, and decide what comes next</text>
+        <text class="section-copy" x="58" y="2311">Every hosted run is stopped and cleaned; configured Beads remotes are pushed before another claim.</text>
+
+        <text class="rail-label" x="112" y="182">SIDE PATHS</text>
+        <text class="rail-label" x="654" y="182">MAIN LOOP</text>
+        <text class="rail-label" x="1120" y="182">RECOVERY / STOP</text>
+
+        <!-- Acquire: edges -->
+        <g class="flow-item" data-path="happy idle crash shutdown">
+          <path class="edge success" d="M740 226 V264"/>
+          <path class="edge success" d="M740 346 V378"/>
+          <path class="edge success" d="M740 460 V492"/>
+          <path class="edge success" d="M740 574 V610"/>
+          <path class="edge success" d="M740 704 V858"/>
+          <path class="edge success" d="M740 940 V994"/>
+          <path class="edge success" d="M740 1084 V1200"/>
+        </g>
+
+        <g class="flow-item" data-path="happy idle crash shutdown">
+          <path class="edge warn" d="M545 419 H414 V435"/>
+          <path class="edge success" d="M414 501 H545 V533"/>
+          <rect class="edge-label-bg" x="469" y="400" width="48" height="20" rx="5"/>
+          <text class="edge-label" x="479" y="415">DIRTY</text>
+          <rect class="edge-label-bg" x="752" y="466" width="48" height="20" rx="5"/>
+          <text class="edge-label" x="762" y="481">CLEAN</text>
+        </g>
+
+        <g class="flow-item" data-path="happy idle crash shutdown">
+          <path class="edge warn" d="M545 533 H414 V565"/>
+          <path class="edge success" d="M414 631 V657 H520"/>
+          <rect class="edge-label-bg" x="455" y="515" width="62" height="20" rx="5"/>
+          <text class="edge-label" x="464" y="530">YES</text>
+          <rect class="edge-label-bg" x="752" y="580" width="42" height="20" rx="5"/>
+          <text class="edge-label" x="762" y="595">NO</text>
+        </g>
+
+        <g class="flow-item" data-path="idle">
+          <path class="edge warn" d="M545 899 H422"/>
+          <path class="edge loop warn" d="M244 861 H94 V302 H520"/>
+          <path class="edge" d="M244 899 V937"/>
+          <rect class="edge-label-bg" x="457" y="878" width="61" height="20" rx="5"/>
+          <text class="edge-label" x="467" y="893">NONE</text>
+        </g>
+
+        <g class="flow-item" data-path="happy crash shutdown">
+          <rect class="edge-label-bg" x="751" y="962" width="67" height="20" rx="5"/>
+          <text class="edge-label" x="761" y="977">CLAIMED</text>
+        </g>
+
+        <g class="flow-item" data-path="happy idle crash shutdown">
+          <path class="edge fail" d="M935 419 H1082"/>
+          <path class="edge fail" d="M253 631 V670 H460 V743 H422"/>
+          <path class="edge fail" d="M520 657 H447 V705 H422"/>
+          <path class="edge loop warn" d="M244 743 H76 V302 H520"/>
+          <path class="edge fail" d="M935 899 H1082"/>
+          <path class="edge fail" d="M960 1039 H1082"/>
+        </g>
+
+        <!-- Acquire: nodes -->
+        <g class="node state flow-item" data-path="happy idle crash shutdown">
+          <rect class="body" x="580" y="190" width="320" height="36" rx="18"/>
+          <text class="node-kicker" x="661" y="213">PREFLIGHT PASSED</text>
+        </g>
+
+        <g class="node state flow-item" data-path="happy idle crash shutdown">
+          <rect class="body" x="520" y="264" width="440" height="82" rx="12"/>
+          <text class="node-kicker" x="544" y="290">WAITING</text>
+          <text class="node-title" x="544" y="316">Look for the next claim</text>
+          <text class="node-copy" x="544" y="337">Clear old ticket display · verify workspace directory exists</text>
+        </g>
+
+        <g class="node decision flow-item" data-path="happy idle crash shutdown">
+          <path class="body" d="M740 378 L935 419 L740 460 L545 419 Z"/>
+          <text class="node-kicker" x="674" y="411">GIT STATUS</text>
+          <text class="node-title" x="667" y="433">Workspace clean?</text>
+        </g>
+
+        <g class="node action flow-item" data-path="happy idle crash shutdown">
+          <rect class="body" x="92" y="435" width="322" height="66" rx="11"/>
+          <text class="node-kicker" x="114" y="461">CLEANING</text>
+          <text class="node-code" x="114" y="485">git reset --hard HEAD · git clean -fd</text>
+        </g>
+
+        <g class="node decision flow-item" data-path="happy idle crash shutdown">
+          <path class="body" d="M740 492 L935 533 L740 574 L545 533 Z"/>
+          <text class="node-kicker" x="617" y="525">SYNC GATE</text>
+          <text class="node-title" x="627" y="547">Single agent + remote?</text>
+        </g>
+
+        <g class="node action flow-item" data-path="happy idle crash shutdown">
+          <rect class="body" x="92" y="565" width="322" height="66" rx="11"/>
+          <text class="node-kicker" x="114" y="591">SYNCING</text>
+          <text class="node-code" x="114" y="615">bd dolt pull</text>
+        </g>
+
+        <g class="node action flow-item" data-path="happy idle crash shutdown">
+          <rect class="body" x="520" y="610" width="440" height="94" rx="12"/>
+          <text class="node-kicker" x="544" y="636">ATOMIC CLAIM</text>
+          <text class="node-code" x="544" y="662">bd ready --claim --exclude-label gt:slot --json</text>
+          <text class="node-copy" x="544" y="684">Append configured label / type / priority filters.</text>
+          <text class="node-copy" x="544" y="700">Serialization conflicts retry internally with capped backoff + jitter.</text>
+        </g>
+
+        <g class="node recovery flow-item" data-path="happy idle crash shutdown">
+          <rect class="body" x="92" y="705" width="330" height="76" rx="11"/>
+          <text class="node-kicker" x="114" y="731">RETRYING</text>
+          <text class="node-copy" x="114" y="756">Pull / claim command failed</text>
+          <text class="node-copy" x="114" y="774">Continuous: delay 5s · finite: fail</text>
+        </g>
+
+        <g class="node decision flow-item" data-path="happy idle crash shutdown">
+          <path class="body" d="M740 858 L935 899 L740 940 L545 899 Z"/>
+          <text class="node-kicker" x="676" y="891">RESULT</text>
+          <text class="node-title" x="649" y="913">Ticket claimed?</text>
+        </g>
+
+        <g class="node state flow-item" data-path="idle">
+          <rect class="body" x="92" y="823" width="330" height="76" rx="11"/>
+          <text class="node-kicker" x="114" y="849">IDLE</text>
+          <text class="node-copy" x="114" y="874">No ready work</text>
+          <text class="node-copy" x="114" y="892">Continuous: delay 5s, then WAITING</text>
+        </g>
+
+        <g class="node stop flow-item" data-path="idle">
+          <rect class="body" x="92" y="937" width="330" height="70" rx="11"/>
+          <text class="node-kicker" x="114" y="964">STOPPED</text>
+          <text class="node-copy" x="114" y="988">Once / drain: empty queue completes the run</text>
+        </g>
+
+        <g class="node state flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="520" y="994" width="440" height="90" rx="12"/>
+          <text class="node-kicker" x="544" y="1020">PREPARING</text>
+          <text class="node-title" x="544" y="1046">Select <tspan class="node-code">abacus/&lt;issue-id&gt;</tspan></text>
+          <text class="node-copy" x="544" y="1070">Validate ID · switch/create branch · verify branch + clean tree</text>
+        </g>
+
+        <g class="node recovery flow-item" data-path="happy idle crash shutdown">
+          <rect class="body" x="1082" y="373" width="324" height="92" rx="11"/>
+          <text class="node-kicker" x="1104" y="399">STOPPED · INVARIANT</text>
+          <text class="node-copy" x="1104" y="424">Workspace missing, uninspectable,</text>
+          <text class="node-copy" x="1104" y="445">or cannot be made clean</text>
+        </g>
+
+        <g class="node recovery flow-item" data-path="happy idle crash shutdown">
+          <rect class="body" x="1082" y="858" width="324" height="92" rx="11"/>
+          <text class="node-kicker" x="1104" y="884">CLAIM ERROR</text>
+          <text class="node-copy" x="1104" y="909">Continuous → RETRYING → WAITING</text>
+          <text class="node-copy" x="1104" y="930">Once / drain → STOPPED with failure</text>
+        </g>
+
+        <g class="node recovery flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="1082" y="990" width="324" height="98" rx="11"/>
+          <text class="node-kicker" x="1104" y="1016">PREP FAILURE / CANCEL</text>
+          <text class="node-copy" x="1104" y="1041">Reopen + unassign ticket, verify,</text>
+          <text class="node-copy" x="1104" y="1062">then push remote if configured</text>
+          <text class="node-copy" x="1104" y="1081">Recovery failure → persistent halt</text>
+        </g>
+
+        <!-- Execute: edges -->
+        <g class="flow-item" data-path="happy crash shutdown">
+          <path class="edge success" d="M740 1328 V1370"/>
+          <path class="edge success" d="M740 1456 V1498"/>
+          <path class="edge success" d="M740 1588 V1628"/>
+          <path class="edge success" d="M740 1722 V1762"/>
+        </g>
+
+        <g class="flow-item" data-path="happy crash shutdown">
+          <path class="edge success" d="M545 1413 H390 V1520 H520"/>
+          <path class="edge success" d="M935 1413 H1090 V1520 H960"/>
+          <rect class="edge-label-bg" x="458" y="1392" width="64" height="20" rx="5"/>
+          <text class="edge-label" x="468" y="1407">TMUX</text>
+          <rect class="edge-label-bg" x="950" y="1392" width="77" height="20" rx="5"/>
+          <text class="edge-label" x="960" y="1407">DIRECT</text>
+        </g>
+
+        <g class="flow-item" data-path="happy">
+          <path class="edge success" d="M545 1803 H480 V1920 H452"/>
+          <rect class="edge-label-bg" x="443" y="1782" width="76" height="20" rx="5"/>
+          <text class="edge-label" x="453" y="1797">TERMINAL</text>
+        </g>
+
+        <g class="flow-item" data-path="happy crash">
+          <path class="edge" d="M740 1844 V1876"/>
+          <path class="edge loop" d="M545 1917 H475 V1669 H520"/>
+          <rect class="edge-label-bg" x="752" y="1847" width="97" height="20" rx="5"/>
+          <text class="edge-label" x="762" y="1862">IN_PROGRESS</text>
+          <rect class="edge-label-bg" x="481" y="1895" width="39" height="20" rx="5"/>
+          <text class="edge-label" x="490" y="1910">YES</text>
+        </g>
+
+        <g class="flow-item" data-path="crash">
+          <path class="edge fail" d="M935 1917 H1036 V1977 H1090"/>
+          <path class="edge fail" d="M1090 2033 H1032 V2090 H935"/>
+          <path class="edge fail" d="M935 2131 H1090"/>
+          <rect class="edge-label-bg" x="948" y="1897" width="35" height="20" rx="5"/>
+          <text class="edge-label" x="957" y="1912">NO</text>
+        </g>
+
+        <g class="flow-item" data-path="happy crash shutdown">
+          <path class="edge warn" d="M935 1803 H1090"/>
+          <path class="edge warn" d="M1248 1880 V1917 H935"/>
+          <rect class="edge-label-bg" x="950" y="1782" width="112" height="20" rx="5"/>
+          <text class="edge-label" x="960" y="1797">UNREADABLE</text>
+        </g>
+
+        <g class="flow-item" data-path="happy idle crash shutdown">
+          <path class="edge fail" d="M960 1288 H1090"/>
+        </g>
+
+        <g class="flow-item" data-path="shutdown">
+          <path class="edge shutdown" d="M960 1543 H1430 V2425 H436"/>
+        </g>
+
+        <g class="flow-item">
+          <path class="edge fail loop" d="M520 1675 H58 V2082 H92"/>
+          <path class="edge fail" d="M272 2150 V2220 H1000 V2488 H960"/>
+          <rect class="edge-label-bg" x="65" y="1660" width="139" height="20" rx="5"/>
+          <text class="edge-label" x="75" y="1675">LIMIT ELAPSED</text>
+        </g>
+
+        <!-- Execute: nodes -->
+        <g class="node action flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="520" y="1200" width="440" height="128" rx="12"/>
+          <text class="node-kicker" x="544" y="1226">START HOSTED AGENT</text>
+          <text class="node-title" x="544" y="1252">Render prompt + set <tspan class="node-code">BEADS_ACTOR</tspan></text>
+          <text class="node-copy" x="544" y="1277">Pass workspace, model, effort, and ticket responsibilities</text>
+          <text class="node-copy" x="544" y="1300">Host creation is the last step before supervision begins</text>
+        </g>
+
+        <g class="node decision flow-item" data-path="happy crash shutdown">
+          <path class="body" d="M740 1370 L935 1413 L740 1456 L545 1413 Z"/>
+          <text class="node-kicker" x="680" y="1405">HOST MODE</text>
+          <text class="node-title" x="649" y="1427">Where does it run?</text>
+        </g>
+
+        <g class="node action flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="92" y="1354" width="360" height="112" rx="11"/>
+          <text class="node-kicker" x="114" y="1380">TMUX PANE</text>
+          <text class="node-copy" x="114" y="1405">OpenCode / Codex / Claude, or attached server</text>
+          <text class="node-copy" x="114" y="1426">when tmux was supplied</text>
+          <text class="node-copy" x="114" y="1448">Prompt + wrapper + exit marker · stable pane title</text>
+        </g>
+
+        <g class="node action flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="1028" y="1354" width="378" height="112" rx="11"/>
+          <text class="node-kicker" x="1050" y="1380">DIRECT CHILD PROCESS</text>
+          <text class="node-copy" x="1050" y="1405">OpenCode Server mode without tmux</text>
+          <text class="node-code" x="1050" y="1428">opencode run … --attach &lt;server&gt;</text>
+          <text class="node-copy" x="1050" y="1448">stdout / stderr drained in background</text>
+        </g>
+
+        <g class="node state flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="520" y="1498" width="440" height="90" rx="12"/>
+          <text class="node-kicker" x="544" y="1524">WORKING</text>
+          <text class="node-title" x="544" y="1550">Agent CLI is live</text>
+          <text class="node-copy" x="544" y="1574">Dashboard records pane / PID; agent owns the ticket outcome</text>
+        </g>
+
+        <g class="node action flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="520" y="1628" width="440" height="94" rx="12"/>
+          <text class="node-kicker" x="544" y="1654">SUPERVISE · EVERY 5 SECONDS</text>
+          <text class="node-title" x="544" y="1680">Poll ticket + observe hosted run</text>
+          <text class="node-code" x="544" y="1705">bd show &lt;issue-id&gt; --json</text>
+        </g>
+
+        <g class="node decision flow-item" data-path="happy crash shutdown">
+          <path class="body" d="M740 1762 L935 1803 L740 1844 L545 1803 Z"/>
+          <text class="node-kicker" x="674" y="1795">BEADS STATUS</text>
+          <text class="node-title" x="644" y="1817">What does the ticket say?</text>
+        </g>
+
+        <g class="node state flow-item" data-path="happy crash">
+          <rect class="body" x="92" y="1870" width="360" height="100" rx="11"/>
+          <text class="node-kicker" x="114" y="1896">FINALIZING</text>
+          <text class="node-title" x="114" y="1922">Agent chose a terminal state</text>
+          <text class="node-copy" x="114" y="1946">closed · open (retry) · blocked</text>
+          <text class="node-copy" x="114" y="1964">Record the matching summary outcome</text>
+        </g>
+
+        <g class="node recovery flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="1090" y="1738" width="316" height="142" rx="11"/>
+          <text class="node-kicker" x="1112" y="1764">RECOVERING · DEGRADED READ</text>
+          <text class="node-copy" x="1112" y="1789">Missing / unknown / failed status poll</text>
+          <text class="node-copy" x="1112" y="1810">Warn on first 3 consecutive failures;</text>
+          <text class="node-copy" x="1112" y="1831">keep supervising and suppress repeats.</text>
+          <text class="node-copy" x="1112" y="1856">A valid read restores WORKING.</text>
+        </g>
+
+        <g class="node decision flow-item" data-path="happy crash">
+          <path class="body" d="M740 1876 L935 1917 L740 1958 L545 1917 Z"/>
+          <text class="node-kicker" x="681" y="1909">HOST STATE</text>
+          <text class="node-title" x="657" y="1931">CLI still running?</text>
+        </g>
+
+        <g class="node action flow-item" data-path="crash">
+          <rect class="body" x="1090" y="1942" width="316" height="91" rx="11"/>
+          <text class="node-kicker" x="1112" y="1968">EXIT / STATUS RACE</text>
+          <text class="node-title" x="1112" y="1994">Read ticket again</text>
+          <text class="node-copy" x="1112" y="2016">Up to 3 attempts before deciding</text>
+        </g>
+
+        <g class="node decision flow-item" data-path="crash">
+          <path class="body" d="M740 2048 L935 2090 L740 2132 L545 2090 Z"/>
+          <text class="node-kicker" x="666" y="2082">FINAL READ</text>
+          <text class="node-title" x="633" y="2104">Terminal or still claimed?</text>
+        </g>
+
+        <g class="node recovery flow-item" data-path="crash">
+          <rect class="body" x="1090" y="2055" width="316" height="116" rx="11"/>
+          <text class="node-kicker" x="1112" y="2081">UNEXPECTED EXIT</text>
+          <text class="node-copy" x="1112" y="2106">If still in_progress: reopen +</text>
+          <text class="node-copy" x="1112" y="2127">unassign with exit-code note, verify.</text>
+          <text class="node-copy" x="1112" y="2152">Unreadable / failed recovery → HALT</text>
+        </g>
+
+        <g class="node recovery flow-item">
+          <rect class="body" x="92" y="2014" width="360" height="136" rx="11"/>
+          <text class="node-kicker" x="114" y="2040">OPTIONAL TICKET TIMEOUT</text>
+          <text class="node-copy" x="114" y="2065"><tspan class="node-code">--ticket-timeout</tspan> limit reached</text>
+          <text class="node-copy" x="114" y="2088">1. Stop + verify host cleanup</text>
+          <text class="node-copy" x="114" y="2109">2. Reopen if still in_progress</text>
+          <text class="node-copy" x="114" y="2130">3. Verify outcome → final Beads push</text>
+        </g>
+
+        <g class="node recovery flow-item" data-path="happy idle crash shutdown">
+          <rect class="body" x="1090" y="1238" width="316" height="100" rx="11"/>
+          <text class="node-kicker" x="1112" y="1264">START FAILURE</text>
+          <text class="node-copy" x="1112" y="1289">Reopen + unassign + verify ticket,</text>
+          <text class="node-copy" x="1112" y="1310">push if remote, then loop policy applies</text>
+        </g>
+
+        <!-- Finalize: edges -->
+        <g class="flow-item" data-path="happy crash shutdown">
+          <path class="edge success" d="M740 2406 V2444"/>
+          <path class="edge success" d="M740 2532 V2566"/>
+          <path class="edge success" d="M740 2654 V2692"/>
+        </g>
+
+        <g class="flow-item" data-path="happy crash">
+          <path class="edge success" d="M452 1945 H490 V2367 H520"/>
+          <path class="edge success" d="M545 2090 H470 V1970 H452"/>
+          <path class="edge fail" d="M1248 2171 V2367 H960"/>
+        </g>
+
+        <g class="flow-item" data-path="shutdown">
+          <path class="edge shutdown" d="M436 2425 H480 V2367 H520"/>
+        </g>
+
+        <g class="flow-item" data-path="happy crash shutdown">
+          <path class="edge fail" d="M935 2488 H1090"/>
+          <path class="edge success" d="M545 2610 H390 V2735 H520"/>
+          <path class="edge loop success" d="M935 2610 H1418 V302 H960"/>
+          <rect class="edge-label-bg" x="950" y="2467" width="76" height="20" rx="5"/>
+          <text class="edge-label" x="960" y="2482">FAILURE</text>
+          <rect class="edge-label-bg" x="455" y="2589" width="63" height="20" rx="5"/>
+          <text class="edge-label" x="465" y="2604">ONCE</text>
+          <rect class="edge-label-bg" x="946" y="2589" width="132" height="20" rx="5"/>
+          <text class="edge-label" x="956" y="2604">CONTINUOUS / DRAIN</text>
+        </g>
+
+        <!-- Finalize: nodes -->
+        <g class="node action flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="520" y="2328" width="440" height="78" rx="12"/>
+          <text class="node-kicker" x="544" y="2354">ALWAYS CLEAN THE HOSTED RUN</text>
+          <text class="node-copy" x="544" y="2379">Interrupt → grace period → kill if needed → verify → remove temp files</text>
+        </g>
+
+        <g class="node action flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="520" y="2444" width="440" height="88" rx="12"/>
+          <text class="node-kicker" x="544" y="2470">FINAL SYNC</text>
+          <text class="node-code" x="544" y="2496">bd dolt push <tspan class="node-copy">(only when a remote exists)</tspan></text>
+          <text class="node-copy" x="544" y="2517">Up to 3 attempts inside the 15-second recovery budget</text>
+        </g>
+
+        <g class="node decision flow-item" data-path="happy crash shutdown">
+          <path class="body" d="M740 2566 L935 2610 L740 2654 L545 2610 Z"/>
+          <text class="node-kicker" x="670" y="2602">LOOP POLICY</text>
+          <text class="node-title" x="642" y="2624">Process another ticket?</text>
+        </g>
+
+        <g class="node stop flow-item" data-path="happy crash shutdown">
+          <rect class="body" x="1090" y="2445" width="316" height="112" rx="11"/>
+          <text class="node-kicker" x="1112" y="2471">PERSISTENT HALT</text>
+          <text class="node-copy" x="1112" y="2496">Cleanup, recovery, or every push</text>
+          <text class="node-copy" x="1112" y="2517">attempt failed. Raise persistent alert.</text>
+          <text class="node-copy" x="1112" y="2542">Continuous parks until cancellation;</text>
+          <text class="node-copy" x="1112" y="2560">finite execution fails immediately.</text>
+        </g>
+
+        <g class="node stop flow-item" data-path="happy idle crash shutdown">
+          <rect class="body" x="520" y="2692" width="440" height="86" rx="12"/>
+          <text class="node-kicker" x="544" y="2718">STOPPED</text>
+          <text class="node-title" x="544" y="2744">Loop is finished</text>
+          <text class="node-copy" x="544" y="2767">Once: one ticket · drain: queue empty · shutdown / fatal invariant</text>
+        </g>
+
+        <g class="node note flow-item" data-path="shutdown">
+          <rect class="body" x="92" y="2350" width="344" height="150" rx="11"/>
+          <text class="node-kicker" x="114" y="2376">SHUTDOWN ORDER</text>
+          <text class="node-copy" x="114" y="2401">1. Record interrupted outcome</text>
+          <text class="node-copy" x="114" y="2422">2. Stop and clean hosted run</text>
+          <text class="node-copy" x="114" y="2443">3. Reopen only if still in_progress</text>
+          <text class="node-copy" x="114" y="2464">4. Verify ticket, then push remote</text>
+          <text class="node-copy" x="114" y="2485">5. Rethrow cancellation → STOPPED</text>
+        </g>
+
+        <text class="section-copy" x="58" y="2802">Drain mode returns to WAITING after each ticket and stops only when the next claim finds no ready work.</text>
+      </svg>
+
+      <div class="legend" aria-label="Diagram legend">
+        <span><i class="swatch" style="background:var(--green-dark);border:1px solid #60824e"></i> Dashboard state</span>
+        <span><i class="swatch" style="background:var(--blue-dark);border:1px solid #426d89"></i> External action</span>
+        <span><i class="swatch" style="background:var(--yellow-dark);border:1px solid #8b713b"></i> Decision</span>
+        <span><i class="swatch" style="background:var(--red-dark);border:1px solid #874944"></i> Recovery / failure</span>
+        <span><i class="swatch" style="background:var(--violet-dark);border:1px solid #74609a"></i> Stop / cancellation</span>
+      </div>
+    </section>
+
+    <section class="notes-grid" aria-label="Supporting notes">
+      <article class="card">
+        <h2>Two state machines overlap</h2>
+        <p>The green labels are <code>AgentActivity</code> values shown by the dashboard. The coding agent separately controls the Beads ticket status. Abacus keeps the host alive while the ticket is <code>in_progress</code>; <code>closed</code>, <code>open</code>, or <code>blocked</code> are all valid terminal signals that end the session.</p>
+        <p>An agent process exiting is never treated as completion by itself. Abacus reads the ticket again to resolve the exit/status race, then reopens and unassigns it if it is still <code>in_progress</code>.</p>
+      </article>
+
+      <article class="card">
+        <h2>Dashboard state vocabulary</h2>
+        <dl class="state-table">
+          <dt>STARTING</dt><dd>Application initialized; loop not yet claiming.</dd>
+          <dt>WAITING / IDLE</dt><dd>Checking for work / confirmed empty queue.</dd>
+          <dt>SYNCING / CLEANING</dt><dd>Pre-claim Beads pull / destructive workspace reset.</dd>
+          <dt>PREPARING</dt><dd>Claim held; issue branch is being selected.</dd>
+          <dt>WORKING</dt><dd>Agent host is live and supervised.</dd>
+          <dt>FINALIZING</dt><dd>Terminal ticket observed; run is ending.</dd>
+          <dt>RECOVERING / RETRYING</dt><dd>Repairing a claim / delaying another attempt.</dd>
+          <dt>STOPPED</dt><dd>Finite completion, shutdown, invariant failure, or halt.</dd>
+        </dl>
+      </article>
+
+      <article class="card">
+        <h2>Safety invariants</h2>
+        <ul>
+          <li>No ticket is claimed until the assigned Git workspace is present and clean. Cleanup intentionally discards tracked and untracked non-ignored changes.</li>
+          <li>Any failure after a successful claim attempts to return the ticket to <code>open</code>, clears its assignee, verifies the result, and pushes when configured.</li>
+          <li>Host cleanup is idempotent and targets only the tmux pane or direct child created by Abacus.</li>
+          <li>A failed recovery, unverified cleanup, or exhausted push retries prevents this loop from claiming more work.</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2>Execution modes</h2>
+        <ul>
+          <li><code>continuous</code> retries orchestration errors and keeps polling an empty queue.</li>
+          <li><code>--once</code> processes at most one ticket; an empty first claim also completes it.</li>
+          <li><code>--drain</code> returns to the queue after every ticket and stops when no ready ticket remains.</li>
+          <li><code>--ticket-timeout</code> bounds one hosted run, then cleans the host and safely reopens work that remains <code>in_progress</code>.</li>
+          <li><code>--check</code> never enters this chart: it exits immediately after non-mutating preflight.</li>
+        </ul>
+      </article>
+    </section>
+
+    <footer>
+      <span>Derived from the implementation on 2 September 2026.</span>
+      <span>Primary sources: <a href="../src/Abacus/AgentLoop.cs">AgentLoop.cs</a> · <a href="../src/Abacus/TicketSupervisor.cs">TicketSupervisor.cs</a> · <a href="../src/Abacus/AgentHost.cs">AgentHost.cs</a></span>
+    </footer>
+  </main>
+
+  <script>
+    const chart = document.querySelector('#flowchart');
+    const buttons = [...document.querySelectorAll('[data-focus]')];
+
+    function selectPath(path) {
+      buttons.forEach((button) => {
+        button.setAttribute('aria-pressed', String(button.dataset.focus === path));
+      });
+
+      const items = [...chart.querySelectorAll('.flow-item')];
+      if (path === 'all') {
+        chart.classList.remove('focused');
+        items.forEach((item) => item.classList.remove('active'));
+        return;
+      }
+
+      chart.classList.add('focused');
+      items.forEach((item) => {
+        const paths = (item.dataset.path || '').split(/\s+/);
+        item.classList.toggle('active', paths.includes(path));
+      });
+    }
+
+    buttons.forEach((button) => button.addEventListener('click', () => selectPath(button.dataset.focus)));
+  </script>
+</body>
+</html>

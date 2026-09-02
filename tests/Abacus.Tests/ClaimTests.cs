@@ -199,6 +199,48 @@ public sealed class ClaimTests
     }
 
     [Fact]
+    public async Task DispatchFiltersApplyToFreshClaimsAndAssignedReclaims()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-filtered-claim-");
+        try
+        {
+            var calls = Path.Combine(root.FullName, "calls");
+            var script = Path.Combine(root.FullName, "bd");
+            await File.WriteAllTextAsync(script, $$"""
+                #!/bin/sh
+                printf '%s actor=%s\n' "$*" "$BEADS_ACTOR" >> {{Q(calls)}}
+                printf '[]\n'
+                """);
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var filters = new DispatchFilters(
+                ["abacus-ready", "team:rendering"],
+                ["needs-human"],
+                "bug,task",
+                1);
+            var result = await new Beads(new CommandRunner(TextWriter.Null), script)
+                .TryClaimReadyAsync(root.FullName, "alice", filters, CancellationToken.None);
+
+            Assert.Null(result);
+            Assert.Equal(
+                [
+                    "ready --claim --exclude-label gt:slot --label abacus-ready --label team:rendering --exclude-label needs-human --type bug,task --priority 1 --json actor=alice",
+                    "ready --assignee alice --exclude-label gt:slot --label abacus-ready --label team:rendering --exclude-label needs-human --type bug,task --priority 1 --json actor=alice",
+                ],
+                await File.ReadAllLinesAsync(calls));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ListsAllIssuesNeedingUserAttentionByLabel()
     {
         if (OperatingSystem.IsWindows())

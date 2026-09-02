@@ -36,8 +36,20 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
             var loops = preflight.Agents.Select(agent =>
             {
                 var recovery = new TicketRecovery(beads, log);
-                var claims = new ClaimCoordinator(beads, git, recovery, log, summary: summary);
-                var supervisor = new TicketSupervisor(beads, agentHost, recovery, log, summary: summary);
+                var claims = new ClaimCoordinator(
+                    beads,
+                    git,
+                    recovery,
+                    log,
+                    summary: summary,
+                    dispatchFilters: preflight.Options.DispatchFilters);
+                var supervisor = new TicketSupervisor(
+                    beads,
+                    agentHost,
+                    recovery,
+                    log,
+                    summary: summary,
+                    ticketTimeout: preflight.Options.TicketTimeout);
                 return new AgentLoop(
                     agent,
                     preflight.Agents.Count == 1,

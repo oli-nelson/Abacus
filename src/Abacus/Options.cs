@@ -17,6 +17,15 @@ public enum ExecutionMode
     Drain,
 }
 
+public sealed record DispatchFilters(
+    IReadOnlyList<string> Labels,
+    IReadOnlyList<string> ExcludedLabels,
+    string? IssueType,
+    int? Priority)
+{
+    public static DispatchFilters Empty { get; } = new([], [], null, null);
+}
+
 public sealed record Options(
     string? TmuxSession,
     string Model,
@@ -29,7 +38,9 @@ public sealed record Options(
     bool CheckOnly = false,
     AgentMode AgentMode = AgentMode.OpenCode,
     string Effort = "high",
-    bool Remote = false)
+    bool Remote = false,
+    DispatchFilters? DispatchFilters = null,
+    TimeSpan? TicketTimeout = null)
 {
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -44,6 +55,8 @@ public sealed record Options(
         "Usage: abacus [--mode <opencode|codex|claude|opencode-server>] " +
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <model> [--effort <effort>] [--remote] " +
+        "[--label <label>] [--exclude-label <label>] [--type <types>] [--priority <priority>] " +
+        "[--ticket-timeout <duration>] " +
         "[--opencode-server <host:port>] [--once | --drain | --check] [--verbose] " +
         "-a <agent_name> <git_workspace_path> [-a ...]";
 
@@ -56,6 +69,9 @@ public sealed record Options(
             --model <model> \
             [--effort <effort>] \
             [--remote] \
+            [--label <label>] [--exclude-label <label>] \
+            [--type <types>] [--priority <priority>] \
+            [--ticket-timeout <duration>] \
             [--opencode-server <host:port>] \
             [--once | --drain | --check] \
             [--verbose] \
@@ -79,6 +95,15 @@ public sealed record Options(
         Remote control:
           --remote enables Claude Code Remote Control while keeping the session
           interactive and naming it after the Beads issue.
+
+        Dispatch filters:
+          --label and --exclude-label are repeatable. --type accepts the literal
+          Beads type filter, including comma-separated values. --priority accepts
+          0 (highest) through 4 (lowest). Filters apply to every ready claim.
+
+        Ticket runtime guard:
+          --ticket-timeout interrupts an agent after a positive duration such as
+          30s, 15m, or 2h, then safely reopens and synchronizes the ticket.
 
         Finite execution:
           --once   Process at most one ready ticket per agent, then exit.
@@ -127,6 +152,11 @@ public sealed record Options(
         var drain = false;
         var checkOnly = false;
         var remote = false;
+        var labels = new List<string>();
+        var excludedLabels = new List<string>();
+        string? issueType = null;
+        int? priority = null;
+        TimeSpan? ticketTimeout = null;
         var agents = new List<AgentOptions>();
 
         for (var index = 0; index < arguments.Count; index++)
@@ -166,6 +196,36 @@ public sealed record Options(
                     break;
                 case "--remote":
                     remote = true;
+                    break;
+                case "--label":
+                    labels.Add(ReadFilterValue(arguments, ref index, argument));
+                    break;
+                case "--exclude-label":
+                    excludedLabels.Add(ReadFilterValue(arguments, ref index, argument));
+                    break;
+                case "--type":
+                    if (issueType is not null)
+                    {
+                        throw new OptionsException("--type can only be specified once");
+                    }
+
+                    issueType = ReadFilterValue(arguments, ref index, argument);
+                    break;
+                case "--priority":
+                    if (priority is not null)
+                    {
+                        throw new OptionsException("--priority can only be specified once");
+                    }
+
+                    priority = ParsePriority(ReadValue(arguments, ref index, argument));
+                    break;
+                case "--ticket-timeout":
+                    if (ticketTimeout is not null)
+                    {
+                        throw new OptionsException("--ticket-timeout can only be specified once");
+                    }
+
+                    ticketTimeout = ParseDuration(ReadValue(arguments, ref index, argument));
                     break;
                 case "--verbose":
                 case "--debug":
@@ -309,8 +369,60 @@ public sealed record Options(
                 checkOnly,
                 agentMode,
                 effort,
-                remote),
+                remote,
+                new DispatchFilters(labels.AsReadOnly(), excludedLabels.AsReadOnly(), issueType, priority),
+                ticketTimeout),
             ShowHelp: false);
+    }
+
+    private static string ReadFilterValue(
+        IReadOnlyList<string> arguments,
+        ref int index,
+        string option)
+    {
+        var value = ReadValue(arguments, ref index, option);
+        if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsWhiteSpace))
+        {
+            throw new OptionsException($"{option} must be a nonempty value without whitespace");
+        }
+
+        return value;
+    }
+
+    private static int ParsePriority(string value)
+    {
+        if (!int.TryParse(value, out var priority) || priority is < 0 or > 4)
+        {
+            throw new OptionsException("--priority must be an integer from 0 through 4");
+        }
+
+        return priority;
+    }
+
+    private static TimeSpan ParseDuration(string value)
+    {
+        if (value.Length < 2
+            || !long.TryParse(value[..^1], out var amount)
+            || amount <= 0)
+        {
+            throw new OptionsException("--ticket-timeout must be a positive duration such as 30s, 15m, or 2h");
+        }
+
+        try
+        {
+            return value[^1] switch
+            {
+                's' => TimeSpan.FromSeconds(amount),
+                'm' => TimeSpan.FromMinutes(amount),
+                'h' => TimeSpan.FromHours(amount),
+                _ => throw new OptionsException(
+                    "--ticket-timeout must be a positive duration such as 30s, 15m, or 2h"),
+            };
+        }
+        catch (OverflowException)
+        {
+            throw new OptionsException("--ticket-timeout is too large");
+        }
     }
 
     private static string ReadValue(IReadOnlyList<string> arguments, ref int index, string option)

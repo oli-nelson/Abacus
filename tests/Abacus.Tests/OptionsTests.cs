@@ -79,6 +79,79 @@ public sealed class OptionsTests
         Assert.True(result.Value!.Remote);
     }
 
+    [Fact]
+    public void ParsesDispatchFiltersAndTicketTimeout()
+    {
+        var result = Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--label", "abacus-ready",
+            "--label", "team:rendering",
+            "--exclude-label", "needs-human",
+            "--exclude-label", "on-hold",
+            "--type", "bug,task",
+            "--priority", "1",
+            "--ticket-timeout", "45m",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        var filters = Assert.IsType<DispatchFilters>(result.Value!.DispatchFilters);
+        Assert.Equal(["abacus-ready", "team:rendering"], filters.Labels);
+        Assert.Equal(["needs-human", "on-hold"], filters.ExcludedLabels);
+        Assert.Equal("bug,task", filters.IssueType);
+        Assert.Equal(1, filters.Priority);
+        Assert.Equal(TimeSpan.FromMinutes(45), result.Value.TicketTimeout);
+    }
+
+    [Theory]
+    [InlineData("0s")]
+    [InlineData("1d")]
+    [InlineData("1.5h")]
+    [InlineData("forever")]
+    [InlineData("999999999999999999999h")]
+    public void RejectsInvalidTicketTimeout(string timeout)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--ticket-timeout", timeout,
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("5")]
+    [InlineData("high")]
+    public void RejectsInvalidDispatchPriority(string priority)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--priority", priority,
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
+    [Theory]
+    [InlineData("--type", "bug", "--type", "task")]
+    [InlineData("--priority", "1", "--priority", "2")]
+    [InlineData("--ticket-timeout", "1h", "--ticket-timeout", "2h")]
+    public void RejectsDuplicateSingularDispatchAndTimeoutOptions(
+        string firstOption,
+        string firstValue,
+        string secondOption,
+        string secondValue)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            firstOption, firstValue,
+            secondOption, secondValue,
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
     [Theory]
     [InlineData("codex")]
     [InlineData("opencode")]

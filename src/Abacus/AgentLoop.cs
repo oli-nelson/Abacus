@@ -8,8 +8,10 @@ public sealed class ClaimCoordinator(
     TicketRecovery recovery,
     TextWriter log,
     TimeSpan? pollingInterval = null,
-    RunSummary? summary = null)
+    RunSummary? summary = null,
+    DispatchFilters? dispatchFilters = null)
 {
+    private readonly DispatchFilters filters = dispatchFilters ?? DispatchFilters.Empty;
     public TimeSpan PollingInterval { get; } = pollingInterval ?? TimeSpan.FromSeconds(5);
 
     public async Task<PreparedClaim> WaitForPreparedClaimAsync(
@@ -78,7 +80,11 @@ public sealed class ClaimCoordinator(
             BeadsIssue? issue;
             try
             {
-                issue = await beads.TryClaimReadyAsync(agent.WorkspacePath, agent.Name, cancellationToken);
+                issue = await beads.TryClaimReadyAsync(
+                    agent.WorkspacePath,
+                    agent.Name,
+                    filters,
+                    cancellationToken);
             }
             catch (BeadsException exception)
             {

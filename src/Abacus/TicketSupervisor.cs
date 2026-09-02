@@ -1,5 +1,7 @@
 namespace Abacus;
 
+using System.Diagnostics;
+
 public enum RecoveryOutcome
 {
     Reopened,
@@ -172,9 +174,11 @@ public sealed class TicketSupervisor(
     TextWriter log,
     TimeSpan? pollingInterval = null,
     int maximumInvalidPolls = 3,
-    RunSummary? summary = null)
+    RunSummary? summary = null,
+    TimeSpan? ticketTimeout = null)
 {
     private readonly TimeSpan interval = pollingInterval ?? TimeSpan.FromSeconds(5);
+    private readonly TimeSpan? runtimeLimit = ticketTimeout;
     private static readonly TimeSpan FinalizationDeadline = TimeSpan.FromSeconds(30);
 
     public async Task SuperviseAsync(
@@ -184,6 +188,8 @@ public sealed class TicketSupervisor(
         CancellationToken cancellationToken)
     {
         var shutdownHandled = false;
+        var cleanupHandled = false;
+        var startedAt = Stopwatch.GetTimestamp();
         try
         {
             var consecutiveInvalidPolls = 0;
@@ -194,6 +200,41 @@ public sealed class TicketSupervisor(
                 {
                     throw new StartupInvariantException(
                         $"[{agent.Name}] workspace disappeared: '{agent.WorkspacePath}'");
+                }
+
+                if (runtimeLimit is { } limit
+                    && Stopwatch.GetElapsedTime(startedAt) >= limit)
+                {
+                    await WarnAsync(
+                        agent.Name,
+                        $"Ticket {claimedIssue.Id} exceeded its {FormatDuration(limit)} runtime limit; stopping the agent CLI and reopening the ticket");
+                    await log.SetAgentAsync(
+                        agent.Name,
+                        AgentActivity.Recovering,
+                        $"{claimedIssue.Id} • runtime limit reached; reopening ticket");
+
+                    using var finalization = new CancellationTokenSource(FinalizationDeadline);
+                    await CleanupRunAsync(agent.Name, run, finalization.Token);
+                    cleanupHandled = true;
+                    RecoveryResult recoveryResult;
+                    try
+                    {
+                        recoveryResult = await recovery.ReopenIfStillInProgressAsync(
+                            agent,
+                            claimedIssue.Id,
+                            $"Abacus stopped agent {agent.Name} after the {FormatDuration(limit)} ticket runtime limit elapsed",
+                            finalization.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        await HaltAsync(
+                            agent.Name,
+                            $"Cleanup deadline expired while recovering timed-out ticket {claimedIssue.Id}");
+                        throw;
+                    }
+
+                    await RequireRecoveryAsync(agent, claimedIssue.Id, recoveryResult);
+                    return;
                 }
 
                 BeadsIssue? current = null;
@@ -296,7 +337,17 @@ public sealed class TicketSupervisor(
                     return;
                 }
 
-                await Task.Delay(interval, cancellationToken);
+                var nextPollDelay = interval;
+                if (runtimeLimit is { } remainingLimit)
+                {
+                    var remaining = remainingLimit - Stopwatch.GetElapsedTime(startedAt);
+                    if (remaining < nextPollDelay)
+                    {
+                        nextPollDelay = remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+                    }
+                }
+
+                await Task.Delay(nextPollDelay, cancellationToken);
             }
         }
         catch (OperationCanceledException)
@@ -329,7 +380,11 @@ public sealed class TicketSupervisor(
             if (!shutdownHandled)
             {
                 using var finalization = new CancellationTokenSource(FinalizationDeadline);
-                await CleanupRunAsync(agent.Name, run, finalization.Token);
+                if (!cleanupHandled)
+                {
+                    await CleanupRunAsync(agent.Name, run, finalization.Token);
+                }
+
                 await RequirePushAsync(agent, finalization.Token);
             }
         }
@@ -373,6 +428,21 @@ public sealed class TicketSupervisor(
         IssueStatus.InProgress => "in progress",
         _ => status.ToString().ToLowerInvariant(),
     };
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalHours >= 1)
+        {
+            return $"{duration.TotalHours:0.###}h";
+        }
+
+        if (duration.TotalMinutes >= 1)
+        {
+            return $"{duration.TotalMinutes:0.###}m";
+        }
+
+        return $"{duration.TotalSeconds:0.###}s";
+    }
 
     private void RecordTerminalOutcome(string agentName, IssueStatus status)
     {

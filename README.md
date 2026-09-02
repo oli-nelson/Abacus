@@ -330,6 +330,9 @@ abacus --mode <opencode|codex|claude> \
   --model <model> \
   [--effort <effort>] \
   [--remote] \
+  [--label <label>] [--exclude-label <label>] \
+  [--type <types>] [--priority <priority>] \
+  [--ticket-timeout <duration>] \
   [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
@@ -340,12 +343,31 @@ Connect new OpenCode client sessions to an existing server:
 ```sh
 abacus --mode opencode-server --model <provider/model> [--effort <effort>] \
   --opencode-server 127.0.0.1:1234 \
+  [--label <label>] [--exclude-label <label>] \
+  [--type <types>] [--priority <priority>] \
+  [--ticket-timeout <duration>] \
   [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
 
 `--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific effort or variant name without whitespace. `--remote` is valid only for Claude. OpenCode modes require `provider/model`; Codex and Claude accept nonempty native model IDs without whitespace. OpenCode, Codex, and Claude modes require `--tmux-session`. With OpenCode Server mode, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--tmux-layout` is also tmux-only and accepts `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`; Abacus reapplies it after each pane is spawned. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
+
+Dispatch filters are global to the run and are passed directly to every `bd ready` lookup. Repeat `--label` to require all listed labels and repeat `--exclude-label` to reject issues carrying any listed label. `--type` accepts one Beads type filter, including comma-separated values such as `bug,task`; `--priority` accepts 0 (highest) through 4 (lowest). The same filters apply to new atomic claims and ready work already assigned to that agent. Abacus always excludes the `gt:slot` merge bead as well.
+
+For example, expose only priority-1 bugs or tasks deliberately labelled for Abacus, while keeping human-owned work out of the queue:
+
+```sh
+abacus --mode opencode-server --model "$MODEL" \
+  --opencode-server 127.0.0.1:4096 \
+  --label abacus-ready \
+  --exclude-label needs-human \
+  --type bug,task \
+  --priority 1 \
+  -a "$AGENT" "$REPO"
+```
+
+`--ticket-timeout` is an optional runtime guard measured from agent CLI startup. It accepts a positive integer followed by `s`, `m`, or `h`, such as `30s`, `15m`, or `2h`. At the limit, Abacus stops and verifies cleanup of the hosted run, reopens the ticket only if it remains `in_progress`, verifies that recovery, and pushes when a Dolt remote is configured. If the agent's terminal ticket update races with the limit, Abacus preserves it. Failed recovery or synchronization stops that agent with a persistent attention alert; finite runs exit nonzero.
 
 Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
 
@@ -379,10 +401,10 @@ Each agent has one asynchronous loop:
 
 1. In single-agent mode, pull Dolt before claiming when a remote exists.
 2. If the workspace is dirty, discard tracked and untracked non-ignored changes with `git reset --hard HEAD` and `git clean -fd` before claiming.
-3. Atomically claim with `BEADS_ACTOR=<agent> bd ready --claim --exclude-label gt:slot --json`. If an older run left ready work assigned to that same agent, reclaim it without taking another agent's work. Merge-slot beads are never dispatched as coding work.
+3. Atomically claim with `BEADS_ACTOR=<agent> bd ready --claim --exclude-label gt:slot [dispatch filters] --json`. If an older run left matching ready work assigned to that same agent, reclaim it without taking another agent's work. Merge-slot beads are never dispatched as coding work.
 4. Create or reuse `abacus/<issue-id>` and verify the workspace is clean.
 5. Start the selected OpenCode, Codex, or Claude CLI in a dedicated Abacus-owned tmux pane. Start attached OpenCode Server clients in a pane when tmux was supplied, otherwise as directly supervised child processes.
-6. Watch both the Beads status and the hosted agent run for exit.
+6. Watch both the Beads status and the hosted agent run for exit or the optional ticket runtime limit.
 7. Stop and clean the pane or direct process when the ticket becomes `closed`, `open`, or `blocked`.
 8. Reopen tickets left `in_progress` by an unexpected exit, verify the resulting ticket state, push when configured, and continue waiting only after recovery and synchronization succeed.
 

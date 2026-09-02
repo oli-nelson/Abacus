@@ -105,13 +105,16 @@ Before building the loop, capture the exact behavior of the locally supported co
     --model <model> \
     [--effort <effort>] \
     [--remote] \
+    [--label <label>] [--exclude-label <label>] \
+    [--type <types>] [--priority <priority>] \
+    [--ticket-timeout <duration>] \
     [--opencode-server <host:port>] \
     [--once | --drain | --check] \
     [--verbose] \
     -a <agent_name> <git_workspace_path> [-a ...]
   ```
 
-- Reject a missing or malformed `--model` value, a malformed `--effort` value, `--remote` outside Claude mode, invalid mode/server/tmux combinations, other missing values, unknown options, duplicate agent names, duplicate canonical workspace paths, and zero agents. OpenCode model IDs use `provider/model`; Codex and Claude IDs must be nonempty and whitespace-free. Effort defaults to `high`; model and effort availability remain the selected CLI's responsibility.
+- Reject a missing or malformed `--model` value, a malformed `--effort` value, `--remote` outside Claude mode, malformed or duplicate singular dispatch filters, malformed ticket timeouts, invalid mode/server/tmux combinations, other missing values, unknown options, duplicate agent names, duplicate canonical workspace paths, and zero agents. OpenCode model IDs use `provider/model`; Codex and Claude IDs must be nonempty and whitespace-free. Effort defaults to `high`; model and effort availability remain the selected CLI's responsibility. Dispatch labels are repeatable, priority is 0 through 4, and ticket timeouts are positive integer seconds, minutes, or hours.
 - Implement `CommandRunner` around `ProcessStartInfo` with:
   - executable plus argument list;
   - working directory;
@@ -164,6 +167,8 @@ All checks happen before any ticket is claimed or agent run is created.
   ```sh
   BEADS_ACTOR=<agent_name> bd ready --claim --exclude-label gt:slot --json
   ```
+
+- Append configured `--label`, `--exclude-label`, `--type`, and `--priority` values literally to both the atomic ready claim and the same-agent assigned-ready fallback. Keep the built-in `gt:slot` exclusion.
 
 - In single-agent mode only, run `bd dolt pull` immediately before each claim attempt when a remote exists. A pull failure should log and delay the next attempt rather than claim against stale data.
 - Check workspace cleanliness before every claim. If a workspace is dirty, warn, discard tracked changes with `git reset --hard HEAD`, remove untracked non-ignored files and directories with `git clean -fd`, and verify the result is clean before claiming.
@@ -223,6 +228,7 @@ All checks happen before any ticket is claimed or agent run is created.
 - If the agent CLI exits and the ticket remains `in_progress`, log a warning and reopen it with a note containing the agent name and process exit code.
 - After every agent exit or forced stop, run `bd dolt push` when the project has a remote. A push failure must be visible and retried a small bounded number of times, but must not misreport the ticket as completed.
 - On Abacus shutdown, interrupt all active agent runs. For any ticket still `in_progress`, attempt to reopen it with an “Abacus shut down” note, push if configured, and then remove the pane or direct process.
+- When `--ticket-timeout` is configured, measure from successful agent-host startup, stop and verify cleanup at the deadline, then use the same terminal-state-preserving reopen verification and push path. Do not count the timeout as a user shutdown interruption.
 - Isolate loop failures: one agent's transient command failure should be logged and delayed without crashing other loops. A failure that invalidates a startup invariant, such as a missing workspace, should stop Abacus with a clear error.
 
 ### Exit criteria
@@ -279,6 +285,8 @@ All checks happen before any ticket is claimed or agent run is created.
 - `--model <model>` is required and every selected agent instance receives that exact model ID.
 - `--effort <effort>` defaults to `high`. Codex, Claude Code, and OpenCode Server receive the equivalent native effort or variant selection. Interactive OpenCode uses its configured or session-selected variant until the TUI exposes a variant CLI option.
 - `--remote` keeps Claude Code interactive while exposing its CLI-managed Remote Control feature; it is rejected in Codex and both OpenCode modes.
+- Optional dispatch filters limit every fresh and same-agent resumed ready claim without reimplementing Beads query semantics.
+- Optional ticket timeouts stop the hosted run and safely reopen and synchronize work that remains `in_progress`, while preserving terminal-state races.
 - Every agent uses a unique validated workspace and either a dedicated Abacus-owned tmux pane or directly supervised attached process.
 - Multi-agent execution is impossible unless all workspaces resolve to the same shared Dolt database.
 - Claims are atomic and attributed with `BEADS_ACTOR`.

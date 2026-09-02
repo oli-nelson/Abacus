@@ -169,6 +169,65 @@ public sealed class TicketSupervisorTests
         Assert.Contains("ATTENTION", fixture.Log.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task TicketRuntimeLimitStopsAgentAndSafelyReopensTicket()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await SupervisorFixture.CreateAsync(["in_progress"]);
+
+        await fixture.SuperviseAsync(hasRemote: true, ticketTimeout: TimeSpan.Zero);
+
+        var update = await File.ReadAllTextAsync(fixture.UpdateCalls);
+        Assert.Contains("--status open", update, StringComparison.Ordinal);
+        Assert.Contains("runtime limit", update, StringComparison.Ordinal);
+        Assert.Contains("send-keys", await File.ReadAllTextAsync(fixture.TmuxCalls), StringComparison.Ordinal);
+        Assert.Contains("exceeded its", fixture.Log.ToString(), StringComparison.Ordinal);
+        Assert.Equal("1", (await File.ReadAllTextAsync(fixture.PushCount)).Trim());
+        var totals = Assert.Single(fixture.Summary.Snapshot().Agents);
+        Assert.Equal(1, totals.Reopened);
+        Assert.Equal(0, totals.Interrupted);
+    }
+
+    [Fact]
+    public async Task TicketRuntimeLimitPreservesAgentTerminalStateAtDeadline()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await SupervisorFixture.CreateAsync(["closed"]);
+
+        await fixture.SuperviseAsync(hasRemote: false, ticketTimeout: TimeSpan.Zero);
+
+        Assert.False(File.Exists(fixture.UpdateCalls));
+        var totals = Assert.Single(fixture.Summary.Snapshot().Agents);
+        Assert.Equal(1, totals.Closed);
+        Assert.Equal(0, totals.Reopened);
+    }
+
+    [Fact]
+    public async Task TicketRuntimeLimitHaltsWhenSafeReopenCannotBeVerified()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await SupervisorFixture.CreateAsync(
+            ["in_progress"], reopenFailures: 3);
+
+        await Assert.ThrowsAsync<AgentHaltedException>(() =>
+            fixture.SuperviseAsync(hasRemote: false, ticketTimeout: TimeSpan.Zero));
+
+        Assert.Equal(0, Assert.Single(fixture.Summary.Snapshot().Agents).Reopened);
+        Assert.Contains("ATTENTION", fixture.Log.ToString(), StringComparison.Ordinal);
+    }
+
     private sealed class SupervisorFixture : IDisposable
     {
         private readonly DirectoryInfo root;
@@ -289,7 +348,10 @@ public sealed class TicketSupervisorTests
                 new TmuxAgentRun("%9", runDirectory, prompt, wrapper, marker));
         }
 
-        public Task SuperviseAsync(bool hasRemote, CancellationToken cancellationToken = default)
+        public Task SuperviseAsync(
+            bool hasRemote,
+            CancellationToken cancellationToken = default,
+            TimeSpan? ticketTimeout = null)
         {
             var runner = new CommandRunner(Log);
             var beads = new Beads(runner, bd);
@@ -308,7 +370,8 @@ public sealed class TicketSupervisorTests
                 recovery,
                 Log,
                 pollingInterval: TimeSpan.FromMilliseconds(1),
-                summary: Summary);
+                summary: Summary,
+                ticketTimeout: ticketTimeout);
             var agent = new ValidatedAgent(
                 "alice",
                 Path.Combine(root.FullName, "workspace"),

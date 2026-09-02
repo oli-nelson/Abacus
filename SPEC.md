@@ -44,6 +44,9 @@ abacus --tmux-session <session_name> \
   --model <model> \
   [--effort <effort>] \
   [--remote] \
+  [--label <label>] [--exclude-label <label>] \
+  [--type <types>] [--priority <priority>] \
+  [--ticket-timeout <duration>] \
   [--once | --drain | --check] \
   [--verbose] \
   -a <agent_name> <git_workspace_path> \
@@ -53,6 +56,10 @@ abacus --tmux-session <session_name> \
 `--mode` defaults to `opencode`. `--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific variant name without whitespace. OpenCode modes require a `provider/model` ID; Codex and Claude accept their native model IDs and aliases. Model and effort availability remain the selected CLI's responsibility. Interactive OpenCode is the exception: OpenCode 1.18.20's TUI entry point does not expose variant selection, so Abacus passes the model unchanged and OpenCode uses its configured or session-selected variant.
 
 `--remote` is valid only with Claude Code. Abacus adds `--remote-control '<issue-id> • <issue-title>'` to the normal interactive command. Codex and both OpenCode modes reject the option.
+
+Dispatch filters are optional and apply to every fresh or same-agent resumed ready claim. `--label` and `--exclude-label` are repeatable literal passthroughs to `bd ready`; `--type` accepts one literal Beads type filter, including comma-separated types; and `--priority` accepts priorities 0 through 4. Abacus always excludes `gt:slot` in addition to user filters.
+
+`--ticket-timeout` is an optional positive integer duration with an `s`, `m`, or `h` suffix. The guard starts when the agent CLI starts. At the limit, Abacus stops and cleans the hosted agent run, reopens the ticket only if it is still `in_progress`, verifies the result, and pushes when a Dolt remote is configured. A terminal ticket update that races with the timeout is preserved. Recovery or push failure stops that agent, keeps a persistent alert visible, and makes finite runs fail.
 
 Each local agent runs interactively in its own tmux pane using its assigned Git workspace and requested model:
 
@@ -94,10 +101,12 @@ Each Abacus agent follows this loop:
    BEADS_ACTOR=<agent_name> bd ready --claim --exclude-label gt:slot --json
    ```
 
+   When dispatch filters are configured, their literal `--label`, `--exclude-label`, `--type`, and `--priority` arguments are added before `--json`. The same filters apply when resuming ready work already assigned to that agent.
+
 4. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
 5. Make sure the workspace has no local changes before starting the agent CLI.
 6. Start the selected local agent CLI interactively in tmux, or start an attached OpenCode Server client either directly or in tmux. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the requested model and a prompt describing the issue and its ticket-state responsibilities. Pass the requested effort where the selected CLI exposes it; interactive OpenCode uses its configured or session-selected variant because its TUI has no variant CLI option.
-7. While the agent CLI is running, Abacus monitors the ticket status through Beads.
+7. While the agent CLI is running, Abacus monitors the ticket status through Beads and enforces the optional ticket runtime limit.
 8. The coding agent does the work and changes the ticket status when it is finished:
 
    - Close it after the work has been completed and merged.
@@ -110,6 +119,7 @@ Each Abacus agent follows this loop:
 
 An unexpected agent CLI exit that leaves the ticket `in_progress` must not be treated as completed work.
 If Abacus sees that the ticket is still `in_progress` after the agent exits, it logs a warning, reopens the ticket (along with a `bd dolt push` if applicable), and returns to the start of the loop.
+The ticket-timeout path uses the same verified reopen and push behavior after stopping the hosted agent run.
 
 ## Agent prompt template
 
@@ -136,7 +146,11 @@ blocked below. If user attention is no longer needed, remove the alert with:
 
   bd update <issue_id> --remove-label abacus:needs-user-attention --json
 
-When you are completely finished, update the ticket:
+When you are completely finished, add a summary of what you did to the ticket notes:
+
+  bd update <issue_id> --append-notes "<summary of completed work>" --json
+
+Then finally update the ticket:
 
 - Success:
     bd close <issue_id> --reason "<summary of completed work>" --json

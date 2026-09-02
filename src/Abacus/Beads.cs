@@ -45,9 +45,10 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
     public async Task<BeadsIssue?> TryClaimReadyAsync(
         string workspace,
         string agentName,
+        DispatchFilters filters,
         CancellationToken cancellationToken)
     {
-        var result = await RunClaimWithRetryAsync(workspace, agentName, cancellationToken);
+        var result = await RunClaimWithRetryAsync(workspace, agentName, filters, cancellationToken);
         EnsureCommandSuccess(result, "claim ready work");
 
         var claim = ParseSingleClaim(result.StandardOutput, "claim result");
@@ -62,7 +63,7 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         var assignedResult = await RunWithActorAsync(
             workspace,
             agentName,
-            ["ready", "--assignee", agentName, "--exclude-label", MergeSlotLabel, "--json"],
+            ReadyArguments(filters, agentName),
             cancellationToken);
         EnsureCommandSuccess(assignedResult, "find ready work assigned to this agent");
 
@@ -91,6 +92,7 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
     private async Task<CommandResult> RunClaimWithRetryAsync(
         string workspace,
         string agentName,
+        DispatchFilters filters,
         CancellationToken cancellationToken)
     {
         for (var attempt = 1; ; attempt++)
@@ -98,7 +100,7 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             var result = await RunWithActorAsync(
                 workspace,
                 agentName,
-                ["ready", "--claim", "--exclude-label", MergeSlotLabel, "--json"],
+                ReadyArguments(filters, claim: true),
                 cancellationToken);
             if (result.Succeeded
                 || !IsSerializationFailure(result))
@@ -117,6 +119,59 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
                 TimeSpan.FromMilliseconds(exponentialMilliseconds + jitterMilliseconds),
                 cancellationToken);
         }
+    }
+
+    public Task<BeadsIssue?> TryClaimReadyAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken) =>
+        TryClaimReadyAsync(workspace, agentName, DispatchFilters.Empty, cancellationToken);
+
+    private static IReadOnlyList<string> ReadyArguments(
+        DispatchFilters filters,
+        string? assignee = null,
+        bool claim = false)
+    {
+        var arguments = new List<string> { "ready" };
+        if (claim)
+        {
+            arguments.Add("--claim");
+        }
+
+        if (assignee is not null)
+        {
+            arguments.Add("--assignee");
+            arguments.Add(assignee);
+        }
+
+        arguments.Add("--exclude-label");
+        arguments.Add(MergeSlotLabel);
+        foreach (var label in filters.Labels)
+        {
+            arguments.Add("--label");
+            arguments.Add(label);
+        }
+
+        foreach (var label in filters.ExcludedLabels)
+        {
+            arguments.Add("--exclude-label");
+            arguments.Add(label);
+        }
+
+        if (filters.IssueType is not null)
+        {
+            arguments.Add("--type");
+            arguments.Add(filters.IssueType);
+        }
+
+        if (filters.Priority is not null)
+        {
+            arguments.Add("--priority");
+            arguments.Add(filters.Priority.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        arguments.Add("--json");
+        return arguments;
     }
 
     internal static bool IsSerializationFailure(CommandResult result)
