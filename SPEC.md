@@ -16,6 +16,23 @@ Before running Abacus:
 2. For OpenCode, Codex, or Claude mode, start a tmux session and, optionally, the window where agent panes should run.
 3. For OpenCode Server mode, start an OpenCode server. A tmux session is optional in this mode.
 
+Install Abacus's bundled planning, issue-quality, and attention-reporting skills from anywhere inside
+the target Git repository:
+
+```sh
+abacus --init
+```
+
+This installs `.agents/skills/abacus-beads-planner`,
+`.agents/skills/abacus-beads-doctor`, and
+`.agents/skills/abacus-beads-attention` at the repository root. If any bundled
+skill directory already exists, initialization must name the affected skills and
+require user confirmation before replacing their complete directories. A
+declined or unavailable confirmation leaves every skill unchanged. Unrelated
+skills are preserved. Initialization is a standalone operation: it does not
+require a model, agent, Beads project, tmux session, or agent CLI, and it does
+not start the orchestrator.
+
 ### Agent workspaces
 
 Each agent is assigned a Git workspace. This can be:
@@ -33,6 +50,12 @@ A single agent can use a normal local Beads database.
 Multiple agents must use the same shared Dolt database so task claims are atomic and immediately visible to every agent. Abacus should refuse to start multiple agents if the Beads project is not configured this way.
 
 ## Usage
+
+Install the bundled agent skills:
+
+```sh
+abacus --init
+```
 
 Start agents in an existing tmux session:
 

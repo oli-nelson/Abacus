@@ -1,0 +1,4 @@
+interface:
+  display_name: "Abacus Beads Doctor"
+  short_description: "Audit and repair agent-readiness in Beads issues"
+  default_prompt: "Use $abacus-beads-doctor to audit these Beads issues for agent readiness and help me improve them."

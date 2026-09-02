@@ -49,6 +49,46 @@ dotnet publish src/Abacus -c Release -r osx-arm64 \
 ./artifacts/publish/abacus --help
 ```
 
+### Install the bundled agent skills
+
+From anywhere inside a target Git repository, run:
+
+```sh
+abacus --init
+```
+
+This installs three skills under `.agents/skills` at the repository root:
+
+| Skill | Purpose |
+| --- | --- |
+| `abacus-beads-planner` | Turns a concept into a user-reviewed, execution-ready Beads epic and issue graph. |
+| `abacus-beads-doctor` | Audits issue content, fields, labels, metadata, and dependencies, then works with the user on approved repairs. |
+| `abacus-beads-attention` | Finds every issue carrying `abacus:needs-user-attention`, including closed issues, and produces a prioritized high-level action report. |
+
+The installed skills include their `SKILL.md` instructions and
+`agents/openai.yaml` discovery metadata. Installing them does not invoke a skill
+or change the Beads database.
+
+If any bundled skill directory already exists, Abacus lists the affected skills
+and requires confirmation before replacing their complete directories with the
+bundled versions. Declining or sending end-of-input cancels installation without
+changing any files. Confirming replaces each existing bundled skill's complete
+directory, including local edits and extra files; unrelated skills are never
+removed. A first-time install does not prompt.
+
+`--init` is standalone and cannot be combined with run options. It requires Git
+and a current directory inside a Git repository, but does not require a model,
+agent configuration, Beads project, tmux session, or agent CLI.
+
+After installation, invoke the skills by name in a compatible agent client, for
+example:
+
+```text
+Use $abacus-beads-planner to turn this concept into a Beads issue graph: ...
+Use $abacus-beads-doctor to audit the issues under epic bd-123.
+Use $abacus-beads-attention to tell me what needs my attention.
+```
+
 ## Agent modes
 
 Abacus supports exactly four modes:
@@ -320,6 +360,15 @@ If you prefer pane-hosted attached clients, also pass `--tmux-session` and optio
 
 ## Usage
 
+Install the bundled skills:
+
+```sh
+abacus --init
+```
+
+See [Install the bundled agent skills](#install-the-bundled-agent-skills) for
+the installed paths, skill purposes, and replacement confirmation behavior.
+
 Start agents in an existing tmux session:
 
 ```sh
@@ -353,6 +402,10 @@ abacus --mode opencode-server --model <provider/model> [--effort <effort>] \
 
 `--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific effort or variant name without whitespace. `--remote` is valid only for Claude. OpenCode modes require `provider/model`; Codex and Claude accept nonempty native model IDs without whitespace. OpenCode, Codex, and Claude modes require `--tmux-session`. With OpenCode Server mode, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--tmux-layout` is also tmux-only and accepts `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`; Abacus reapplies it after each pane is spawned. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
 
+Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
+
+### Dispatch filters and ticket timeout
+
 Dispatch filters are global to the run and are passed directly to every `bd ready` lookup. Repeat `--label` to require all listed labels and repeat `--exclude-label` to reject issues carrying any listed label. `--type` accepts one Beads type filter, including comma-separated values such as `bug,task`; `--priority` accepts 0 (highest) through 4 (lowest). The same filters apply to new atomic claims and ready work already assigned to that agent. Abacus always excludes the `gt:slot` merge bead as well.
 
 For example, expose only priority-1 bugs or tasks deliberately labelled for Abacus, while keeping human-owned work out of the queue:
@@ -368,8 +421,6 @@ abacus --mode opencode-server --model "$MODEL" \
 ```
 
 `--ticket-timeout` is an optional runtime guard measured from agent CLI startup. It accepts a positive integer followed by `s`, `m`, or `h`, such as `30s`, `15m`, or `2h`. At the limit, Abacus stops and verifies cleanup of the hosted run, reopens the ticket only if it remains `in_progress`, verifies that recovery, and pushes when a Dolt remote is configured. If the agent's terminal ticket update races with the limit, Abacus preserves it. Failed recovery or synchronization stops that agent with a persistent attention alert; finite runs exit nonzero.
-
-Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
 
 ### Finite and preflight-only runs
 

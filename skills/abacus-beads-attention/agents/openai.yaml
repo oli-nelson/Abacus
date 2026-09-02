@@ -1,0 +1,4 @@
+interface:
+  display_name: "Abacus Beads Attention"
+  short_description: "Summarize Beads issues needing user attention"
+  default_prompt: "Use $abacus-beads-attention to report what needs my attention."

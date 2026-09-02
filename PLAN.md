@@ -97,9 +97,19 @@ Before building the loop, capture the exact behavior of the locally supported co
 ### Work
 
 - Create a .NET 10 console project with nullable reference types enabled and no production NuGet dependencies.
+- Bundle the `abacus-beads-planner`, `abacus-beads-doctor`, and
+  `abacus-beads-attention` skills as executable resources. A standalone
+  `abacus --init` resolves the current Git root with the Git CLI and installs all
+  three skills under `.agents/skills` without entering agent preflight or
+  requiring normal run options. Stage the bundled contents before installation;
+  if any bundled skill already exists, require one user confirmation before
+  replacing those complete directories. Cancellation leaves all skills unchanged
+  and unrelated skill directories remain untouched.
 - Implement the exact CLI from the spec:
 
   ```text
+  abacus --init
+
   abacus [--mode <opencode|codex|claude|opencode-server>] \
     [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
     --model <model> \
@@ -129,6 +139,9 @@ Before building the loop, capture the exact behavior of the locally supported co
 ### Exit criteria
 
 - Argument parsing is covered by tests.
+- Skill installation works from a subdirectory, requires confirmation before
+  replacing existing bundled skills, removes obsolete files from confirmed
+  replacements, and is covered by tests.
 - A fake executable test proves arguments with spaces and special characters are passed literally and `BEADS_ACTOR` is scoped to the child.
 - `abacus --help` documents prerequisites and examples from SPEC.md.
 
@@ -280,6 +293,9 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ## Definition of done
 
+- `abacus --init` installs all three bundled skills at the current Git repository
+  root without starting preflight or agent loops, and requires confirmation before
+  it replaces existing bundled skill directories.
 - The CLI and prompt match SPEC.md.
 - `--mode` selects exactly one of OpenCode, Codex, Claude, or OpenCode Server; legacy `--opencode-server` implies server mode.
 - `--model <model>` is required and every selected agent instance receives that exact model ID.

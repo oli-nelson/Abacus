@@ -13,6 +13,24 @@ public static class Program
                 return 0;
             }
 
+            if (parsed.InitializeSkills)
+            {
+                var installer = new SkillInstaller(new CommandRunner(TextWriter.Null));
+                var result = await installer.InstallAsync(
+                    Environment.CurrentDirectory,
+                    ConfirmSkillOverwrite,
+                    CancellationToken.None);
+                if (result.Cancelled)
+                {
+                    Console.Out.WriteLine("Skill installation cancelled; no files were changed.");
+                    return 0;
+                }
+
+                Console.Out.WriteLine(
+                    $"Installed {string.Join(", ", result.InstalledSkills)} in {result.SkillsRoot}");
+                return 0;
+            }
+
             using var cancellation = new CancellationTokenSource();
             ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
             {
@@ -64,5 +82,15 @@ public static class Program
             Console.Error.WriteLine($"abacus: {exception.Message}");
             return 1;
         }
+    }
+
+    private static bool ConfirmSkillOverwrite(IReadOnlyList<string> existingSkills)
+    {
+        Console.Error.WriteLine(
+            $"The following installed skill directories already exist: {string.Join(", ", existingSkills)}");
+        Console.Error.Write("Replace them with the bundled versions? [y/N] ");
+        var response = Console.ReadLine()?.Trim();
+        return string.Equals(response, "y", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(response, "yes", StringComparison.OrdinalIgnoreCase);
     }
 }

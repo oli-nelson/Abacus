@@ -52,7 +52,7 @@ public sealed record Options(
     };
 
     public const string ShortUsage =
-        "Usage: abacus [--mode <opencode|codex|claude|opencode-server>] " +
+        "Usage: abacus --init | abacus [--mode <opencode|codex|claude|opencode-server>] " +
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <model> [--effort <effort>] [--remote] " +
         "[--label <label>] [--exclude-label <label>] [--type <types>] [--priority <priority>] " +
@@ -64,6 +64,8 @@ public sealed record Options(
         Abacus coordinates Beads tasks and interactive coding agents.
 
         Usage:
+          abacus --init
+
           abacus [--mode <opencode|codex|claude|opencode-server>] \
             [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
             --model <model> \
@@ -76,6 +78,12 @@ public sealed record Options(
             [--once | --drain | --check] \
             [--verbose] \
             -a <agent_name> <git_workspace_path> [-a ...]
+
+        Setup:
+          --init installs the bundled abacus-beads-planner,
+          abacus-beads-doctor, and abacus-beads-attention skills under
+          .agents/skills at the Git root. Existing skills require confirmation
+          before their directories are replaced.
 
         Output:
           The default interactive display is a live dashboard of agent activity.
@@ -138,6 +146,16 @@ public sealed record Options(
         if (arguments.Any(static argument => argument is "--help" or "-h"))
         {
             return OptionsParseResult.Help;
+        }
+
+        if (arguments.Contains("--init", StringComparer.Ordinal))
+        {
+            if (arguments.Count != 1)
+            {
+                throw new OptionsException("--init cannot be combined with other options");
+            }
+
+            return OptionsParseResult.Init;
         }
 
         string? tmuxSession = null;
@@ -475,9 +493,10 @@ public sealed record Options(
     }
 }
 
-public sealed record OptionsParseResult(Options? Value, bool ShowHelp)
+public sealed record OptionsParseResult(Options? Value, bool ShowHelp, bool InitializeSkills = false)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
+    public static OptionsParseResult Init { get; } = new(null, ShowHelp: false, InitializeSkills: true);
 }
 
 public sealed class OptionsException(string message) : Exception(message);

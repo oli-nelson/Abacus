@@ -8,4 +8,19 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="../../skills/abacus-beads-attention/SKILL.md"
+                      LogicalName="Abacus.Skills.abacus-beads-attention.SKILL.md" />
+    <EmbeddedResource Include="../../skills/abacus-beads-attention/agents/openai.yaml"
+                      LogicalName="Abacus.Skills.abacus-beads-attention.agents.openai.yaml" />
+    <EmbeddedResource Include="../../skills/abacus-beads-planner/SKILL.md"
+                      LogicalName="Abacus.Skills.abacus-beads-planner.SKILL.md" />
+    <EmbeddedResource Include="../../skills/abacus-beads-planner/agents/openai.yaml"
+                      LogicalName="Abacus.Skills.abacus-beads-planner.agents.openai.yaml" />
+    <EmbeddedResource Include="../../skills/abacus-beads-doctor/SKILL.md"
+                      LogicalName="Abacus.Skills.abacus-beads-doctor.SKILL.md" />
+    <EmbeddedResource Include="../../skills/abacus-beads-doctor/agents/openai.yaml"
+                      LogicalName="Abacus.Skills.abacus-beads-doctor.agents.openai.yaml" />
+  </ItemGroup>
+
 </Project>

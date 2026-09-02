@@ -1,0 +1,4 @@
+interface:
+  display_name: "Abacus Beads Planner"
+  short_description: "Turn concepts into execution-ready Beads graphs"
+  default_prompt: "Use $abacus-beads-planner to turn my concept into a complete, agent-ready Beads issue graph."

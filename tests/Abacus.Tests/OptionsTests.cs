@@ -439,4 +439,20 @@ public sealed class OptionsTests
     {
         Assert.True(Options.Parse([argument]).ShowHelp);
     }
+
+    [Fact]
+    public void InitDoesNotRequireAgentOptions()
+    {
+        var result = Options.Parse(["--init"]);
+
+        Assert.True(result.InitializeSkills);
+        Assert.False(result.ShowHelp);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public void InitCannotBeCombinedWithAgentOptions()
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse(["--init", "--verbose"]));
+    }
 }
