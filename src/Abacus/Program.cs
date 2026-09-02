@@ -13,7 +13,7 @@ public static class Program
                 return 0;
             }
 
-            if (parsed.InitializeSkills)
+            if (parsed.InstallSkills)
             {
                 var installer = new SkillInstaller(new CommandRunner(TextWriter.Null));
                 var result = await installer.InstallAsync(
@@ -29,6 +29,14 @@ public static class Program
                 Console.Out.WriteLine(
                     $"Installed {string.Join(", ", result.InstalledSkills)} in {result.SkillsRoot}");
                 return 0;
+            }
+
+            if (parsed.ShowHealth)
+            {
+                var health = await new HealthChecker(new CommandRunner(TextWriter.Null))
+                    .RunAsync(Environment.CurrentDirectory, CancellationToken.None);
+                Console.Out.Write(health.Render());
+                return health.IsHealthy ? 0 : 1;
             }
 
             using var cancellation = new CancellationTokenSource();

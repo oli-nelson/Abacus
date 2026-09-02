@@ -441,18 +441,40 @@ public sealed class OptionsTests
     }
 
     [Fact]
-    public void InitDoesNotRequireAgentOptions()
+    public void InstallSkillsDoesNotRequireAgentOptions()
     {
-        var result = Options.Parse(["--init"]);
+        var result = Options.Parse(["--install-skills"]);
 
-        Assert.True(result.InitializeSkills);
+        Assert.True(result.InstallSkills);
         Assert.False(result.ShowHelp);
         Assert.Null(result.Value);
     }
 
     [Fact]
-    public void InitCannotBeCombinedWithAgentOptions()
+    public void InstallSkillsCannotBeCombinedWithAgentOptions()
     {
-        Assert.Throws<OptionsException>(() => Options.Parse(["--init", "--verbose"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["--install-skills", "--verbose"]));
+    }
+
+    [Fact]
+    public void OldInitOptionIsRejected()
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse(["--init"]));
+    }
+
+    [Fact]
+    public void HealthDoesNotRequireAgentOptions()
+    {
+        var result = Options.Parse(["--health"]);
+
+        Assert.True(result.ShowHealth);
+        Assert.False(result.ShowHelp);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public void HealthCannotBeCombinedWithAgentOptions()
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse(["--health", "--verbose"]));
     }
 }

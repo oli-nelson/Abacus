@@ -20,16 +20,16 @@ Install Abacus's bundled planning, issue-quality, and attention-reporting skills
 the target Git repository:
 
 ```sh
-abacus --init
+abacus --install-skills
 ```
 
 This installs `.agents/skills/abacus-beads-planner`,
 `.agents/skills/abacus-beads-doctor`, and
 `.agents/skills/abacus-beads-attention` at the repository root. If any bundled
-skill directory already exists, initialization must name the affected skills and
+skill directory already exists, installation must name the affected skills and
 require user confirmation before replacing their complete directories. A
 declined or unavailable confirmation leaves every skill unchanged. Unrelated
-skills are preserved. Initialization is a standalone operation: it does not
+skills are preserved. Skill installation is a standalone operation: it does not
 require a model, agent, Beads project, tmux session, or agent CLI, and it does
 not start the orchestrator.
 
@@ -54,7 +54,13 @@ Multiple agents must use the same shared Dolt database so task claims are atomic
 Install the bundled agent skills:
 
 ```sh
-abacus --init
+abacus --install-skills
+```
+
+Inspect whether the current repository is ready for Abacus:
+
+```sh
+abacus --health
 ```
 
 Start agents in an existing tmux session:
@@ -111,6 +117,29 @@ For backward compatibility, supplying `--opencode-server` without `--mode` impli
 By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. On shutdown, Abacus prints a final per-agent run summary with elapsed time and counts for closed, reopened, blocked, and interrupted tickets.
 
 Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without cleaning workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected agent executable, workspace and Dolt configuration, the OpenCode server address when applicable, and any requested tmux session/window target. These three options are mutually exclusive.
+
+### Repository health
+
+`--health` is a standalone, read-only diagnostic. From the current Git
+repository it reports:
+
+- whether Git and Beads meet their minimum versions and Beads is initialized;
+- whether Beads uses embedded single-writer storage or a reachable shared,
+  server-backed Dolt database suitable for multiple agents;
+- which of OpenCode, Claude Code, and Codex are installed at supported versions,
+  requiring at least one supported harness;
+- whether tmux meets its minimum version and therefore enables pane-hosted modes;
+- every worktree referenced by `git worktree list --porcelain`, with an explicit
+  warning when there is no additional linked worktree;
+- whether all bundled skills are present under `.agents/skills`; and
+- the resulting available agent modes plus single- and multi-agent readiness.
+
+Direct OpenCode Server mode does not require tmux, but health does not attempt to
+find or contact a server. Multi-agent readiness requires a reachable shared
+Beads database and more than one referenced Git worktree. Separate clones may
+also provide distinct workspaces, but health deliberately does not search for
+them. The command exits zero when at least one single-agent mode is runnable and
+all bundled skills are installed; otherwise it exits one.
 
 ## Agent workflow
 
@@ -172,6 +201,12 @@ blocked below. If user attention is no longer needed, remove the alert with:
 When you are completely finished, add a summary of what you did to the ticket notes:
 
   bd update <issue_id> --append-notes "<summary of completed work>" --json
+
+If your work introduces important things for other agents to remember before they start new tasks, add them to memory:
+
+  bd remember "<thing to remember>"
+
+But use memory sparingly; it is not a substitute for good documentation in the repository.
 
 Then finally update the ticket:
 

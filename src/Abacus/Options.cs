@@ -52,7 +52,7 @@ public sealed record Options(
     };
 
     public const string ShortUsage =
-        "Usage: abacus --init | abacus [--mode <opencode|codex|claude|opencode-server>] " +
+        "Usage: abacus --install-skills | abacus --health | abacus [--mode <opencode|codex|claude|opencode-server>] " +
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <model> [--effort <effort>] [--remote] " +
         "[--label <label>] [--exclude-label <label>] [--type <types>] [--priority <priority>] " +
@@ -64,7 +64,8 @@ public sealed record Options(
         Abacus coordinates Beads tasks and interactive coding agents.
 
         Usage:
-          abacus --init
+          abacus --install-skills
+          abacus --health
 
           abacus [--mode <opencode|codex|claude|opencode-server>] \
             [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
@@ -80,10 +81,15 @@ public sealed record Options(
             -a <agent_name> <git_workspace_path> [-a ...]
 
         Setup:
-          --init installs the bundled abacus-beads-planner,
+          --install-skills installs the bundled abacus-beads-planner,
           abacus-beads-doctor, and abacus-beads-attention skills under
           .agents/skills at the Git root. Existing skills require confirmation
           before their directories are replaced.
+
+        Health:
+          --health reports Beads configuration, supported agent harness and tmux
+          versions, referenced Git worktrees, bundled skill presence, and
+          single-/multi-agent readiness.
 
         Output:
           The default interactive display is a live dashboard of agent activity.
@@ -148,14 +154,24 @@ public sealed record Options(
             return OptionsParseResult.Help;
         }
 
-        if (arguments.Contains("--init", StringComparer.Ordinal))
+        if (arguments.Contains("--install-skills", StringComparer.Ordinal))
         {
             if (arguments.Count != 1)
             {
-                throw new OptionsException("--init cannot be combined with other options");
+                throw new OptionsException("--install-skills cannot be combined with other options");
             }
 
-            return OptionsParseResult.Init;
+            return OptionsParseResult.InstallSkillsOnly;
+        }
+
+        if (arguments.Contains("--health", StringComparer.Ordinal))
+        {
+            if (arguments.Count != 1)
+            {
+                throw new OptionsException("--health cannot be combined with other options");
+            }
+
+            return OptionsParseResult.Health;
         }
 
         string? tmuxSession = null;
@@ -493,10 +509,15 @@ public sealed record Options(
     }
 }
 
-public sealed record OptionsParseResult(Options? Value, bool ShowHelp, bool InitializeSkills = false)
+public sealed record OptionsParseResult(
+    Options? Value,
+    bool ShowHelp,
+    bool InstallSkills = false,
+    bool ShowHealth = false)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
-    public static OptionsParseResult Init { get; } = new(null, ShowHelp: false, InitializeSkills: true);
+    public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);
+    public static OptionsParseResult Health { get; } = new(null, ShowHelp: false, ShowHealth: true);
 }
 
 public sealed class OptionsException(string message) : Exception(message);

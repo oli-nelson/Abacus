@@ -34,6 +34,12 @@ public sealed class PromptTests
 
               bd update abc-123 --append-notes "<summary of completed work>" --json
 
+            If your work introduces important things for other agents to remember before they start new tasks, add them to memory:
+
+              bd remember "<thing to remember>"
+
+            But use memory sparingly; it is not a substitute for good documentation in the repository.
+
             Then finally update the ticket:
 
             - Success:

@@ -54,7 +54,7 @@ dotnet publish src/Abacus -c Release -r osx-arm64 \
 From anywhere inside a target Git repository, run:
 
 ```sh
-abacus --init
+abacus --install-skills
 ```
 
 This installs three skills under `.agents/skills` at the repository root:
@@ -76,7 +76,7 @@ changing any files. Confirming replaces each existing bundled skill's complete
 directory, including local edits and extra files; unrelated skills are never
 removed. A first-time install does not prompt.
 
-`--init` is standalone and cannot be combined with run options. It requires Git
+`--install-skills` is standalone and cannot be combined with run options. It requires Git
 and a current directory inside a Git repository, but does not require a model,
 agent configuration, Beads project, tmux session, or agent CLI.
 
@@ -88,6 +88,40 @@ Use $abacus-beads-planner to turn this concept into a Beads issue graph: ...
 Use $abacus-beads-doctor to audit the issues under epic bd-123.
 Use $abacus-beads-attention to tell me what needs my attention.
 ```
+
+Note: These skills are optional and their installation is not required in order for abacus to function.
+
+### Check repository health
+
+Run the standalone, read-only health check from anywhere inside the repository:
+
+```sh
+abacus --health
+```
+
+The report checks:
+
+- Git and Beads installation, minimum versions, and the resolved repository root;
+- whether Beads is initialized and configured for embedded single-agent use or
+  reachable shared-Dolt multi-agent use;
+- OpenCode, Claude Code, and Codex installation and minimum versions—individual
+  harnesses are optional, but at least one supported harness is required;
+- the minimum tmux version and which pane-hosted modes it enables;
+- all worktrees referenced by the root repository;
+- all three bundled skill directories, including `SKILL.md` and
+  `agents/openai.yaml`; and
+- the resulting runnable agent modes and single-/multi-agent readiness.
+
+The primary checkout is itself a Git worktree. If it is the only referenced
+worktree, the report makes clear that linked-worktree multi-agent execution is
+not available. Separate clones can also be passed to Abacus as distinct
+workspaces, but `--health` intentionally does not search the filesystem for
+them. Direct OpenCode Server mode does not need tmux, and the health check does
+not attempt to find or contact an OpenCode server.
+
+`--health` exits with status 0 when at least one single-agent mode is runnable
+and all bundled skills are installed. It exits with status 1 when the repository
+needs attention.
 
 ## Agent modes
 
@@ -363,11 +397,20 @@ If you prefer pane-hosted attached clients, also pass `--tmux-session` and optio
 Install the bundled skills:
 
 ```sh
-abacus --init
+abacus --install-skills
 ```
 
 See [Install the bundled agent skills](#install-the-bundled-agent-skills) for
 the installed paths, skill purposes, and replacement confirmation behavior.
+
+Check repository readiness:
+
+```sh
+abacus --health
+```
+
+See [Check repository health](#check-repository-health) for the checks and exit
+status.
 
 Start agents in an existing tmux session:
 
@@ -491,6 +534,12 @@ blocked below. If user attention is no longer needed, remove the alert with:
 When you are completely finished, add a summary of what you did to the ticket notes:
 
   bd update <issue_id> --append-notes "<summary of completed work>" --json
+
+If your work introduces important things for other agents to remember before they start new tasks, add them to memory:
+
+  bd remember "<thing to remember>"
+
+But use memory sparingly; it is not a substitute for good documentation in the repository.
 
 Then finally update the ticket:
 

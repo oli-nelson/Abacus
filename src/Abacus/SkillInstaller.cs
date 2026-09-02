@@ -12,23 +12,30 @@ public sealed class SkillInstaller(
     string gitExecutable = "git",
     Assembly? resourceAssembly = null)
 {
+    public static IReadOnlyList<string> InstallableSkillNames { get; } =
+    [
+        "abacus-beads-planner",
+        "abacus-beads-doctor",
+        "abacus-beads-attention",
+    ];
+
     private sealed record BundledSkill(
         string Name,
         IReadOnlyList<(string ResourceName, string RelativePath)> Files);
 
     private static readonly BundledSkill[] BundledSkills =
     [
-        new("abacus-beads-planner",
+        new(InstallableSkillNames[0],
         [
             ("Abacus.Skills.abacus-beads-planner.SKILL.md", "SKILL.md"),
             ("Abacus.Skills.abacus-beads-planner.agents.openai.yaml", "agents/openai.yaml"),
         ]),
-        new("abacus-beads-doctor",
+        new(InstallableSkillNames[1],
         [
             ("Abacus.Skills.abacus-beads-doctor.SKILL.md", "SKILL.md"),
             ("Abacus.Skills.abacus-beads-doctor.agents.openai.yaml", "agents/openai.yaml"),
         ]),
-        new("abacus-beads-attention",
+        new(InstallableSkillNames[2],
         [
             ("Abacus.Skills.abacus-beads-attention.SKILL.md", "SKILL.md"),
             ("Abacus.Skills.abacus-beads-attention.agents.openai.yaml", "agents/openai.yaml"),
@@ -75,7 +82,7 @@ public sealed class SkillInstaller(
         }
 
         Directory.CreateDirectory(skillsRoot);
-        var stagingRoot = Path.Combine(skillsRoot, $".abacus-init-{Guid.NewGuid():N}");
+        var stagingRoot = Path.Combine(skillsRoot, $".abacus-install-skills-{Guid.NewGuid():N}");
         try
         {
             foreach (var skill in BundledSkills)
