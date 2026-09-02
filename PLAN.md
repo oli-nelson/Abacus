@@ -110,6 +110,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   ```text
   abacus --install-skills
   abacus --health
+  abacus --resolve-attention <issue-id> [<message>]
 
   abacus [--mode <opencode|codex|claude|opencode-server>] \
     [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
@@ -125,6 +126,12 @@ Before building the loop, capture the exact behavior of the locally supported co
     [--verbose] \
     -a <agent_name> <git_workspace_path> [-a ...]
   ```
+
+- Support standalone user-attention resolution: optionally add a `bd comment`
+  containing `User Responded to a previous attention callout: <message>`, then
+  use `bd update` to remove the `abacus:needs-user-attention` label from the
+  requested issue. Do not run normal preflight or require agent options for this
+  operation.
 
 - Reject a missing or malformed `--model` value, a malformed `--effort` value, `--remote` outside Claude mode, malformed or duplicate singular dispatch filters, malformed ticket timeouts, invalid mode/server/tmux combinations, other missing values, unknown options, duplicate agent names, duplicate canonical workspace paths, and zero agents. OpenCode model IDs use `provider/model`; Codex and Claude IDs must be nonempty and whitespace-free. Effort defaults to `high`; model and effort availability remain the selected CLI's responsibility. Dispatch labels are repeatable, priority is 0 through 4, and ticket timeouts are positive integer seconds, minutes, or hours.
 - Implement `CommandRunner` around `ProcessStartInfo` with:
@@ -157,6 +164,8 @@ Before building the loop, capture the exact behavior of the locally supported co
 - Health parsing, version comparisons, Beads concurrency and merge-slot
   classification, worktree reporting, harness-mode availability, and skill
   presence are covered by fake-CLI tests.
+- User-attention resolution parsing and its exact Beads argument list are
+  covered by tests, including literal message passthrough and failure reporting.
 - A fake executable test proves arguments with spaces and special characters are passed literally and `BEADS_ACTOR` is scoped to the child.
 - `abacus --help` documents prerequisites and examples from SPEC.md.
 
@@ -313,6 +322,8 @@ All checks happen before any ticket is claimed or agent run is created.
   it replaces existing bundled skill directories.
 - `abacus --health` reports project readiness without mutating it and fails when
   no single-agent mode is runnable or a bundled skill is missing.
+- `abacus --resolve-attention` removes the attention label from one issue and
+  optionally records the user's response without starting agent orchestration.
 - The CLI and prompt match SPEC.md.
 - `--mode` selects exactly one of OpenCode, Codex, Claude, or OpenCode Server; legacy `--opencode-server` implies server mode.
 - `--model <model>` is required and every selected agent instance receives that exact model ID.

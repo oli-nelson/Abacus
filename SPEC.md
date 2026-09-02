@@ -63,6 +63,12 @@ Inspect whether the current repository is ready for Abacus:
 abacus --health
 ```
 
+Resolve a user-attention callout from the current Beads project:
+
+```sh
+abacus --resolve-attention <issue-id> [<message>]
+```
+
 Start agents in an existing tmux session:
 
 ```sh
@@ -92,6 +98,15 @@ Dispatch filters are optional and apply to every fresh or same-agent resumed rea
 `--ticket-timeout` is an optional positive integer duration with an `s`, `m`, or `h` suffix. The guard starts when the agent CLI starts. At the limit, Abacus attempts to stop and clean the hosted agent run, reopens the ticket only if it is still `in_progress`, verifies the result, and pushes when a Dolt remote is configured. A terminal ticket update that races with the timeout is preserved. Recovery or push failure stops that agent, keeps a persistent alert visible, and makes finite runs fail.
 
 `--notify` controls Abacus-owned desktop notifications and defaults to `off`. `attention` reports newly observed `abacus:needs-user-attention` issues, blocked tickets, and persistent recovery failures. `all` additionally reports every ticket outcome and the final run summary. On macOS Abacus uses `osascript`; on Linux it uses `notify-send` when available. Notification delivery is best effort and never changes orchestration outcomes. `--notify-sound` requests the platform notification sound and permits a terminal bell fallback if desktop delivery is unavailable; it requires `--notify attention` or `--notify all`.
+
+`--resolve-attention <issue-id> [<message>]` is a standalone operation. It runs
+`bd update` in the current directory to remove
+`abacus:needs-user-attention`. When the optional message is present, it first
+uses `bd comment` to add
+`User Responded to a previous attention callout: <message>`. The label is not
+removed if the comment fails. On success it prints a concise confirmation
+instead of the raw Beads JSON. It does not run agent preflight or require normal
+run options. The command fails if Beads cannot perform either operation.
 
 Each local agent runs interactively in its own tmux pane using its assigned Git workspace and requested model:
 
@@ -203,16 +218,18 @@ the branch into the latest main branch.
 If the issue needs user awareness, a decision, or outside action, bring it to the
 user's attention with:
 
-  bd update <issue_id> --add-label abacus:needs-user-attention --append-notes "<decision or action needed>" --json
+  bd comment <issue_id> "<decision or action needed>"
+  bd update <issue_id> --add-label abacus:needs-user-attention --json
 
 Continue working when possible. If work cannot continue, also mark the issue
 blocked below. If user attention is no longer needed, remove the alert with:
 
+  bd comment <issue_id> "<why user attention is no longer needed>"
   bd update <issue_id> --remove-label abacus:needs-user-attention --json
 
-When you are completely finished, add a summary of what you did to the ticket notes:
+When you are completely finished, add a summary of what you did as a comment:
 
-  bd update <issue_id> --append-notes "<summary of completed work>" --json
+  bd comment <issue_id> "<summary of completed work>"
 
 If your work introduces important things for other agents to remember before they start new tasks, add them to memory:
 
@@ -231,5 +248,5 @@ Then finally update the ticket:
 
 Changing the ticket from in_progress tells Abacus to end this session. Make the
 status change one of your final actions, after all code, commits, merges, and
-ticket notes are complete.
+ticket updates are complete.
 ```

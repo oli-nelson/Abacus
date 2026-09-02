@@ -127,6 +127,36 @@ and all bundled skills are installed. It exits with status 1 when the repository
 needs attention. A missing merge slot is advisory and does not change the exit
 status because repositories may use another serialized merge process.
 
+### Resolve a user-attention callout
+
+Remove the `abacus:needs-user-attention` label from one issue in the current
+Beads project:
+
+```sh
+abacus --resolve-attention ab-123
+```
+
+Optionally provide a quoted response message:
+
+```sh
+abacus --resolve-attention ab-123 "Approved option A"
+```
+
+Without a message, Abacus performs one `bd update` that removes the label. When
+a message is present, Abacus first adds this Beads comment and then removes the
+label:
+
+```text
+User Responded to a previous attention callout: Approved option A
+```
+
+If adding the comment fails, the attention label is left in place. The command
+prints a concise confirmation rather than the raw Beads JSON.
+
+This is a standalone operation. It does not require a model, agent workspace,
+tmux session, or agent harness. Multi-word messages must be passed as one quoted
+argument.
+
 ## Agent modes
 
 Abacus supports exactly four modes:
@@ -528,56 +558,11 @@ Temporary `bd show` failures put the agent row into `RECOVERING`, but Abacus kee
 
 Reopen and Dolt-push retries return explicit success or failure outcomes. Exhausted retries stop that agent, remain visible as an attention alert, and make `--once` or `--drain` exit nonzero. A ticket counts as reopened in the final summary only after its `open` state has been read back from Beads.
 
-Every agent session receives this exact prompt after substituting the agent name, issue ID, and canonical workspace path:
-
-```text
-You are <agent_name>, working on Beads ticket <issue_id> in <workspace_path>.
-
-Abacus has already claimed the ticket for you and set BEADS_ACTOR to your agent
-name. Do not claim another ticket.
-Read the ticket with:
-
-  bd show <issue_id> --json
-
-Work on the branch abacus/<issue_id> and satisfy the ticket's definition of done.
-Commit your changes, then use the repository's serialized merge process to merge
-the branch into the latest main branch.
-
-If the issue needs user awareness, a decision, or outside action, bring it to the
-user's attention with:
-
-  bd update <issue_id> --add-label abacus:needs-user-attention --append-notes "<decision or action needed>" --json
-
-Continue working when possible. If work cannot continue, also mark the issue
-blocked below. If user attention is no longer needed, remove the alert with:
-
-  bd update <issue_id> --remove-label abacus:needs-user-attention --json
-
-When you are completely finished, add a summary of what you did to the ticket notes:
-
-  bd update <issue_id> --append-notes "<summary of completed work>" --json
-
-If your work introduces important things for other agents to remember before they start new tasks, add them to memory:
-
-  bd remember "<thing to remember>"
-
-But use memory sparingly; it is not a substitute for good documentation in the repository.
-
-Then finally update the ticket:
-
-- Success:
-    bd close <issue_id> --reason "<summary of completed work>" --json
-- Work should be retried:
-    bd update <issue_id> --status open --assignee "" --append-notes "<reason>" --json
-- Work is blocked:
-    bd update <issue_id> --status blocked --append-notes "<blocker>" --json
-
-Changing the ticket from in_progress tells Abacus to end this session. Make the
-status change one of your final actions, after all code, commits, merges, and
-ticket notes are complete.
-```
-
-The implementation is in [`Prompt.cs`](src/Abacus/Prompt.cs) and the source contract is in [`SPEC.md`](SPEC.md#agent-prompt-template). Repository-specific agent instructions must define the serialized merge process named in the prompt.
+Every agent session receives the prompt defined in
+[`src/Abacus/Prompt.cs`](src/Abacus/Prompt.cs), with the agent name, issue ID,
+and canonical workspace path substituted at runtime. The source contract is in
+[`SPEC.md`](SPEC.md#agent-prompt-template). Repository-specific agent
+instructions must define the serialized merge process named in the prompt.
 
 In default mode, agent states and recent warnings are shown without subprocess noise. In verbose mode, every external command is logged concisely to stderr with a timestamp and agent prefix. Pane-hosted prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. Agent CLI output is displayed directly in tmux for pane-hosted runs; direct attached-process output is drained to preserve the dashboard.
 

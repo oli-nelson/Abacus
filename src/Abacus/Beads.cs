@@ -41,6 +41,39 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
 {
     private const string MergeSlotLabel = "gt:slot";
     public const string NeedsUserAttentionLabel = "abacus:needs-user-attention";
+    public const string UserAttentionResponsePrefix =
+        "User Responded to a previous attention callout: ";
+
+    public async Task<CommandResult> ResolveUserAttentionAsync(
+        string workspace,
+        string issueId,
+        string? message,
+        CancellationToken cancellationToken)
+    {
+        if (message is not null)
+        {
+            var comment = await RunAsync(
+                workspace,
+                agentName: null,
+                ["comment", issueId, UserAttentionResponsePrefix + message, "--json"],
+                cancellationToken);
+            EnsureCommandSuccess(comment, $"record user response for '{issueId}'");
+        }
+
+        var result = await RunAsync(
+            workspace,
+            agentName: null,
+            [
+                "update",
+                issueId,
+                "--remove-label",
+                NeedsUserAttentionLabel,
+                "--json",
+            ],
+            cancellationToken);
+        EnsureCommandSuccess(result, $"resolve user attention for '{issueId}'");
+        return result;
+    }
 
     public async Task<BeadsIssue?> TryClaimReadyAsync(
         string workspace,

@@ -2,6 +2,8 @@ namespace Abacus;
 
 public sealed record AgentOptions(string Name, string WorkspacePath);
 
+public sealed record AttentionResolutionOptions(string IssueId, string? Message);
+
 public enum AgentMode
 {
     OpenCode,
@@ -61,7 +63,9 @@ public sealed record Options(
     };
 
     public const string ShortUsage =
-        "Usage: abacus --install-skills | abacus --health | abacus [--mode <opencode|codex|claude|opencode-server>] " +
+        "Usage: abacus --install-skills | abacus --health | " +
+        "abacus --resolve-attention <issue-id> [<message>] | " +
+        "abacus [--mode <opencode|codex|claude|opencode-server>] " +
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <model> [--effort <effort>] [--remote] " +
         "[--label <label>] [--exclude-label <label>] [--type <types>] [--priority <priority>] " +
@@ -75,6 +79,7 @@ public sealed record Options(
         Usage:
           abacus --install-skills
           abacus --health
+          abacus --resolve-attention <issue-id> [<message>]
 
           abacus [--mode <opencode|codex|claude|opencode-server>] \
             [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
@@ -100,6 +105,11 @@ public sealed record Options(
           --health reports Beads configuration and merge-slot availability,
           supported agent harness and tmux versions, referenced Git worktrees,
           bundled skill presence, and single-/multi-agent readiness.
+
+        Resolve user attention:
+          --resolve-attention removes the abacus:needs-user-attention label from
+          one Beads issue. If a quoted message is supplied, Abacus first adds a
+          Beads comment: "User Responded to a previous attention callout: <message>".
 
         Output:
           The default interactive display is a live dashboard of agent activity.
@@ -189,6 +199,30 @@ public sealed record Options(
             }
 
             return OptionsParseResult.Health;
+        }
+
+        if (arguments.Contains("--resolve-attention", StringComparer.Ordinal))
+        {
+            if (arguments.Count is < 2 or > 3
+                || !string.Equals(arguments[0], "--resolve-attention", StringComparison.Ordinal))
+            {
+                throw new OptionsException(
+                    "--resolve-attention must be used alone as --resolve-attention <issue-id> [<message>]");
+            }
+
+            var issueId = arguments[1];
+            if (string.IsNullOrWhiteSpace(issueId) || issueId.Any(char.IsWhiteSpace))
+            {
+                throw new OptionsException("--resolve-attention requires a nonempty issue ID without whitespace");
+            }
+
+            var message = arguments.Count == 3 ? arguments[2] : null;
+            if (message is not null && string.IsNullOrWhiteSpace(message))
+            {
+                throw new OptionsException("--resolve-attention message cannot be empty");
+            }
+
+            return OptionsParseResult.ResolveAttentionOnly(issueId, message);
         }
 
         string? tmuxSession = null;
@@ -560,11 +594,17 @@ public sealed record OptionsParseResult(
     Options? Value,
     bool ShowHelp,
     bool InstallSkills = false,
-    bool ShowHealth = false)
+    bool ShowHealth = false,
+    AttentionResolutionOptions? AttentionResolution = null)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);
     public static OptionsParseResult Health { get; } = new(null, ShowHelp: false, ShowHealth: true);
+    public static OptionsParseResult ResolveAttentionOnly(string issueId, string? message) =>
+        new(
+            null,
+            ShowHelp: false,
+            AttentionResolution: new AttentionResolutionOptions(issueId, message));
 }
 
 public sealed class OptionsException(string message) : Exception(message);

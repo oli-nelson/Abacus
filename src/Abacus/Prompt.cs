@@ -18,16 +18,18 @@ public static class Prompt
         If the issue needs user awareness, a decision, or outside action, bring it to the
         user's attention with:
 
-          bd update {{issueId}} --add-label {{Beads.NeedsUserAttentionLabel}} --append-notes "<decision or action needed>" --json
+          bd comment {{issueId}} "<decision or action needed>"
+          bd update {{issueId}} --add-label {{Beads.NeedsUserAttentionLabel}} --json
 
         Continue working when possible. If work cannot continue, also mark the issue
         blocked below. If user attention is no longer needed, remove the alert with:
 
+          bd comment {{issueId}} "<why user attention is no longer needed>"
           bd update {{issueId}} --remove-label {{Beads.NeedsUserAttentionLabel}} --json
 
-        When you are completely finished, add a summary of what you did to the ticket notes:
+        When you are completely finished, add a summary of what you did as a comment:
 
-          bd update {{issueId}} --append-notes "<summary of completed work>" --json
+          bd comment {{issueId}} "<summary of completed work>"
 
         If your work introduces important things for other agents to remember before they start new tasks, add them to memory:
 
@@ -46,6 +48,6 @@ public static class Prompt
 
         Changing the ticket from in_progress tells Abacus to end this session. Make the
         status change one of your final actions, after all code, commits, merges, and
-        ticket notes are complete.
+        ticket updates are complete.
         """;
 }

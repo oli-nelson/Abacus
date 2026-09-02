@@ -39,6 +39,21 @@ public static class Program
                 return health.IsHealthy ? 0 : 1;
             }
 
+            if (parsed.AttentionResolution is { } attentionResolution)
+            {
+                await new Beads(new CommandRunner(TextWriter.Null))
+                    .ResolveUserAttentionAsync(
+                        Environment.CurrentDirectory,
+                        attentionResolution.IssueId,
+                        attentionResolution.Message,
+                        CancellationToken.None);
+                Console.Out.WriteLine(attentionResolution.Message is null
+                    ? $"Resolved user attention for {attentionResolution.IssueId}."
+                    : $"Resolved user attention for {attentionResolution.IssueId} and recorded the response.");
+
+                return 0;
+            }
+
             using var cancellation = new CancellationTokenSource();
             ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
             {

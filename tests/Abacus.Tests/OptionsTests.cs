@@ -542,4 +542,47 @@ public sealed class OptionsTests
     {
         Assert.Throws<OptionsException>(() => Options.Parse(["--health", "--verbose"]));
     }
+
+    [Fact]
+    public void ResolveAttentionDoesNotRequireAgentOptions()
+    {
+        var result = Options.Parse(["--resolve-attention", "ab-123"]);
+
+        var resolution = Assert.IsType<AttentionResolutionOptions>(result.AttentionResolution);
+        Assert.Equal("ab-123", resolution.IssueId);
+        Assert.Null(resolution.Message);
+        Assert.False(result.ShowHelp);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public void ResolveAttentionAcceptsAnOptionalQuotedMessage()
+    {
+        var result = Options.Parse([
+            "--resolve-attention",
+            "ab-123",
+            "Use option A after QA",
+        ]);
+
+        var resolution = Assert.IsType<AttentionResolutionOptions>(result.AttentionResolution);
+        Assert.Equal("Use option A after QA", resolution.Message);
+    }
+
+    [Theory]
+    [InlineData("--resolve-attention")]
+    [InlineData("--resolve-attention", "ab-123", "message", "extra")]
+    [InlineData("--verbose", "--resolve-attention", "ab-123")]
+    public void ResolveAttentionRejectsMissingOrCombinedArguments(params string[] arguments)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse(arguments));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ResolveAttentionRejectsAnEmptyMessage(string message)
+    {
+        Assert.Throws<OptionsException>(() =>
+            Options.Parse(["--resolve-attention", "ab-123", message]));
+    }
 }

@@ -23,16 +23,18 @@ public sealed class PromptTests
             If the issue needs user awareness, a decision, or outside action, bring it to the
             user's attention with:
 
-              bd update abc-123 --add-label abacus:needs-user-attention --append-notes "<decision or action needed>" --json
+              bd comment abc-123 "<decision or action needed>"
+              bd update abc-123 --add-label abacus:needs-user-attention --json
 
             Continue working when possible. If work cannot continue, also mark the issue
             blocked below. If user attention is no longer needed, remove the alert with:
 
+              bd comment abc-123 "<why user attention is no longer needed>"
               bd update abc-123 --remove-label abacus:needs-user-attention --json
 
-            When you are completely finished, add a summary of what you did to the ticket notes:
+            When you are completely finished, add a summary of what you did as a comment:
 
-              bd update abc-123 --append-notes "<summary of completed work>" --json
+              bd comment abc-123 "<summary of completed work>"
 
             If your work introduces important things for other agents to remember before they start new tasks, add them to memory:
 
@@ -51,7 +53,7 @@ public sealed class PromptTests
 
             Changing the ticket from in_progress tells Abacus to end this session. Make the
             status change one of your final actions, after all code, commits, merges, and
-            ticket notes are complete.
+            ticket updates are complete.
             """;
 
         Assert.Equal(expected, Prompt.Render("alice", "abc-123", "/work/repo"));
