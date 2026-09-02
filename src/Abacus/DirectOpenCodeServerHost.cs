@@ -2,12 +2,12 @@ using System.Diagnostics;
 
 namespace Abacus;
 
-public sealed class DirectOpenCodeRun(
+public sealed class DirectAgentRun(
     Process process,
     string agentName,
     string workspacePath,
     Task stdoutDrain,
-    Task stderrDrain) : IOpenCodeRun
+    Task stderrDrain) : IAgentRun
 {
     private readonly SemaphoreSlim cleanupLock = new(1, 1);
 
@@ -50,43 +50,47 @@ public sealed class DirectOpenCodeRun(
     internal bool Cleaned { get; set; }
 }
 
-public sealed class DirectOpenCode(
+public sealed class DirectOpenCodeServerHost(
     CommandRunner runner,
     TextWriter log,
     string executable,
-    TimeSpan? interruptGracePeriod = null) : IOpenCodeHost
+    TimeSpan? interruptGracePeriod = null) : IAgentHost
 {
     private readonly TimeSpan gracePeriod = interruptGracePeriod ?? TimeSpan.FromSeconds(1);
 
-    public async Task<DirectOpenCodeRun> StartOpenCodeAsync(
+    public async Task<DirectAgentRun> StartAgentAsync(
         ValidatedAgent agent,
         BeadsIssue issue,
         string model,
+        string effort,
         string? serverUrl,
         CancellationToken cancellationToken)
     {
         if (serverUrl is null)
         {
-            throw new InvalidOperationException("direct OpenCode processes require an attached server");
+            throw new InvalidOperationException("direct OpenCode Server processes require an attached server");
         }
+
+        var command = AgentCommandFactory.Create(
+            AgentMode.OpenCodeServer,
+            executable,
+            model,
+            agent.WorkspacePath,
+            serverUrl,
+            $"{agent.Name} • {issue.Id}",
+            effort);
+        var prompt = Prompt.Render(agent.Name, issue.Id, agent.WorkspacePath);
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = executable,
+            FileName = command.Executable,
             WorkingDirectory = agent.WorkspacePath,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        foreach (var argument in new[]
-        {
-            "run",
-            Prompt.Render(agent.Name, issue.Id, agent.WorkspacePath),
-            "--model", model,
-            "--attach", serverUrl,
-            "--dir", agent.WorkspacePath,
-        })
+        foreach (var argument in command.WithPrompt(prompt))
         {
             startInfo.ArgumentList.Add(argument);
         }
@@ -94,7 +98,7 @@ public sealed class DirectOpenCode(
         startInfo.Environment["BEADS_ACTOR"] = agent.Name;
         await log.DebugCommandAsync(
             agent.Name,
-            $"{executable} run <prompt for {issue.Id}> --model {model} --attach {serverUrl} --dir {agent.WorkspacePath}");
+            $"{executable} run <prompt for {issue.Id}> --model {model} --variant {effort} --attach {serverUrl} --dir {agent.WorkspacePath}");
 
         var process = new Process { StartInfo = startInfo };
         try
@@ -110,7 +114,7 @@ public sealed class DirectOpenCode(
             throw new CommandStartException(executable, exception);
         }
 
-        var run = new DirectOpenCodeRun(
+        var run = new DirectAgentRun(
             process,
             agent.Name,
             agent.WorkspacePath,
@@ -125,14 +129,14 @@ public sealed class DirectOpenCode(
         return run;
     }
 
-    public Task<bool> IsRunningAsync(DirectOpenCodeRun run, CancellationToken cancellationToken)
+    public Task<bool> IsRunningAsync(DirectAgentRun run, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(!run.HasExited);
     }
 
     public async Task StopAndCleanupAsync(
-        DirectOpenCodeRun run,
+        DirectAgentRun run,
         CancellationToken cancellationToken)
     {
         await run.CleanupLock.WaitAsync(CancellationToken.None);
@@ -185,27 +189,28 @@ public sealed class DirectOpenCode(
         }
     }
 
-    async Task<IOpenCodeRun> IOpenCodeHost.StartOpenCodeAsync(
+    async Task<IAgentRun> IAgentHost.StartAgentAsync(
         ValidatedAgent agent,
         BeadsIssue issue,
         string model,
+        string effort,
         string? serverUrl,
         CancellationToken cancellationToken) =>
-        await StartOpenCodeAsync(agent, issue, model, serverUrl, cancellationToken);
+        await StartAgentAsync(agent, issue, model, effort, serverUrl, cancellationToken);
 
-    Task<bool> IOpenCodeHost.IsRunningAsync(
-        IOpenCodeRun run,
+    Task<bool> IAgentHost.IsRunningAsync(
+        IAgentRun run,
         CancellationToken cancellationToken) =>
         IsRunningAsync(RequireDirectRun(run), cancellationToken);
 
-    Task IOpenCodeHost.StopAndCleanupAsync(
-        IOpenCodeRun run,
+    Task IAgentHost.StopAndCleanupAsync(
+        IAgentRun run,
         CancellationToken cancellationToken) =>
         StopAndCleanupAsync(RequireDirectRun(run), cancellationToken);
 
-    private static DirectOpenCodeRun RequireDirectRun(IOpenCodeRun run) =>
-        run as DirectOpenCodeRun
-        ?? throw new ArgumentException("run was not created by the direct OpenCode host", nameof(run));
+    private static DirectAgentRun RequireDirectRun(IAgentRun run) =>
+        run as DirectAgentRun
+        ?? throw new ArgumentException("run was not created by the direct OpenCode Server host", nameof(run));
 
     private static async Task DrainAsync(Task drain)
     {

@@ -1,11 +1,11 @@
 namespace Abacus;
 
-public sealed class OpenCodeRun(
+public sealed class TmuxAgentRun(
     string paneId,
     string runDirectory,
     string promptPath,
     string wrapperPath,
-    string markerPath) : IOpenCodeRun
+    string markerPath) : IAgentRun
 {
     private readonly SemaphoreSlim cleanupLock = new(1, 1);
     private bool cleaned;
@@ -41,23 +41,25 @@ public sealed class OpenCodeRun(
     }
 }
 
-public sealed class Tmux(
+public sealed class TmuxAgentHost(
     CommandRunner runner,
-    string executable,
-    string openCodeExecutable,
+    string tmuxExecutable,
+    string agentExecutable,
+    AgentMode agentMode,
     string tmuxSession,
     string temporaryRoot,
     TimeSpan? interruptGracePeriod = null,
     string? tmuxWindow = null,
-    string? tmuxLayout = null) : IOpenCodeHost
+    string? tmuxLayout = null) : IAgentHost
 {
     private readonly TimeSpan gracePeriod = interruptGracePeriod ?? TimeSpan.FromSeconds(1);
     private readonly string splitTarget = Target(tmuxSession, tmuxWindow);
 
-    public async Task<OpenCodeRun> StartOpenCodeAsync(
+    public async Task<TmuxAgentRun> StartAgentAsync(
         ValidatedAgent agent,
         BeadsIssue issue,
         string model,
+        string effort,
         string? serverUrl,
         CancellationToken cancellationToken)
     {
@@ -83,14 +85,14 @@ public sealed class Tmux(
                 cancellationToken);
             await File.WriteAllTextAsync(
                 wrapperPath,
-                RenderWrapper(agent, model, serverUrl, promptPath, markerPath),
+                RenderWrapper(agent, issue, model, effort, serverUrl, promptPath, markerPath),
                 cancellationToken);
             File.SetUnixFileMode(
                 wrapperPath,
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
             var result = await runner.RunAsync(new CommandSpec(
-                executable,
+                tmuxExecutable,
                 [
                     "split-window",
                     "-t", splitTarget,
@@ -103,7 +105,7 @@ public sealed class Tmux(
                 AgentName: agent.Name), CancellationToken.None);
             if (!result.Succeeded)
             {
-                throw new TmuxException($"could not create OpenCode pane: {Beads.FailureDetail(result)}");
+                throw new TmuxException($"could not create agent pane: {Beads.FailureDetail(result)}");
             }
 
             var paneId = result.StandardOutput.Trim();
@@ -112,9 +114,9 @@ public sealed class Tmux(
                 throw new TmuxException("tmux did not return the created pane ID");
             }
 
-            var run = new OpenCodeRun(paneId, runDirectory, promptPath, wrapperPath, markerPath);
+            var run = new TmuxAgentRun(paneId, runDirectory, promptPath, wrapperPath, markerPath);
             var title = await runner.RunAsync(new CommandSpec(
-                executable,
+                tmuxExecutable,
                 [
                     "set-option",
                     "-p",
@@ -126,11 +128,11 @@ public sealed class Tmux(
             if (!title.Succeeded)
             {
                 await StopAndCleanupAsync(run, CancellationToken.None);
-                throw new TmuxException($"could not protect OpenCode pane title: {Beads.FailureDetail(title)}");
+                throw new TmuxException($"could not protect agent pane title: {Beads.FailureDetail(title)}");
             }
 
             title = await runner.RunAsync(new CommandSpec(
-                executable,
+                tmuxExecutable,
                 [
                     "select-pane",
                     "-t", run.PaneId,
@@ -141,20 +143,20 @@ public sealed class Tmux(
             if (!title.Succeeded)
             {
                 await StopAndCleanupAsync(run, CancellationToken.None);
-                throw new TmuxException($"could not title OpenCode pane: {Beads.FailureDetail(title)}");
+                throw new TmuxException($"could not title agent pane: {Beads.FailureDetail(title)}");
             }
 
             if (tmuxLayout is not null)
             {
                 var layout = await runner.RunAsync(new CommandSpec(
-                    executable,
+                    tmuxExecutable,
                     ["select-layout", "-t", splitTarget, tmuxLayout],
                     temporaryRoot,
                     AgentName: agent.Name), CancellationToken.None);
                 if (!layout.Succeeded)
                 {
                     await StopAndCleanupAsync(run, CancellationToken.None);
-                    throw new TmuxException($"could not arrange OpenCode panes: {Beads.FailureDetail(layout)}");
+                    throw new TmuxException($"could not arrange agent panes: {Beads.FailureDetail(layout)}");
                 }
             }
 
@@ -173,34 +175,35 @@ public sealed class Tmux(
         }
     }
 
-    public async Task<bool> PaneExistsAsync(OpenCodeRun run, CancellationToken cancellationToken)
+    public async Task<bool> PaneExistsAsync(TmuxAgentRun run, CancellationToken cancellationToken)
     {
         var result = await runner.RunAsync(new CommandSpec(
-            executable,
+            tmuxExecutable,
             ["display-message", "-p", "-t", run.PaneId, "#{pane_id}"],
             temporaryRoot), cancellationToken);
         return result.Succeeded && string.Equals(result.StandardOutput.Trim(), run.PaneId, StringComparison.Ordinal);
     }
 
-    async Task<IOpenCodeRun> IOpenCodeHost.StartOpenCodeAsync(
+    async Task<IAgentRun> IAgentHost.StartAgentAsync(
         ValidatedAgent agent,
         BeadsIssue issue,
         string model,
+        string effort,
         string? serverUrl,
         CancellationToken cancellationToken) =>
-        await StartOpenCodeAsync(agent, issue, model, serverUrl, cancellationToken);
+        await StartAgentAsync(agent, issue, model, effort, serverUrl, cancellationToken);
 
-    Task<bool> IOpenCodeHost.IsRunningAsync(
-        IOpenCodeRun run,
+    Task<bool> IAgentHost.IsRunningAsync(
+        IAgentRun run,
         CancellationToken cancellationToken) =>
         PaneExistsAsync(RequireTmuxRun(run), cancellationToken);
 
-    Task IOpenCodeHost.StopAndCleanupAsync(
-        IOpenCodeRun run,
+    Task IAgentHost.StopAndCleanupAsync(
+        IAgentRun run,
         CancellationToken cancellationToken) =>
         StopAndCleanupAsync(RequireTmuxRun(run), cancellationToken);
 
-    public async Task StopAndCleanupAsync(OpenCodeRun run, CancellationToken cancellationToken)
+    public async Task StopAndCleanupAsync(TmuxAgentRun run, CancellationToken cancellationToken)
     {
         await run.CleanupLock.WaitAsync(CancellationToken.None);
         try
@@ -213,7 +216,7 @@ public sealed class Tmux(
             if (await PaneExistsAsync(run, CancellationToken.None))
             {
                 await runner.RunAsync(new CommandSpec(
-                    executable,
+                    tmuxExecutable,
                     ["send-keys", "-t", run.PaneId, "C-c"],
                     temporaryRoot), CancellationToken.None);
 
@@ -229,7 +232,7 @@ public sealed class Tmux(
                 if (await PaneExistsAsync(run, CancellationToken.None))
                 {
                     await runner.RunAsync(new CommandSpec(
-                        executable,
+                        tmuxExecutable,
                         ["kill-pane", "-t", run.PaneId],
                         temporaryRoot), CancellationToken.None);
                 }
@@ -246,34 +249,28 @@ public sealed class Tmux(
 
     private string RenderWrapper(
         ValidatedAgent agent,
+        BeadsIssue issue,
         string model,
+        string effort,
         string? serverUrl,
         string promptPath,
         string markerPath)
     {
-        List<string> arguments;
-        if (serverUrl is null)
+        var command = AgentCommandFactory.Create(
+            agentMode,
+            agentExecutable,
+            model,
+            agent.WorkspacePath,
+            serverUrl,
+            $"{agent.Name} • {issue.Id}",
+            effort);
+        var arguments = new List<string>
         {
-            arguments =
-            [
-                ShellQuote(openCodeExecutable),
-                "--mini",
-                "--prompt", "\"$prompt\"",
-                "--model", ShellQuote(model),
-            ];
-        }
-        else
-        {
-            arguments =
-            [
-                ShellQuote(openCodeExecutable),
-                "run",
-                "\"$prompt\"",
-                "--model", ShellQuote(model),
-                "--attach", ShellQuote(serverUrl),
-                "--dir", ShellQuote(agent.WorkspacePath),
-            ];
-        }
+            ShellQuote(command.Executable),
+        };
+        arguments.AddRange(command.ArgumentsBeforePrompt.Select(ShellQuote));
+        arguments.Add("\"$prompt\"");
+        arguments.AddRange(command.ArgumentsAfterPrompt.Select(ShellQuote));
 
         return $"""
             #!/bin/sh
@@ -304,15 +301,15 @@ public sealed class Tmux(
     internal static string Target(string session, string? window) =>
         window is null ? session : $"{session}:{window}";
 
-    private static OpenCodeRun RequireTmuxRun(IOpenCodeRun run) =>
-        run as OpenCodeRun
+    private static TmuxAgentRun RequireTmuxRun(IAgentRun run) =>
+        run as TmuxAgentRun
         ?? throw new ArgumentException("run was not created by the tmux host", nameof(run));
 
     private static string SanitizeFileName(string value) =>
         string.Concat(value.Select(static character =>
             char.IsAsciiLetterOrDigit(character) || character is '-' or '_' ? character : '_'));
 
-    private static void CleanupRunFiles(OpenCodeRun run)
+    private static void CleanupRunFiles(TmuxAgentRun run)
     {
         TryDeleteFile(run.PromptPath);
         TryDeleteFile(run.WrapperPath);

@@ -1,6 +1,6 @@
 # External CLI contracts
 
-Captured on 2026-08-30 with the minimum versions listed in `README.md`. Tests use the sanitized JSON in `tests/Abacus.Tests/Fixtures/Beads`; timestamps, generated IDs, repository paths, and clone identities are intentionally stable fixture values rather than the disposable repository's values.
+Captured through 2026-09-02 with the minimum versions listed in `README.md`. Tests use the sanitized JSON in `tests/Abacus.Tests/Fixtures/Beads`; timestamps, generated IDs, repository paths, and clone identities are intentionally stable fixture values rather than the disposable repository's values.
 
 ## Beads 1.2.2
 
@@ -21,7 +21,15 @@ Captured issue statuses are `in_progress`, `open`, `blocked`, and `closed`. Sche
 
 Representative failure transcripts and exit codes are in `command-outcomes.json`. They establish that “no ready issue” is a successful empty array, while Beads failures are nonzero results.
 
-## OpenCode 1.17.10
+## OpenCode 1.18.20
+
+Interactive local mode uses the Mini TUI directly in a tmux pane:
+
+```sh
+opencode --mini --prompt '<ticket prompt>' --model provider/model#high
+```
+
+The process must remain connected directly to the pane terminal; piping it would remove the TTY expected by Mini.
 
 Local mode was exercised as:
 
@@ -46,7 +54,36 @@ opencode run 'Reply with exactly ATTACHED.' \
 
 The server log recorded a newly-created session with the requested directory and `providerID=opencode modelID=big-pickle`. The client exited 0. This proves Abacus can create attached client sessions entirely through the CLI; no HTTP integration is needed. The `--format json` flag was used only to make this contract check observable and is not required by Abacus.
 
-OpenCode accepts the prompt as positional arguments and documents the model format as `provider/model`. Abacus therefore passes one prompt string through `ProcessStartInfo.ArgumentList`, followed by `--model`, the unchanged model ID, optional `--attach`, and `--dir`.
+The [OpenCode model documentation](https://opencode.ai/v2/docs/models) defines variants as provider-specific overlays used for settings such as reasoning effort. Mini has no separate top-level `--variant` flag, so Abacus passes `provider/model#effort` to `--model`. The `run` command accepts `--variant <effort>` directly, including attached-server runs. Variant availability remains model-specific.
+
+## Codex CLI 0.151.0
+
+The installed `codex --help` and the [official Codex developer command reference](https://developers.openai.com/codex/cli/reference) establish that the base `codex` command launches the interactive TUI, accepts an initial positional prompt, and supports `--cd`, `--model`, `--sandbox`, and `--ask-for-approval`. Abacus uses:
+
+```sh
+codex --cd <workspace> \
+  --model <model> \
+  --config model_reasoning_effort=<effort> \
+  --approve-for-me \
+  '<ticket prompt>'
+```
+
+There is deliberately no `exec` subcommand. The [Codex configuration reference](https://developers.openai.com/codex/config-reference) defines `model_reasoning_effort`; Abacus supplies it through the CLI's per-invocation `--config` override. The installed version's `--approve-for-me` flag routes approval requests through automatic review using the workspace-write sandbox, allowing aligned Git, Beads/Dolt, and network operations without waiting for a human. This flag is part of Abacus's Codex 0.151.0 minimum contract; it was confirmed from the installed CLI help, while the upstream reference documents the corresponding automatic-review workflow and `/approve` retry command.
+
+## Claude Code 2.1.212
+
+The installed `claude --help`, [official Claude Code CLI reference](https://code.claude.com/docs/en/cli-usage), and [model configuration reference](https://code.claude.com/docs/en/model-config) establish that `claude '<prompt>'` starts an interactive session, `-p`/`--print` runs non-interactively and exits, and `--effort` selects the session effort. Claude uses the process working directory as its primary workspace. Abacus uses:
+
+```sh
+cd <workspace>
+claude --model <model> \
+  --effort <effort> \
+  --permission-mode auto \
+  --name '<agent> • <issue-id>' \
+  '<ticket prompt>'
+```
+
+There is deliberately no `--print`. `--effort` applies the requested model-specific effort to the interactive session. Automatic permission mode performs background safety checks without requiring a human to answer ordinary approval prompts. Abacus does not use Claude background agents, Remote Control, worktree creation, or the Agent SDK.
 
 ## tmux 3.6a
 
@@ -58,7 +95,7 @@ tmux send-keys -t <returned-pane-id> C-c
 tmux kill-pane -t <returned-pane-id>
 ```
 
-The wrapper ran `opencode --version`, atomically renamed a temporary marker containing exit code `0`, and stayed alive. `split-window` returned a distinct pane ID, the marker contained `0`, and `send-keys ... C-c` interrupted the wrapper. Cleanup targeted only that recorded pane ID. This establishes the wrapper/marker protocol used by Abacus without tmux control mode.
+The wrapper ran a child command, atomically renamed a temporary marker containing exit code `0`, and stayed alive. `split-window` returned a distinct pane ID, the marker contained `0`, and `send-keys ... C-c` interrupted the wrapper. Cleanup targeted only that recorded pane ID. This establishes the shared wrapper/marker protocol used by all pane-hosted modes without tmux control mode.
 
 ## Git 2.55.0
 

@@ -3,7 +3,7 @@ using Abacus;
 
 namespace Abacus.Tests;
 
-public sealed class TmuxTests
+public sealed class TmuxAgentHostTests
 {
     [Fact]
     public async Task WrapperPassesPromptModelAttachDirectoryAndActorAndWritesMarker()
@@ -16,12 +16,13 @@ public sealed class TmuxTests
         using var fixture = await TmuxFixture.CreateAsync();
         var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "work space's")).FullName;
         var agent = Agent("alice", workspace);
-        var tmux = fixture.CreateTmux();
+        var tmux = fixture.CreateTmux(mode: AgentMode.OpenCodeServer);
 
-        var run = await tmux.StartOpenCodeAsync(
+        var run = await tmux.StartAgentAsync(
             agent,
             new BeadsIssue("abc-123", IssueStatus.InProgress),
             "provider/model",
+            "xhigh",
             "http://127.0.0.1:1234",
             CancellationToken.None);
 
@@ -40,9 +41,9 @@ public sealed class TmuxTests
         Assert.Equal("alice", await File.ReadAllTextAsync(Path.Combine(workspace, "received-actor")));
         Assert.Equal(workspace, await File.ReadAllTextAsync(Path.Combine(workspace, "received-directory")));
         Assert.Equal(
-            ["--model", "provider/model", "--attach", "http://127.0.0.1:1234", "--dir", workspace],
+            ["--model", "provider/model", "--variant", "xhigh", "--attach", "http://127.0.0.1:1234", "--dir", workspace],
             await File.ReadAllLinesAsync(Path.Combine(workspace, "received-arguments")));
-        Assert.Equal("visible OpenCode output", await wrapper.StandardOutput.ReadLineAsync());
+        Assert.Equal("visible agent output", await wrapper.StandardOutput.ReadLineAsync());
 
         wrapper.Kill(entireProcessTree: true);
         await wrapper.WaitForExitAsync();
@@ -59,27 +60,84 @@ public sealed class TmuxTests
         using var fixture = await TmuxFixture.CreateAsync();
         var firstWorkspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "one")).FullName;
         var secondWorkspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "two")).FullName;
-        var tmux = fixture.CreateTmux();
+        var localTmux = fixture.CreateTmux(mode: AgentMode.OpenCode);
+        var attachedTmux = fixture.CreateTmux(mode: AgentMode.OpenCodeServer);
 
-        var local = await tmux.StartOpenCodeAsync(
+        var local = await localTmux.StartAgentAsync(
             Agent("alice", firstWorkspace),
             new BeadsIssue("abc-1", IssueStatus.InProgress),
-            "provider/exact-model", null, CancellationToken.None);
-        var attached = await tmux.StartOpenCodeAsync(
+            "provider/exact-model", "high", null, CancellationToken.None);
+        var attached = await attachedTmux.StartAgentAsync(
             Agent("bob", secondWorkspace),
             new BeadsIssue("abc-2", IssueStatus.InProgress),
-            "provider/exact-model", "http://server:1234", CancellationToken.None);
+            "provider/exact-model", "high", "http://server:1234", CancellationToken.None);
 
         Assert.NotEqual(local.PaneId, attached.PaneId);
         var localWrapper = await File.ReadAllTextAsync(local.WrapperPath);
         var attachedWrapper = await File.ReadAllTextAsync(attached.WrapperPath);
-        Assert.Contains("--mini --prompt \"$prompt\" --model 'provider/exact-model'", localWrapper, StringComparison.Ordinal);
-        Assert.Contains("--model 'provider/exact-model'", attachedWrapper, StringComparison.Ordinal);
-        Assert.DoesNotContain(" run ", localWrapper, StringComparison.Ordinal);
-        Assert.DoesNotContain("--mini", attachedWrapper, StringComparison.Ordinal);
-        Assert.DoesNotContain("--attach", localWrapper, StringComparison.Ordinal);
-        Assert.Contains("run \"$prompt\" --model 'provider/exact-model' --attach 'http://server:1234'", attachedWrapper, StringComparison.Ordinal);
+        Assert.Contains("'--mini' '--prompt' \"$prompt\" '--model' 'provider/exact-model#high'", localWrapper, StringComparison.Ordinal);
+        Assert.Contains("'--model' 'provider/exact-model'", attachedWrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain("'run'", localWrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain("'--mini'", attachedWrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain("'--attach'", localWrapper, StringComparison.Ordinal);
+        Assert.Contains("'run' \"$prompt\" '--model' 'provider/exact-model' '--variant' 'high' '--attach' 'http://server:1234'", attachedWrapper, StringComparison.Ordinal);
         Assert.NotEqual(local.RunDirectory, attached.RunDirectory);
+    }
+
+    [Fact]
+    public async Task CodexWrapperUsesInteractiveTuiWithWorkspaceAndNonBlockingPermissions()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "codex work space's")).FullName;
+        var tmux = fixture.CreateTmux(mode: AgentMode.Codex);
+
+        var run = await tmux.StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            "gpt-5.6-terra",
+            "high",
+            null,
+            CancellationToken.None);
+
+        var wrapper = await File.ReadAllTextAsync(run.WrapperPath);
+        Assert.Contains($"'--cd' {TmuxAgentHost.ShellQuote(workspace)}", wrapper, StringComparison.Ordinal);
+        Assert.Contains("'--model' 'gpt-5.6-terra'", wrapper, StringComparison.Ordinal);
+        Assert.Contains("'--config' 'model_reasoning_effort=high'", wrapper, StringComparison.Ordinal);
+        Assert.Contains("'--approve-for-me' \"$prompt\"", wrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain("'exec'", wrapper, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ClaudeWrapperUsesInteractiveSessionWithStableNameAndAutoPermissions()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "claude")).FullName;
+        var tmux = fixture.CreateTmux(mode: AgentMode.Claude);
+
+        var run = await tmux.StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            "sonnet",
+            "high",
+            null,
+            CancellationToken.None);
+
+        var wrapper = await File.ReadAllTextAsync(run.WrapperPath);
+        Assert.Contains("'--model' 'sonnet'", wrapper, StringComparison.Ordinal);
+        Assert.Contains("'--effort' 'high'", wrapper, StringComparison.Ordinal);
+        Assert.Contains("'--permission-mode' 'auto'", wrapper, StringComparison.Ordinal);
+        Assert.Contains("'--name' 'alice • abc-1' \"$prompt\"", wrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain("'--print'", wrapper, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -94,10 +152,10 @@ public sealed class TmuxTests
         var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
         var tmux = fixture.CreateTmux(window: "agents");
 
-        await tmux.StartOpenCodeAsync(
+        await tmux.StartAgentAsync(
             Agent("alice", workspace),
             new BeadsIssue("abc-1", IssueStatus.InProgress),
-            "provider/model", null, CancellationToken.None);
+            "provider/model", "high", null, CancellationToken.None);
 
         Assert.Contains(
             await File.ReadAllLinesAsync(fixture.CallsPath),
@@ -105,7 +163,7 @@ public sealed class TmuxTests
     }
 
     [Fact]
-    public async Task PaneTitleIdentifiesAgentAndIssueAndCannotBeOverwrittenByOpenCode()
+    public async Task PaneTitleIdentifiesAgentAndIssueAndCannotBeOverwrittenByAgentCli()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -116,10 +174,10 @@ public sealed class TmuxTests
         var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
         var tmux = fixture.CreateTmux();
 
-        var run = await tmux.StartOpenCodeAsync(
+        var run = await tmux.StartAgentAsync(
             Agent("alice #{pane_id}", workspace),
             new BeadsIssue("abc-1", IssueStatus.InProgress),
-            "provider/model", null, CancellationToken.None);
+            "provider/model", "high", null, CancellationToken.None);
 
         var calls = await File.ReadAllLinesAsync(fixture.CallsPath);
         Assert.Contains($"set-option -p -t {run.PaneId} allow-set-title off", calls);
@@ -138,10 +196,10 @@ public sealed class TmuxTests
         var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
         var tmux = fixture.CreateTmux(window: "agents", layout: "tiled");
 
-        await tmux.StartOpenCodeAsync(
+        await tmux.StartAgentAsync(
             Agent("alice", workspace),
             new BeadsIssue("abc-1", IssueStatus.InProgress),
-            "provider/model", null, CancellationToken.None);
+            "provider/model", "high", null, CancellationToken.None);
 
         Assert.Contains(
             "select-layout -t workers:agents tiled",
@@ -159,10 +217,10 @@ public sealed class TmuxTests
         using var fixture = await TmuxFixture.CreateAsync();
         var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
         var tmux = fixture.CreateTmux(TimeSpan.Zero);
-        var run = await tmux.StartOpenCodeAsync(
+        var run = await tmux.StartAgentAsync(
             Agent("alice", workspace),
             new BeadsIssue("abc-1", IssueStatus.InProgress),
-            "provider/model", null, CancellationToken.None);
+            "provider/model", "high", null, CancellationToken.None);
 
         await File.WriteAllTextAsync(run.MarkerPath, "1\n");
         await tmux.StopAndCleanupAsync(run, CancellationToken.None);
@@ -182,7 +240,7 @@ public sealed class TmuxTests
 
     private static async Task WaitForFileAsync(string path)
     {
-        for (var attempt = 0; attempt < 100 && !File.Exists(path); attempt++)
+        for (var attempt = 0; attempt < 500 && !File.Exists(path); attempt++)
         {
             await Task.Delay(20);
         }
@@ -192,11 +250,11 @@ public sealed class TmuxTests
 
     private sealed class TmuxFixture : IDisposable
     {
-        private TmuxFixture(DirectoryInfo root, string tmuxPath, string openCodePath)
+        private TmuxFixture(DirectoryInfo root, string tmuxPath, string agentExecutablePath)
         {
             Directory = root;
             TmuxPath = tmuxPath;
-            OpenCodePath = openCodePath;
+            AgentExecutablePath = agentExecutablePath;
             CallsPath = Path.Combine(root.FullName, "tmux-calls");
             TemporaryRoot = System.IO.Directory.CreateDirectory(Path.Combine(root.FullName, "runs")).FullName;
         }
@@ -204,7 +262,7 @@ public sealed class TmuxTests
         public DirectoryInfo Directory { get; }
         public string Root => Directory.FullName;
         public string TmuxPath { get; }
-        public string OpenCodePath { get; }
+        public string AgentExecutablePath { get; }
         public string CallsPath { get; }
         public string TemporaryRoot { get; }
 
@@ -217,7 +275,7 @@ public sealed class TmuxTests
 
             var root = System.IO.Directory.CreateTempSubdirectory("abacus-tmux-");
             var tmux = Path.Combine(root.FullName, "tmux");
-            var openCode = Path.Combine(root.FullName, "fake opencode's");
+            var agentExecutable = Path.Combine(root.FullName, "fake opencode's");
             await File.WriteAllTextAsync(tmux, $$"""
                 #!/bin/sh
                 printf '%s\n' "$*" >> {{QuoteForShell(Path.Combine(root.FullName, "tmux-calls"))}}
@@ -233,7 +291,7 @@ public sealed class TmuxTests
                 fi
                 exit 0
                 """);
-            await File.WriteAllTextAsync(openCode, """
+            await File.WriteAllTextAsync(agentExecutable, """
                 #!/bin/sh
                 test "$1" = run || exit 90
                 shift
@@ -242,22 +300,24 @@ public sealed class TmuxTests
                 printf '%s\n' "$@" > received-arguments
                 printf '%s' "$BEADS_ACTOR" > received-actor
                 pwd | tr -d '\n' > received-directory
-                printf 'visible OpenCode output\n'
+                printf 'visible agent output\n'
                 exit 7
                 """);
             var mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
             File.SetUnixFileMode(tmux, mode);
-            File.SetUnixFileMode(openCode, mode);
-            return new TmuxFixture(root, tmux, openCode);
+            File.SetUnixFileMode(agentExecutable, mode);
+            return new TmuxFixture(root, tmux, agentExecutable);
         }
 
-        public Tmux CreateTmux(
+        public TmuxAgentHost CreateTmux(
             TimeSpan? gracePeriod = null,
             string? window = null,
-            string? layout = null) => new(
+            string? layout = null,
+            AgentMode mode = AgentMode.OpenCode) => new(
             new CommandRunner(TextWriter.Null),
             TmuxPath,
-            OpenCodePath,
+            AgentExecutablePath,
+            mode,
             "workers",
             TemporaryRoot,
             gracePeriod,

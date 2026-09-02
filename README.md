@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a small Unix-oriented C# orchestrator for [Beads](https://github.com/gastownhall/beads), Git, [OpenCode](https://github.com/anomalyco/opencode), and optional tmux process hosting. It owns only the agent state machine and invokes each existing command-line tool with literal argument lists.
+Abacus is a small Unix-oriented C# orchestrator for [Beads](https://github.com/gastownhall/beads), Git, OpenCode, Codex, Claude Code, and optional tmux process hosting. It owns only the agent state machine and invokes each existing command-line tool.
 
 ## Prerequisites
 
@@ -12,14 +12,16 @@ Abacus targets macOS and Linux. These commands must be on `PATH`:
 | Beads (`bd`) | 1.2.2 |
 | Git | 2.55.0 |
 | OpenCode | 1.18.20 |
-| tmux | 3.6a (local Mini and optional pane-hosted attached mode) |
+| Codex CLI | 0.151.0 |
+| Claude Code | 2.1.212 |
+| tmux | 3.6a (all interactive modes and optional pane-hosted server mode) |
 
 Before running Abacus:
 
 1. Initialize Beads in every assigned Git workspace.
 2. Make every workspace clean and give each agent a distinct worktree or clone.
-3. For local Mini mode, start the named tmux session and optionally select a specific window.
-4. For attached mode, start an OpenCode server. tmux is optional.
+3. For OpenCode, Codex, or Claude mode, start the named tmux session and optionally select a specific window.
+4. For OpenCode Server mode, start an OpenCode server. tmux is optional.
 
 For multiple agents, every workspace must connect to the same server-backed Dolt database. Abacus reads `bd dolt show --json` in each workspace, rejects embedded/local storage, and requires equal normalized host, port, and database identities. A single agent may use embedded Dolt storage. Remote presence is discovered with `bd dolt remote list --json`.
 
@@ -47,6 +49,34 @@ dotnet publish src/Abacus -c Release -r osx-arm64 \
 ./artifacts/publish/abacus --help
 ```
 
+## Agent modes
+
+Abacus supports exactly four modes:
+
+| `--mode` | Hosting | Command |
+| --- | --- | --- |
+| `opencode` | Interactive tmux pane | `opencode --mini --prompt <prompt> --model <provider/model>#<effort>` |
+| `codex` | Interactive tmux pane | `codex --cd <workspace> --model <model> --config model_reasoning_effort=<effort> --approve-for-me <prompt>` |
+| `claude` | Interactive tmux pane | `claude --model <model> --effort <effort> --permission-mode auto --name <agent-ticket> <prompt>` |
+| `opencode-server` | Direct process or tmux pane | `opencode run <prompt> --model <provider/model> --variant <effort> --attach <url> --dir <workspace>` |
+
+`--mode` defaults to `opencode`, and `--effort` defaults to `high`. For compatibility with earlier releases, using `--opencode-server` without `--mode` implies `opencode-server`. OpenCode modes require models in `provider/model` form. Codex and Claude modes accept their native model IDs or aliases. Effort and variant names are provider- and model-specific; Abacus passes them through and lets the selected CLI validate availability.
+
+The Codex and Claude commands remain interactive and receive a real pane TTY. Abacus does not use `codex exec` or `claude --print`. Both start with their automatic permission reviewers, preventing an unattended pane from waiting indefinitely for ordinary approvals without disabling vendor safety boundaries.
+
+Examples using the same existing tmux target:
+
+```sh
+abacus --mode opencode --tmux-session workers --model anthropic/claude-sonnet-4-6 --effort high \
+  -a alice /work/repo-a
+
+abacus --mode codex --tmux-session workers --model gpt-5.6-terra --effort high \
+  -a alice /work/repo-a
+
+abacus --mode claude --tmux-session workers --model sonnet --effort high \
+  -a alice /work/repo-a
+```
+
 ## Single-agent walkthrough
 
 The walkthroughs below assume `abacus` is installed on `PATH`. If you are running the executable directly from this repository, replace `abacus` with `/path/to/abacus/artifacts/publish/abacus`.
@@ -61,6 +91,7 @@ export AGENT=alice
 export SESSION=abacus-work
 export WINDOW=agents
 export MODEL=provider/model
+export EFFORT=high
 
 opencode models
 cd "$REPO"
@@ -122,6 +153,7 @@ abacus \
   --tmux-window "$WINDOW" \
   --tmux-layout tiled \
   --model "$MODEL" \
+  --effort "$EFFORT" \
   -a "$AGENT" "$REPO"
 ```
 
@@ -134,6 +166,7 @@ abacus --verbose \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
   --model "$MODEL" \
+  --effort "$EFFORT" \
   -a "$AGENT" "$REPO"
 ```
 
@@ -176,13 +209,16 @@ In another terminal:
 export REPO=/path/to/your/repository
 export AGENT=alice
 export MODEL=provider/model
+export EFFORT=high
 
 cd "$REPO"
 bd ready --json
 git status --porcelain
 
 abacus \
+  --mode opencode-server \
   --model "$MODEL" \
+  --effort "$EFFORT" \
   --opencode-server 127.0.0.1:4096 \
   -a "$AGENT" "$REPO"
 ```
@@ -192,6 +228,7 @@ The value passed to `--opencode-server` is `host:port`, without an `http://` pre
 ```sh
 opencode run <prompt> \
   --model "$MODEL" \
+  --variant "$EFFORT" \
   --attach http://127.0.0.1:4096 \
   --dir "$REPO"
 ```
@@ -205,10 +242,12 @@ If you prefer pane-hosted attached clients, also pass `--tmux-session` and optio
 Start agents in an existing tmux session:
 
 ```sh
-abacus --tmux-session <session_name> \
+abacus --mode <opencode|codex|claude> \
+  --tmux-session <session_name> \
   --tmux-window <window_name_or_index> \
   --tmux-layout <layout> \
-  --model <provider/model> \
+  --model <model> \
+  [--effort <effort>] \
   [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
@@ -217,14 +256,14 @@ abacus --tmux-session <session_name> \
 Connect new OpenCode client sessions to an existing server:
 
 ```sh
-abacus --model <provider/model> \
+abacus --mode opencode-server --model <provider/model> [--effort <effort>] \
   --opencode-server 127.0.0.1:1234 \
   [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
 
-`--model` is required and must use OpenCode's `provider/model` form. Abacus passes that exact value to local Mini and attached run processes. Local mode requires `--tmux-session`. With `--opencode-server`, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--tmux-layout` is also tmux-only and accepts `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`; Abacus reapplies it after each pane is spawned. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
+`--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific effort or variant name without whitespace. OpenCode modes require `provider/model`; Codex and Claude accept nonempty native model IDs without whitespace. OpenCode, Codex, and Claude modes require `--tmux-session`. With OpenCode Server mode, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--tmux-layout` is also tmux-only and accepts `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`; Abacus reapplies it after each pane is spawned. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
 
 Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
 
@@ -234,7 +273,7 @@ Abacus normally waits and polls continuously. For CI and scripts, choose one mut
 
 - `--once` lets each configured agent process at most one ready ticket, then exits. If no ticket is ready for an agent, that agent exits without waiting.
 - `--drain` keeps processing tickets until each agent finishes its active work and observes no more ready tickets.
-- `--check` runs preflight validation and exits without claiming tickets, cleaning workspaces, or starting OpenCode. It checks the required executables, Git workspaces, Beads/Dolt identity and remote configuration, server-address syntax, and requested tmux target.
+- `--check` runs preflight validation and exits without claiming tickets, cleaning workspaces, or starting an agent CLI. It checks only the selected agent executable plus Git workspaces, Beads/Dolt identity and remote configuration, applicable server-address syntax, and requested tmux target.
 
 Finite execution modes fail fast on command or orchestration errors instead of retrying forever. Successful `--once` and `--drain` runs print the normal outcome summary; `--check` prints a preflight success message and no run summary.
 
@@ -260,12 +299,12 @@ Each agent has one asynchronous loop:
 2. If the workspace is dirty, discard tracked and untracked non-ignored changes with `git reset --hard HEAD` and `git clean -fd` before claiming.
 3. Atomically claim with `BEADS_ACTOR=<agent> bd ready --claim --exclude-label gt:slot --json`. If an older run left ready work assigned to that same agent, reclaim it without taking another agent's work. Merge-slot beads are never dispatched as coding work.
 4. Create or reuse `abacus/<issue-id>` and verify the workspace is clean.
-5. Start local `opencode --mini --prompt ...` in a dedicated Abacus-owned tmux pane. Start attached `opencode run --attach ...` in a pane when tmux was supplied, otherwise as a directly supervised child process.
-6. Watch both the Beads status and the hosted OpenCode run for exit.
+5. Start the selected OpenCode, Codex, or Claude CLI in a dedicated Abacus-owned tmux pane. Start attached OpenCode Server clients in a pane when tmux was supplied, otherwise as directly supervised child processes.
+6. Watch both the Beads status and the hosted agent run for exit.
 7. Stop and clean the pane or direct process when the ticket becomes `closed`, `open`, or `blocked`.
 8. Reopen tickets left `in_progress` by an unexpected exit, push when configured, and continue waiting.
 
-Every OpenCode session receives this exact prompt after substituting the agent name, issue ID, and canonical workspace path:
+Every agent session receives this exact prompt after substituting the agent name, issue ID, and canonical workspace path:
 
 ```text
 You are <agent_name>, working on Beads ticket <issue_id> in <workspace_path>.
@@ -279,6 +318,16 @@ Read the ticket with:
 Work on the branch abacus/<issue_id> and satisfy the ticket's definition of done.
 Commit your changes, then use the repository's serialized merge process to merge
 the branch into the latest main branch.
+
+If the issue needs user awareness, a decision, or outside action, bring it to the
+user's attention with:
+
+  bd update <issue_id> --add-label abacus:needs-user-attention --append-notes "<decision or action needed>" --json
+
+Continue working when possible. If work cannot continue, also mark the issue
+blocked below. If user attention is no longer needed, remove the alert with:
+
+  bd update <issue_id> --remove-label abacus:needs-user-attention --json
 
 When you are completely finished, update the ticket:
 
@@ -294,9 +343,9 @@ status change one of your final actions, after all code, commits, merges, and
 ticket notes are complete.
 ```
 
-The implementation is in [`Prompt.cs`](src/Abacus/Prompt.cs) and the source contract is in [`SPEC.md`](SPEC.md#opencode-prompt-template). Repository-specific agent instructions must define the serialized merge process named in the prompt.
+The implementation is in [`Prompt.cs`](src/Abacus/Prompt.cs) and the source contract is in [`SPEC.md`](SPEC.md#agent-prompt-template). Repository-specific agent instructions must define the serialized merge process named in the prompt.
 
-In default mode, agent states and recent warnings are shown without subprocess noise. In verbose mode, every external command is logged concisely to stderr with a timestamp and agent prefix. Pane-hosted prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. OpenCode output is displayed directly in tmux for pane-hosted runs; direct attached-process output is drained to preserve the dashboard.
+In default mode, agent states and recent warnings are shown without subprocess noise. In verbose mode, every external command is logged concisely to stderr with a timestamp and agent prefix. Pane-hosted prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. Agent CLI output is displayed directly in tmux for pane-hosted runs; direct attached-process output is drained to preserve the dashboard.
 
 Ctrl-C cancels all loops. Abacus interrupts every active pane or direct process, checks the ticket again, attempts to reopen any ticket still `in_progress` with a shutdown note, performs configured Dolt pushes with bounded retries, and removes only runs it created.
 
@@ -310,7 +359,8 @@ Abacus does **not**:
 - start or manage an OpenCode server;
 - merge branches or decide whether agent work is correct;
 - choose ticket outcomes for an agent;
-- integrate directly with Git, tmux, Dolt, Beads, or OpenCode APIs/protocols;
+- integrate directly with Git, tmux, Dolt, Beads, OpenCode, Codex, or Claude APIs/protocols;
+- use Codex app-server or Claude Remote Control/background sessions;
 - provide a daemon, web dashboard, persistent queue, dynamic pool, or Windows support.
 
 The observed external command contracts and fixtures are documented in [`docs/contracts/cli-contracts.md`](docs/contracts/cli-contracts.md).

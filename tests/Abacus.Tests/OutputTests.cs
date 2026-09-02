@@ -16,7 +16,7 @@ public sealed class OutputTests
             interactive: false,
             color: false);
 
-        await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • OpenCode in pane %1");
+        await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI in pane %1");
         await output.DebugCommandAsync("alice", "bd show abc-1 --json");
 
         var text = writer.ToString();
@@ -62,9 +62,9 @@ public sealed class OutputTests
         {
             await output.SetTicketAsync("alice", "abc-1", "Make the dashboard useful");
             await output.SetRunLocationAsync("alice", "pane %1");
-            await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • OpenCode in pane %1");
+            await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI in pane %1");
             await output.SetAgentAsync("bob", AgentActivity.Idle, "No ready tickets");
-            await output.SetAgentAsync("alice", AgentActivity.Retrying, "OpenCode failed; retrying soon");
+            await output.SetAgentAsync("alice", AgentActivity.Retrying, "Agent CLI failed; retrying soon");
             await output.SetLastExitCodeAsync("alice", 17);
             await output.WarningAsync("alice", "example warning");
             await output.SetUserAttentionIssuesAsync(

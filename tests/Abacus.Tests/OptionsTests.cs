@@ -15,6 +15,7 @@ public sealed class OptionsTests
             "--tmux-window", "agents",
             "--tmux-layout", "tiled",
             "--model", "provider/model",
+            "--effort", "xhigh",
             "--opencode-server", "127.0.0.1:1234",
             "-a", "alice", first,
             "-a", "bob", second,
@@ -26,10 +27,55 @@ public sealed class OptionsTests
         Assert.Equal("agents", result.Value.TmuxWindow);
         Assert.Equal("tiled", result.Value.TmuxLayout);
         Assert.Equal("provider/model", result.Value.Model);
+        Assert.Equal("xhigh", result.Value.Effort);
         Assert.Equal("127.0.0.1:1234", result.Value.OpenCodeServer);
+        Assert.Equal(AgentMode.OpenCodeServer, result.Value.AgentMode);
         Assert.False(result.Value.Verbose);
         Assert.Equal(Path.GetFullPath(Path.Combine(Path.GetTempPath(), "abacus")), result.Value.Agents[0].WorkspacePath);
         Assert.Equal("bob", result.Value.Agents[1].Name);
+    }
+
+    [Theory]
+    [InlineData("opencode", "provider/model", AgentMode.OpenCode)]
+    [InlineData("codex", "gpt-5.6-terra", AgentMode.Codex)]
+    [InlineData("claude", "sonnet", AgentMode.Claude)]
+    public void ParsesPaneHostedAgentModes(string value, string model, AgentMode expected)
+    {
+        var result = Options.Parse([
+            "--mode", value,
+            "--tmux-session", "workers",
+            "--model", model,
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Equal(expected, result.Value!.AgentMode);
+    }
+
+    [Fact]
+    public void DefaultsToOpenCodeMode()
+    {
+        var result = Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Equal(AgentMode.OpenCode, result.Value!.AgentMode);
+        Assert.Equal("high", result.Value.Effort);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("extra high")]
+    [InlineData("high#other")]
+    public void RejectsInvalidEffort(string effort)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--effort", effort,
+            "-a", "alice", "/tmp/a",
+        ]));
     }
 
     [Theory]
@@ -104,6 +150,76 @@ public sealed class OptionsTests
 
         Assert.Null(result.Value!.TmuxSession);
         Assert.Null(result.Value.TmuxWindow);
+        Assert.Equal(AgentMode.OpenCodeServer, result.Value.AgentMode);
+    }
+
+    [Fact]
+    public void ExplicitOpenCodeServerModeParsesWithoutTmux()
+    {
+        var result = Options.Parse([
+            "--mode", "opencode-server",
+            "--model", "provider/model",
+            "--opencode-server", "127.0.0.1:1234",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Equal(AgentMode.OpenCodeServer, result.Value!.AgentMode);
+        Assert.Null(result.Value.TmuxSession);
+    }
+
+    [Theory]
+    [InlineData("codex")]
+    [InlineData("claude")]
+    [InlineData("opencode")]
+    public void PaneHostedModesRequireTmux(string mode)
+    {
+        var model = mode == "opencode" ? "provider/model" : "model";
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "--mode", mode,
+            "--model", model,
+            "-a", "alice", "/tmp/a",
+        ]));
+
+        Assert.Contains("--tmux-session", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitOpenCodeServerModeRequiresAddress()
+    {
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "--mode", "opencode-server",
+            "--model", "provider/model",
+            "-a", "alice", "/tmp/a",
+        ]));
+
+        Assert.Contains("requires --opencode-server", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ServerAddressIsRejectedForOtherExplicitModes()
+    {
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "--mode", "codex",
+            "--tmux-session", "workers",
+            "--model", "gpt-5.6-terra",
+            "--opencode-server", "127.0.0.1:1234",
+            "-a", "alice", "/tmp/a",
+        ]));
+
+        Assert.Contains("only be used", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("codex", "gpt model")]
+    [InlineData("claude", "sonnet model")]
+    public void CodexAndClaudeModelsRejectWhitespace(string mode, string model)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--mode", mode,
+            "--tmux-session", "workers",
+            "--model", model,
+            "-a", "alice", "/tmp/a",
+        ]));
     }
 
     [Fact]
@@ -172,7 +288,9 @@ public sealed class OptionsTests
     [InlineData("--tmux-session", "s", "--model", "model", "-a", "alice", "/tmp/a")]
     [InlineData("--tmux-session", "s", "--model", "/model", "-a", "alice", "/tmp/a")]
     [InlineData("--tmux-session", "s", "--model", "provider/", "-a", "alice", "/tmp/a")]
+    [InlineData("--tmux-session", "s", "--model", "provider/model#high", "-a", "alice", "/tmp/a")]
     [InlineData("--tmux-session", "s", "--model", "one/two/three", "-a", "alice", "/tmp/a")]
+    [InlineData("--mode", "invalid", "--tmux-session", "s", "--model", "provider/model", "-a", "alice", "/tmp/a")]
     [InlineData("--tmux-session", "s", "--model", "provider/model", "--unknown", "x", "-a", "alice", "/tmp/a")]
     public void RejectsInvalidArguments(params string[] arguments)
     {

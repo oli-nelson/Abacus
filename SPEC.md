@@ -5,16 +5,16 @@ Abacus is a simple agent orchestrator built on top of [Beads](https://github.com
 It uses:
 
 - Beads for task management
-- OpenCode for running agents
-- tmux for managing local Mini processes and optional pane-hosted attached processes
+- OpenCode, Codex, or Claude Code for running agents
+- tmux for managing interactive agent processes and optional pane-hosted OpenCode Server clients
 
 ## Setup
 
 Before running Abacus:
 
 1. Set up a Beads project in your Git repository.
-2. For local Mini mode, start a tmux session and, optionally, the window where agent panes should run.
-3. For attached mode, start an OpenCode server. A tmux session is optional in this mode.
+2. For OpenCode, Codex, or Claude mode, start a tmux session and, optionally, the window where agent panes should run.
+3. For OpenCode Server mode, start an OpenCode server. A tmux session is optional in this mode.
 
 ### Agent workspaces
 
@@ -38,23 +38,33 @@ Start agents in an existing tmux session:
 
 ```sh
 abacus --tmux-session <session_name> \
+  [--mode <opencode|codex|claude>] \
   [--tmux-window <window_name_or_index>] \
   [--tmux-layout <layout>] \
-  --model <provider/model> \
+  --model <model> \
+  [--effort <effort>] \
   [--once | --drain | --check] \
   [--verbose] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
 
-`--model` is required. Its OpenCode model ID is used for every agent started by that Abacus instance.
+`--mode` defaults to `opencode`. `--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific variant name without whitespace. OpenCode modes require a `provider/model` ID; Codex and Claude accept their native model IDs and aliases. Model and effort availability remain the selected CLI's responsibility.
 
-Each local agent runs in its own tmux pane through `opencode --mini --prompt ...`, using its assigned Git workspace and the requested model. Each pane has a stable `<agent> • <issue-id>` tmux title that the child process cannot replace. OpenCode must remain connected directly to the pane terminal so Mini has a TTY. When `--tmux-window` is supplied, Abacus verifies that the existing window belongs to the requested session and creates every agent pane there. Without it, tmux targets the session's current window as before. `--tmux-layout` is optional and reapplies a supported built-in layout (`even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`) to that target after each pane is spawned.
+Each local agent runs interactively in its own tmux pane using its assigned Git workspace and requested model:
+
+- OpenCode: `opencode --mini --prompt <prompt> --model <provider/model>#<effort>`
+- Codex: `codex --cd <workspace> --model <model> --config model_reasoning_effort=<effort> --approve-for-me <prompt>`
+- Claude Code: `claude --model <model> --effort <effort> --permission-mode auto --name <agent-ticket> <prompt>`
+
+These commands deliberately start the interactive interfaces rather than Codex `exec` or Claude `--print`. Codex and Claude use their automatic permission reviewers so ordinary approvals do not block an unattended Abacus pane while actions still receive background safety checks.
+
+Each pane has a stable `<agent> • <issue-id>` tmux title that the child process cannot replace. The selected agent CLI remains connected directly to the pane terminal so it has a TTY. When `--tmux-window` is supplied, Abacus verifies that the existing window belongs to the requested session and creates every agent pane there. Without it, tmux targets the session's current window. `--tmux-layout` is optional and reapplies a supported built-in layout (`even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`) to that target after each pane is spawned.
 
 To connect the agents to an existing OpenCode server:
 
 ```sh
-abacus --model <provider/model> \
+abacus --mode opencode-server --model <provider/model> --effort <effort> \
   --opencode-server 127.0.0.1:1234 \
   [--once | --drain | --check] \
   -a <agent_name> <git_workspace_path> \
@@ -63,11 +73,11 @@ abacus --model <provider/model> \
 
 Without `--tmux-session`, each agent starts as a directly supervised, non-interactive `opencode run --attach` child process connected to the specified server. Direct processes receive their own workspace, prompt, model, and `BEADS_ACTOR`; Abacus drains their output so it does not corrupt the dashboard and stops them when supervision ends. tmux is not looked up or required in this mode.
 
-Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`.
+For backward compatibility, supplying `--opencode-server` without `--mode` implies `opencode-server`. Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`. The server option is rejected for all other explicit modes.
 
 By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. On shutdown, Abacus prints a final per-agent run summary with elapsed time and counts for closed, reopened, blocked, and interrupted tickets.
 
-Abacus runs continuously unless a finite mode is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite modes fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without cleaning workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates required executables, workspace and Dolt configuration, the OpenCode server address, and any requested tmux session/window target. These three modes are mutually exclusive.
+Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without cleaning workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected agent executable, workspace and Dolt configuration, the OpenCode server address when applicable, and any requested tmux session/window target. These three options are mutually exclusive.
 
 ## Agent workflow
 
@@ -82,23 +92,23 @@ Each Abacus agent follows this loop:
    ```
 
 4. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
-5. Make sure the workspace has no local changes before starting OpenCode.
-6. Start local OpenCode through `opencode --mini --prompt ...` in tmux. Start attached OpenCode through `opencode run --attach ...`, either directly when no tmux session was supplied or in tmux when one was. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the required Abacus `--model` value and a prompt describing the issue and its ticket-state responsibilities.
-7. While OpenCode is running, Abacus monitors the ticket status through Beads.
-8. The OpenCode agent does the work and changes the ticket status when it is finished:
+5. Make sure the workspace has no local changes before starting the agent CLI.
+6. Start the selected local agent CLI interactively in tmux, or start an attached OpenCode Server client either directly or in tmux. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the requested model, effort, and a prompt describing the issue and its ticket-state responsibilities.
+7. While the agent CLI is running, Abacus monitors the ticket status through Beads.
+8. The coding agent does the work and changes the ticket status when it is finished:
 
    - Close it after the work has been completed and merged.
    - Return it to `open` if the work should be retried by another agent.
    - Mark it `blocked` if it cannot continue without outside help.
 
-9. Changing the ticket from `in_progress` signals that the OpenCode session is finished. Abacus stops the OpenCode process.
-10. Whenever an OpenCode process ends, Abacus runs `bd dolt push` if a remote is configured. This ensures the final ticket update is pushed even if the agent did not push it.
+9. Changing the ticket from `in_progress` signals that the agent session is finished. Abacus stops the selected CLI process.
+10. Whenever an agent process ends, Abacus runs `bd dolt push` if a remote is configured. This ensures the final ticket update is pushed even if the agent did not push it.
 11. In continuous and drain modes, Abacus returns to the start of the loop. Once mode exits that agent after its first ticket; drain mode exits it when no further ticket is ready.
 
-An unexpected OpenCode exit that leaves the ticket `in_progress` must not be treated as completed work.
-If abacus sees that the ticket is still `in_progress` after OpenCode exits, it should log a warning, reopen the ticket (along with a `bd dolt push` if applicable) and return to the start of the loop.
+An unexpected agent CLI exit that leaves the ticket `in_progress` must not be treated as completed work.
+If Abacus sees that the ticket is still `in_progress` after the agent exits, it logs a warning, reopens the ticket (along with a `bd dolt push` if applicable), and returns to the start of the loop.
 
-## OpenCode prompt template
+## Agent prompt template
 
 ```text
 You are <agent_name>, working on Beads ticket <issue_id> in <workspace_path>.

@@ -38,7 +38,8 @@ public static class Program
                     return 0;
                 }
 
-                await output.SystemAsync("Preflight complete; starting agent loops");
+                await output.SystemAsync(
+                    $"Preflight complete; starting {AgentCommandFactory.DisplayName(parsed.Value.AgentMode)} agent loops");
                 await new AbacusApplication(runner, output)
                     .RunAsync(validated, cancellation.Token);
                 return 0;

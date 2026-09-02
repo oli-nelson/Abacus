@@ -1,6 +1,6 @@
 namespace Abacus;
 
-public sealed record ExternalTools(string Bd, string Git, string OpenCode, string? Tmux);
+public sealed record ExternalTools(string Bd, string Git, string AgentExecutable, string? Tmux);
 
 public sealed record ValidatedAgent(
     string Name,
@@ -30,7 +30,7 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
         var tools = new ExternalTools(
             FindExecutable("bd"),
             FindExecutable("git"),
-            FindExecutable("opencode"),
+            FindExecutable(AgentCommandFactory.ExecutableName(options.AgentMode)),
             options.TmuxSession is null ? null : FindExecutable("tmux"));
 
         if (options.TmuxSession is not null)
@@ -134,7 +134,7 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
             return;
         }
 
-        var target = Tmux.Target(session, window);
+        var target = TmuxAgentHost.Target(session, window);
         var windowResult = await runner.RunAsync(new CommandSpec(
             tmux,
             ["display-message", "-p", "-t", target, "#{window_id}"],

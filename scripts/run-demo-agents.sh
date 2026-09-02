@@ -12,6 +12,40 @@ die() {
   exit 1
 }
 
+usage() {
+  printf 'usage: %s <opencode|codex|claude|opencode-server> [model] [effort]\n' "${0##*/}" >&2
+  exit 2
+}
+
+(( $# >= 1 && $# <= 3 )) || usage
+
+agent_mode=$1
+case "$agent_mode" in
+  opencode)
+    fallback_model="openai/gpt-5.6-sol"
+    ;;
+  codex)
+    fallback_model="gpt-5.6-sol"
+    ;;
+  claude)
+    fallback_model="opus"
+    ;;
+  opencode-server)
+    fallback_model="openai/gpt-5.6-sol"
+    ;;
+  *)
+    usage
+    ;;
+esac
+
+model="${2:-${ABACUS_MODEL:-$fallback_model}}"
+effort="${3:-${ABACUS_EFFORT:-high}}"
+[[ -n "$model" && "$model" != *[[:space:]]* ]] || die "model must be nonempty and contain no whitespace"
+[[ -n "$effort" && "$effort" != *[[:space:]#]* ]] || die "effort must be nonempty and contain no whitespace or '#'"
+if [[ "$agent_mode" == opencode || "$agent_mode" == opencode-server ]]; then
+  [[ "$model" == */* ]] || die "model must use OpenCode's provider/model format"
+fi
+
 root="$PWD"
 [[ -d "$root/repo/.git" ]] || die "run this script from the abacus-demo root containing repo/ and wt/"
 
@@ -27,16 +61,24 @@ fi
 
 [[ -x "$abacus_bin" ]] || die "Abacus executable is not runnable: $abacus_bin"
 
-model="${1:-${ABACUS_MODEL:-openai/gpt-5.6-sol}}"
-[[ "$model" == */* ]] || die "model must use OpenCode's provider/model format"
+abacus_args=(
+  --mode "$agent_mode"
+  --tmux-session oli
+  --tmux-window agents
+  --tmux-layout tiled
+  --model "$model"
+  --effort "$effort"
+)
+
+if [[ "$agent_mode" == opencode-server ]]; then
+  opencode_server="${ABACUS_OPENCODE_SERVER:-127.0.0.1:${ABACUS_OPENCODE_PORT:-4096}}"
+  abacus_args+=(--opencode-server "$opencode_server")
+fi
 
 # This script deliberately does not create, inspect, select, or attach to tmux.
 # Abacus performs its own preflight against the user-created oli:agents target.
 exec "$abacus_bin" \
-  --tmux-session oli \
-  --tmux-window agents \
-  --tmux-layout tiled \
-  --model "$model" \
+  "${abacus_args[@]}" \
   -a demo-0 "$root/wt/0" \
   -a demo-1 "$root/wt/1" \
   -a demo-2 "$root/wt/2" \

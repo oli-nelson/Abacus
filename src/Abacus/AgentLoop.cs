@@ -159,9 +159,10 @@ public sealed class AgentLoop(
     ValidatedAgent agent,
     bool singleAgentMode,
     string model,
+    string effort,
     string? serverUrl,
     ClaimCoordinator claims,
-    IOpenCodeHost openCodeHost,
+    IAgentHost agentHost,
     TicketSupervisor supervisor,
     TicketRecovery recovery,
     ExecutionMode executionMode,
@@ -189,13 +190,14 @@ public sealed class AgentLoop(
                     return;
                 }
 
-                IOpenCodeRun run;
+                IAgentRun run;
                 try
                 {
-                    run = await openCodeHost.StartOpenCodeAsync(
+                    run = await agentHost.StartAgentAsync(
                         agent,
                         claim.Issue,
                         model,
+                        effort,
                         serverUrl,
                         cancellationToken);
                 }
@@ -204,7 +206,7 @@ public sealed class AgentLoop(
                     await recovery.ReopenKnownClaimAsync(
                         agent,
                         claim.Issue.Id,
-                        $"Abacus shut down before OpenCode started for {agent.Name}",
+                        $"Abacus shut down before the agent CLI started for {agent.Name}",
                         CancellationToken.None);
                     summary.Record(agent.Name, TicketOutcome.Interrupted);
                     throw;
@@ -214,11 +216,11 @@ public sealed class AgentLoop(
                     await log.SetAgentAsync(
                         agent.Name,
                         AgentActivity.Recovering,
-                        $"{claim.Issue.Id} • OpenCode could not start; reopening ticket");
+                        $"{claim.Issue.Id} • agent CLI could not start; reopening ticket");
                     await recovery.ReopenKnownClaimAsync(
                         agent,
                         claim.Issue.Id,
-                        $"Abacus could not start OpenCode for {agent.Name}: {exception.Message}",
+                        $"Abacus could not start the agent CLI for {agent.Name}: {exception.Message}",
                         CancellationToken.None);
                     summary.Record(agent.Name, TicketOutcome.Reopened);
                     throw;
@@ -228,7 +230,7 @@ public sealed class AgentLoop(
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Working,
-                    $"{claim.Issue.Id} • OpenCode in {run.Location}");
+                    $"{claim.Issue.Id} • agent CLI in {run.Location}");
                 await supervisor.SuperviseAsync(agent, claim.Issue, run, cancellationToken);
                 await log.SetAgentAsync(
                     agent.Name,

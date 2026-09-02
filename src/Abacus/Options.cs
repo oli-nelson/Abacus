@@ -2,6 +2,14 @@ namespace Abacus;
 
 public sealed record AgentOptions(string Name, string WorkspacePath);
 
+public enum AgentMode
+{
+    OpenCode,
+    Codex,
+    Claude,
+    OpenCodeServer,
+}
+
 public enum ExecutionMode
 {
     Continuous,
@@ -18,7 +26,9 @@ public sealed record Options(
     string? TmuxWindow = null,
     string? TmuxLayout = null,
     ExecutionMode ExecutionMode = ExecutionMode.Continuous,
-    bool CheckOnly = false)
+    bool CheckOnly = false,
+    AgentMode AgentMode = AgentMode.OpenCode,
+    string Effort = "high")
 {
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -30,17 +40,20 @@ public sealed record Options(
     };
 
     public const string ShortUsage =
-        "Usage: abacus [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
-        "--model <provider/model> " +
+        "Usage: abacus [--mode <opencode|codex|claude|opencode-server>] " +
+        "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
+        "--model <model> [--effort <effort>] " +
         "[--opencode-server <host:port>] [--once | --drain | --check] [--verbose] " +
         "-a <agent_name> <git_workspace_path> [-a ...]";
 
     public const string Usage = """
-        Abacus coordinates Beads tasks and local or attached OpenCode agents.
+        Abacus coordinates Beads tasks and interactive coding agents.
 
         Usage:
-          abacus [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
-            --model <provider/model> \
+          abacus [--mode <opencode|codex|claude|opencode-server>] \
+            [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
+            --model <model> \
+            [--effort <effort>] \
             [--opencode-server <host:port>] \
             [--once | --drain | --check] \
             [--verbose] \
@@ -49,6 +62,12 @@ public sealed record Options(
         Output:
           The default interactive display is a live dashboard of agent activity.
           Use --verbose (or -v) for timestamped state changes and subprocess commands.
+
+        Agent modes:
+          opencode        Run interactive OpenCode Mini in tmux (default).
+          codex           Run the interactive Codex TUI in tmux.
+          claude          Run interactive Claude Code in tmux.
+          opencode-server Attach OpenCode clients to --opencode-server; tmux is optional.
 
         Finite execution:
           --once   Process at most one ready ticket per agent, then exit.
@@ -60,19 +79,19 @@ public sealed record Options(
           main-horizontal, main-vertical, or tiled after each pane is spawned.
 
         Required prerequisites:
-          - macOS or Linux with bd, git, and opencode on PATH
+          - macOS or Linux with bd, git, and the selected agent CLI on PATH
           - tmux on PATH for pane-hosted modes
-          - local Mini mode requires an existing tmux session
-          - attached-server mode can run directly without tmux
+          - OpenCode, Codex, and Claude modes require an existing tmux session
+          - OpenCode Server mode can run directly without tmux
           - each workspace is a clean Git worktree with a Beads project
           - multiple workspaces share one server-backed Dolt database
 
-        Run agents locally:
-          abacus --tmux-session work --tmux-window agents --tmux-layout tiled --model provider/model \
+        Run Codex agents locally:
+          abacus --mode codex --tmux-session work --tmux-window agents --tmux-layout tiled --model gpt-5.6-terra --effort high \
             -a alice /work/repo-a -a bob /work/repo-b
 
         Connect each new client session to an existing OpenCode server:
-          abacus --model provider/model --opencode-server 127.0.0.1:1234 \
+          abacus --mode opencode-server --model provider/model --effort high --opencode-server 127.0.0.1:1234 \
             -a alice /work/repo-a -a bob /work/repo-b
         """;
 
@@ -89,7 +108,9 @@ public sealed record Options(
         string? tmuxWindow = null;
         string? tmuxLayout = null;
         string? model = null;
+        var effort = "high";
         string? server = null;
+        AgentMode? requestedAgentMode = null;
         var verbose = false;
         var once = false;
         var drain = false;
@@ -101,6 +122,9 @@ public sealed record Options(
             var argument = arguments[index];
             switch (argument)
             {
+                case "--mode":
+                    requestedAgentMode = ParseAgentMode(ReadValue(arguments, ref index, argument));
+                    break;
                 case "--tmux-session":
                     tmuxSession = ReadValue(arguments, ref index, argument);
                     break;
@@ -112,6 +136,9 @@ public sealed record Options(
                     break;
                 case "--model":
                     model = ReadValue(arguments, ref index, argument);
+                    break;
+                case "--effort":
+                    effort = ReadValue(arguments, ref index, argument);
                     break;
                 case "--opencode-server":
                     server = ReadValue(arguments, ref index, argument);
@@ -145,9 +172,21 @@ public sealed record Options(
             throw new OptionsException("--tmux-session cannot be empty");
         }
 
-        if (tmuxSession is null && server is null)
+        var agentMode = requestedAgentMode ?? (server is null ? AgentMode.OpenCode : AgentMode.OpenCodeServer);
+
+        if (agentMode is not AgentMode.OpenCodeServer && server is not null)
         {
-            throw new OptionsException("--tmux-session is required unless --opencode-server is supplied");
+            throw new OptionsException("--opencode-server can only be used with --mode opencode-server");
+        }
+
+        if (agentMode is AgentMode.OpenCodeServer && server is null)
+        {
+            throw new OptionsException("--mode opencode-server requires --opencode-server");
+        }
+
+        if (tmuxSession is null && agentMode is not AgentMode.OpenCodeServer)
+        {
+            throw new OptionsException("--tmux-session is required for opencode, codex, and claude modes");
         }
 
         if (tmuxWindow is not null && string.IsNullOrWhiteSpace(tmuxWindow))
@@ -186,9 +225,18 @@ public sealed record Options(
             throw new OptionsException("--model is required");
         }
 
-        if (!IsValidModel(model))
+        if (!IsValidModel(model, agentMode))
         {
-            throw new OptionsException("--model must use OpenCode's provider/model format");
+            throw new OptionsException(agentMode is AgentMode.OpenCode or AgentMode.OpenCodeServer
+                ? "--model must use OpenCode's provider/model format"
+                : "--model cannot contain whitespace");
+        }
+
+        if (string.IsNullOrEmpty(effort)
+            || effort.Any(char.IsWhiteSpace)
+            || effort.Contains('#', StringComparison.Ordinal))
+        {
+            throw new OptionsException("--effort must be a nonempty variant name without whitespace or '#'");
         }
 
         if (server is not null && string.IsNullOrWhiteSpace(server))
@@ -238,7 +286,9 @@ public sealed record Options(
                 tmuxWindow,
                 tmuxLayout,
                 executionMode,
-                checkOnly),
+                checkOnly,
+                agentMode,
+                effort),
             ShowHelp: false);
     }
 
@@ -252,13 +302,33 @@ public sealed record Options(
         return arguments[index];
     }
 
-    private static bool IsValidModel(string model)
+    private static AgentMode ParseAgentMode(string value) => value switch
     {
+        "opencode" => AgentMode.OpenCode,
+        "codex" => AgentMode.Codex,
+        "claude" => AgentMode.Claude,
+        "opencode-server" => AgentMode.OpenCodeServer,
+        _ => throw new OptionsException(
+            "--mode must be one of opencode, codex, claude, or opencode-server"),
+    };
+
+    private static bool IsValidModel(string model, AgentMode agentMode)
+    {
+        if (model.Any(char.IsWhiteSpace))
+        {
+            return false;
+        }
+
+        if (agentMode is AgentMode.Codex or AgentMode.Claude)
+        {
+            return model.Length > 0;
+        }
+
         var separator = model.IndexOf('/');
         return separator > 0
             && separator == model.LastIndexOf('/')
             && separator < model.Length - 1
-            && !model.Any(char.IsWhiteSpace);
+            && !model.Contains('#', StringComparison.Ordinal);
     }
 
     private static string CanonicalizePath(string path)

@@ -127,7 +127,7 @@ public sealed class TicketRecovery(
 
 public sealed class TicketSupervisor(
     Beads beads,
-    IOpenCodeHost openCodeHost,
+    IAgentHost agentHost,
     TicketRecovery recovery,
     TextWriter log,
     TimeSpan? pollingInterval = null,
@@ -139,7 +139,7 @@ public sealed class TicketSupervisor(
     public async Task SuperviseAsync(
         ValidatedAgent agent,
         BeadsIssue claimedIssue,
-        IOpenCodeRun run,
+        IAgentRun run,
         CancellationToken cancellationToken)
     {
         var shutdownHandled = false;
@@ -198,7 +198,7 @@ public sealed class TicketSupervisor(
                 var exitCode = run.TryReadExitCode();
                 if (exitCode is not null
                     || run.HasExited
-                    || !await openCodeHost.IsRunningAsync(run, cancellationToken))
+                    || !await agentHost.IsRunningAsync(run, cancellationToken))
                 {
                     await log.SetLastExitCodeAsync(agent.Name, exitCode);
                     // Read once more after observing process exit. The agent's final ticket
@@ -218,11 +218,11 @@ public sealed class TicketSupervisor(
                     {
                         var exitDescription = exitCode?.ToString() ?? "unknown";
                         await WarnAsync(agent.Name,
-                            $"OpenCode exited with code {exitDescription} while {claimedIssue.Id} remained in_progress");
+                            $"Agent CLI exited with code {exitDescription} while {claimedIssue.Id} remained in_progress");
                         await log.SetAgentAsync(
                             agent.Name,
                             AgentActivity.Recovering,
-                            $"{claimedIssue.Id} • OpenCode exited; reopening ticket");
+                            $"{claimedIssue.Id} • agent CLI exited; reopening ticket");
                         await recovery.ReopenIfStillInProgressAsync(
                             agent,
                             claimedIssue.Id,
@@ -314,11 +314,11 @@ public sealed class TicketSupervisor(
         }
     }
 
-    private async Task CleanupRunAsync(string agentName, IOpenCodeRun run)
+    private async Task CleanupRunAsync(string agentName, IAgentRun run)
     {
         try
         {
-            await openCodeHost.StopAndCleanupAsync(run, CancellationToken.None);
+            await agentHost.StopAndCleanupAsync(run, CancellationToken.None);
         }
         catch (Exception exception)
         {

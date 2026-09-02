@@ -132,7 +132,7 @@ public sealed class EndToEndTests
             Assert.Equal(Prompt.Render("alice", "abc-1", workspace),
                 await File.ReadAllTextAsync(Path.Combine(root.FullName, "opencode-prompt")));
             Assert.Equal(
-                ["--model", "provider/exact-model"],
+                ["--model", "provider/exact-model#high"],
                 await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
             Assert.Contains("ready --claim --exclude-label gt:slot --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
             Assert.Contains("send-keys -t %1 C-c", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
@@ -204,7 +204,7 @@ public sealed class EndToEndTests
             Assert.Equal(Prompt.Render("alice", "abc-1", workspace),
                 await File.ReadAllTextAsync(Path.Combine(root.FullName, "opencode-prompt")));
             Assert.Equal(
-                ["--model", "provider/exact-model", "--attach", "http://127.0.0.1:4096", "--dir", workspace],
+                ["--model", "provider/exact-model", "--variant", "high", "--attach", "http://127.0.0.1:4096", "--dir", workspace],
                 await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
             Assert.False(File.Exists(Path.Combine(root.FullName, "tmux-calls")));
             Assert.Empty(await stdout);
@@ -219,6 +219,89 @@ public sealed class EndToEndTests
             }
 
             process?.Dispose();
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("codex", "gpt-5.6-terra")]
+    [InlineData("claude", "sonnet")]
+    public async Task InteractiveCodexAndClaudeRunInTmuxWithPromptModelWorkspaceAndActor(
+        string mode,
+        string model)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory($"abacus-e2e-{mode}-");
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "work space's")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+
+            var startInfo = new ProcessStartInfo(FindOnPath("dotnet"))
+            {
+                WorkingDirectory = root.FullName,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            foreach (var argument in new[]
+            {
+                typeof(Program).Assembly.Location,
+                "--mode", mode,
+                "--tmux-session", "workers",
+                "--model", model,
+                "--effort", "xhigh",
+                "--once",
+                "-a", "alice", workspace,
+            })
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+            startInfo.Environment["PATH"] = bin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+
+            using var process = Process.Start(startInfo)!;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await process.WaitForExitAsync(timeout.Token);
+
+            Assert.Equal(0, process.ExitCode);
+            Assert.Equal("alice", await File.ReadAllTextAsync(Path.Combine(root.FullName, $"{mode}-actor")));
+            Assert.Equal(workspace, await File.ReadAllTextAsync(Path.Combine(root.FullName, $"{mode}-directory")));
+            Assert.Equal(
+                Prompt.Render("alice", "abc-1", workspace),
+                await File.ReadAllTextAsync(Path.Combine(root.FullName, $"{mode}-prompt")));
+            var arguments = await File.ReadAllLinesAsync(Path.Combine(root.FullName, $"{mode}-arguments"));
+            Assert.Contains(model, arguments);
+            if (mode == "codex")
+            {
+                Assert.Contains("--cd", arguments);
+                Assert.Contains(workspace, arguments);
+                Assert.Contains("--approve-for-me", arguments);
+                Assert.Contains("model_reasoning_effort=xhigh", arguments);
+                Assert.DoesNotContain("exec", arguments);
+            }
+            else
+            {
+                Assert.Contains("--permission-mode", arguments);
+                Assert.Contains("auto", arguments);
+                Assert.Contains("--effort", arguments);
+                Assert.Contains("xhigh", arguments);
+                Assert.Contains("--name", arguments);
+                Assert.Contains("alice • abc-1", arguments);
+                Assert.DoesNotContain("--print", arguments);
+            }
+
+            Assert.Empty(await stdout);
+            Assert.Contains("closed 1", await stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
             root.Delete(recursive: true);
         }
     }
@@ -302,6 +385,22 @@ public sealed class EndToEndTests
             test "$direct" -eq 1 && touch "$root/direct-finished"
             exit 0
             """);
+        foreach (var agentCli in new[] { "codex", "claude" })
+        {
+            await WriteExecutableAsync(Path.Combine(bin, agentCli), $$"""
+                #!/bin/sh
+                root={{Q(root)}}
+                cli={{Q(agentCli)}}
+                printf '%s\n' "$@" > "$root/$cli-arguments"
+                prompt=
+                for argument do prompt=$argument; done
+                printf '%s' "$prompt" > "$root/$cli-prompt"
+                printf '%s' "$BEADS_ACTOR" > "$root/$cli-actor"
+                pwd | tr -d '\n' > "$root/$cli-directory"
+                printf 'closed' > "$root/status"
+                exit 0
+                """);
+        }
         await WriteExecutableAsync(Path.Combine(bin, "tmux"), $$"""
             #!/bin/sh
             root={{Q(root)}}

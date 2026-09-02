@@ -119,7 +119,7 @@ public sealed class TicketSupervisorTests
         private readonly string bd;
         private readonly string tmux;
 
-        private SupervisorFixture(DirectoryInfo root, string bd, string tmux, OpenCodeRun run)
+        private SupervisorFixture(DirectoryInfo root, string bd, string tmux, TmuxAgentRun run)
         {
             this.root = root;
             this.bd = bd;
@@ -130,7 +130,7 @@ public sealed class TicketSupervisorTests
             PushCount = Path.Combine(root.FullName, "push-count");
         }
 
-        public OpenCodeRun Run { get; }
+        public TmuxAgentRun Run { get; }
         public string UpdateCalls { get; }
         public string TmuxCalls { get; }
         public string PushCount { get; }
@@ -213,17 +213,18 @@ public sealed class TicketSupervisorTests
                 root,
                 bd,
                 tmux,
-                new OpenCodeRun("%9", runDirectory, prompt, wrapper, marker));
+                new TmuxAgentRun("%9", runDirectory, prompt, wrapper, marker));
         }
 
         public Task SuperviseAsync(bool hasRemote, CancellationToken cancellationToken = default)
         {
             var runner = new CommandRunner(Log);
             var beads = new Beads(runner, bd);
-            var tmuxClient = new Tmux(
+            var tmuxClient = new TmuxAgentHost(
                 runner,
                 tmux,
                 "/unused/opencode",
+                AgentMode.OpenCode,
                 "workers",
                 Path.Combine(root.FullName, "runs"),
                 TimeSpan.Zero);

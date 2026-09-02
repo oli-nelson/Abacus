@@ -2,7 +2,7 @@ using Abacus;
 
 namespace Abacus.Tests;
 
-public sealed class DirectOpenCodeTests
+public sealed class DirectOpenCodeServerHostTests
 {
     [Fact]
     public async Task AttachedProcessReceivesPromptModelServerDirectoryAndActor()
@@ -14,10 +14,11 @@ public sealed class DirectOpenCodeTests
 
         using var fixture = await DirectFixture.CreateAsync(exitImmediately: true);
         var host = fixture.CreateHost();
-        var run = await host.StartOpenCodeAsync(
+        var run = await host.StartAgentAsync(
             fixture.Agent,
             new BeadsIssue("abc-1", IssueStatus.InProgress),
             "provider/exact-model",
+            "xhigh",
             "http://127.0.0.1:4096",
             CancellationToken.None);
 
@@ -34,7 +35,7 @@ public sealed class DirectOpenCodeTests
             Prompt.Render("alice", "abc-1", fixture.Workspace),
             await fixture.ReadAsync("prompt"));
         Assert.Equal(
-            ["--model", "provider/exact-model", "--attach", "http://127.0.0.1:4096", "--dir", fixture.Workspace],
+            ["--model", "provider/exact-model", "--variant", "xhigh", "--attach", "http://127.0.0.1:4096", "--dir", fixture.Workspace],
             await File.ReadAllLinesAsync(fixture.PathOf("arguments")));
 
         await host.StopAndCleanupAsync(run, CancellationToken.None);
@@ -50,10 +51,11 @@ public sealed class DirectOpenCodeTests
 
         using var fixture = await DirectFixture.CreateAsync(exitImmediately: false);
         var host = fixture.CreateHost();
-        var run = await host.StartOpenCodeAsync(
+        var run = await host.StartAgentAsync(
             fixture.Agent,
             new BeadsIssue("abc-1", IssueStatus.InProgress),
             "provider/model",
+            "high",
             "http://server:1234",
             CancellationToken.None);
 
@@ -128,7 +130,7 @@ public sealed class DirectOpenCodeTests
             return new DirectFixture(root, executable, workspace);
         }
 
-        public DirectOpenCode CreateHost() => new(
+        public DirectOpenCodeServerHost CreateHost() => new(
             new CommandRunner(TextWriter.Null),
             TextWriter.Null,
             executable,

@@ -148,7 +148,7 @@ public sealed class Git(CommandRunner runner, string executable = "git")
     {
         if (!await IsWorkspaceCleanAsync(workspace, agentName, cancellationToken))
         {
-            throw new WorkspacePreparationException("workspace became dirty before OpenCode could start");
+            throw new WorkspacePreparationException("workspace became dirty before the agent CLI could start");
         }
     }
 

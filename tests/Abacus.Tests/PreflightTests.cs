@@ -24,7 +24,12 @@ public sealed class PreflightTests
         var workspace = await fixture.AddWorkspaceAsync("one", EmbeddedIdentity, "[]");
 
         var result = await fixture.RunAsync(
-            new Options("workers", "provider/model", "127.0.0.1:1234", [new("alice", workspace)]));
+            new Options(
+                "workers",
+                "provider/model",
+                "127.0.0.1:1234",
+                [new("alice", workspace)],
+                AgentMode: AgentMode.OpenCodeServer));
 
         Assert.Single(result.Agents);
         Assert.True(result.Agents[0].DoltIdentity.Embedded);
@@ -48,10 +53,59 @@ public sealed class PreflightTests
                 null,
                 "provider/model",
                 "127.0.0.1:1234",
-                [new("alice", workspace)]));
+                [new("alice", workspace)],
+                AgentMode: AgentMode.OpenCodeServer));
 
         Assert.Null(result.Tools.Tmux);
         Assert.Equal("http://127.0.0.1:1234", result.OpenCodeServerUrl);
+    }
+
+    [Theory]
+    [InlineData(AgentMode.OpenCode, "opencode", "provider/model")]
+    [InlineData(AgentMode.Codex, "codex", "gpt-5.6-terra")]
+    [InlineData(AgentMode.Claude, "claude", "sonnet")]
+    public async Task ResolvesOnlyTheSelectedAgentExecutable(
+        AgentMode mode,
+        string executable,
+        string model)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await PreflightFixture.CreateAsync();
+        var workspace = await fixture.AddWorkspaceAsync("one", EmbeddedIdentity, "[]");
+
+        var result = await fixture.RunAsync(new Options(
+            "workers",
+            model,
+            null,
+            [new("alice", workspace)],
+            AgentMode: mode));
+
+        Assert.Equal(executable, Path.GetFileName(result.Tools.AgentExecutable));
+    }
+
+    [Fact]
+    public async Task MissingSelectedAgentExecutableFailsBeforeWorkspaceChecks()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await PreflightFixture.CreateAsync();
+        fixture.DeleteTool("codex");
+
+        var exception = await Assert.ThrowsAsync<PreflightException>(() => fixture.RunAsync(new Options(
+            "workers",
+            "gpt-5.6-terra",
+            null,
+            [new("alice", "/missing/workspace")],
+            AgentMode: AgentMode.Codex)));
+
+        Assert.Contains("codex", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -226,6 +280,8 @@ public sealed class PreflightTests
             var fixture = new PreflightFixture(Directory.CreateTempSubdirectory("abacus-preflight-"));
             Directory.CreateDirectory(fixture.bin);
             await fixture.WriteToolAsync("opencode", "#!/bin/sh\nexit 0\n");
+            await fixture.WriteToolAsync("codex", "#!/bin/sh\nexit 0\n");
+            await fixture.WriteToolAsync("claude", "#!/bin/sh\nexit 0\n");
             if (includeTmux)
             {
                 await fixture.WriteToolAsync("tmux", $$"""
@@ -286,6 +342,8 @@ public sealed class PreflightTests
         public Task<PreflightResult> RunAsync(Options options) =>
             new Preflight(new CommandRunner(TextWriter.Null), bin)
                 .RunAsync(options, CancellationToken.None);
+
+        public void DeleteTool(string name) => File.Delete(Path.Combine(bin, name));
 
         private async Task WriteToolAsync(string name, string contents)
         {
