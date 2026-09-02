@@ -9,7 +9,8 @@ public sealed class ClaimCoordinator(
     TextWriter log,
     TimeSpan? pollingInterval = null,
     RunSummary? summary = null,
-    DispatchFilters? dispatchFilters = null)
+    DispatchFilters? dispatchFilters = null,
+    DesktopNotifier? notifier = null)
 {
     private readonly DispatchFilters filters = dispatchFilters ?? DispatchFilters.Empty;
     public TimeSpan PollingInterval { get; } = pollingInterval ?? TimeSpan.FromSeconds(5);
@@ -132,10 +133,10 @@ public sealed class ClaimCoordinator(
             {
                 await RecoverClaimAsync(
                     agent,
-                    issue.Id,
+                    issue,
                     $"Abacus shut down while preparing the workspace for {agent.Name}",
                     CancellationToken.None);
-                summary?.Record(agent.Name, TicketOutcome.Interrupted);
+                summary?.Record(agent.Name, TicketOutcome.Interrupted, issue.Id, issue.Title);
                 throw;
             }
             catch (Exception exception)
@@ -143,7 +144,7 @@ public sealed class ClaimCoordinator(
                 var note = $"Abacus could not prepare the workspace for {agent.Name}: {exception.Message}";
                 await log.SetAgentAsync(agent.Name, AgentActivity.Recovering, $"{issue.Id} • reopening ticket");
                 await WarnAsync(agent.Name, note);
-                await RecoverClaimAsync(agent, issue.Id, note, cancellationToken);
+                await RecoverClaimAsync(agent, issue, note, cancellationToken);
                 if (executionMode is not ExecutionMode.Continuous)
                 {
                     throw;
@@ -161,31 +162,31 @@ public sealed class ClaimCoordinator(
 
     private async Task RecoverClaimAsync(
         ValidatedAgent agent,
-        string issueId,
+        BeadsIssue issue,
         string note,
         CancellationToken cancellationToken)
     {
-        var result = await recovery.ReopenKnownClaimAsync(agent, issueId, note, cancellationToken);
+        var result = await recovery.ReopenKnownClaimAsync(agent, issue.Id, note, cancellationToken);
         if (result.Outcome is RecoveryOutcome.Failed)
         {
-            await HaltAsync(agent.Name, $"Could not reopen and verify {issueId}; no more work will be claimed");
+            await HaltAsync(agent.Name, $"Could not reopen and verify {issue.Id}; no more work will be claimed");
         }
 
         if (result.Outcome is RecoveryOutcome.Reopened)
         {
-            summary?.Record(agent.Name, TicketOutcome.Reopened);
+            summary?.Record(agent.Name, TicketOutcome.Reopened, issue.Id, issue.Title);
         }
         else if (result.VerifiedStatus is IssueStatus.Closed)
         {
-            summary?.Record(agent.Name, TicketOutcome.Closed);
+            summary?.Record(agent.Name, TicketOutcome.Closed, issue.Id, issue.Title);
         }
         else if (result.VerifiedStatus is IssueStatus.Open)
         {
-            summary?.Record(agent.Name, TicketOutcome.Reopened);
+            summary?.Record(agent.Name, TicketOutcome.Reopened, issue.Id, issue.Title);
         }
         else if (result.VerifiedStatus is IssueStatus.Blocked)
         {
-            summary?.Record(agent.Name, TicketOutcome.Blocked);
+            summary?.Record(agent.Name, TicketOutcome.Blocked, issue.Id, issue.Title);
         }
 
         if (await recovery.PushWithRetryAsync(agent, CancellationToken.None) is PushOutcome.Failed)
@@ -198,6 +199,7 @@ public sealed class ClaimCoordinator(
     {
         await WarnAsync(agentName, message);
         await log.SetPersistentAlertAsync(agentName, message);
+        notifier?.PersistentAlert(agentName, message);
         throw new AgentHaltedException($"[{agentName}] {message}");
     }
 }
@@ -214,7 +216,8 @@ public sealed class AgentLoop(
     TicketRecovery recovery,
     ExecutionMode executionMode,
     RunSummary summary,
-    TextWriter log)
+    TextWriter log,
+    DesktopNotifier? notifier = null)
 {
     public async Task RunAsync(CancellationToken cancellationToken)
     {
@@ -251,9 +254,13 @@ public sealed class AgentLoop(
                 catch (OperationCanceledException)
                 {
                     await RecoverClaimAsync(
-                        claim.Issue.Id,
+                        claim.Issue,
                         $"Abacus shut down before the agent CLI started for {agent.Name}");
-                    summary.Record(agent.Name, TicketOutcome.Interrupted);
+                    summary.Record(
+                        agent.Name,
+                        TicketOutcome.Interrupted,
+                        claim.Issue.Id,
+                        claim.Issue.Title);
                     throw;
                 }
                 catch (Exception exception)
@@ -263,7 +270,7 @@ public sealed class AgentLoop(
                         AgentActivity.Recovering,
                         $"{claim.Issue.Id} • agent CLI could not start; reopening ticket");
                     await RecoverClaimAsync(
-                        claim.Issue.Id,
+                        claim.Issue,
                         $"Abacus could not start the agent CLI for {agent.Name}: {exception.Message}");
                     throw;
                 }
@@ -324,30 +331,30 @@ public sealed class AgentLoop(
         }
     }
 
-    private async Task RecoverClaimAsync(string issueId, string note)
+    private async Task RecoverClaimAsync(BeadsIssue issue, string note)
     {
         var result = await recovery.ReopenKnownClaimAsync(
-            agent, issueId, note, CancellationToken.None);
+            agent, issue.Id, note, CancellationToken.None);
         if (result.Outcome is RecoveryOutcome.Failed)
         {
-            await HaltAsync($"Could not reopen and verify {issueId}; no more work will be claimed");
+            await HaltAsync($"Could not reopen and verify {issue.Id}; no more work will be claimed");
         }
 
         if (result.Outcome is RecoveryOutcome.Reopened)
         {
-            summary.Record(agent.Name, TicketOutcome.Reopened);
+            summary.Record(agent.Name, TicketOutcome.Reopened, issue.Id, issue.Title);
         }
         else if (result.VerifiedStatus is IssueStatus.Closed)
         {
-            summary.Record(agent.Name, TicketOutcome.Closed);
+            summary.Record(agent.Name, TicketOutcome.Closed, issue.Id, issue.Title);
         }
         else if (result.VerifiedStatus is IssueStatus.Open)
         {
-            summary.Record(agent.Name, TicketOutcome.Reopened);
+            summary.Record(agent.Name, TicketOutcome.Reopened, issue.Id, issue.Title);
         }
         else if (result.VerifiedStatus is IssueStatus.Blocked)
         {
-            summary.Record(agent.Name, TicketOutcome.Blocked);
+            summary.Record(agent.Name, TicketOutcome.Blocked, issue.Id, issue.Title);
         }
 
         if (await recovery.PushWithRetryAsync(agent, CancellationToken.None) is PushOutcome.Failed)
@@ -360,6 +367,7 @@ public sealed class AgentLoop(
     {
         await log.WarningAsync(agent.Name, message);
         await log.SetPersistentAlertAsync(agent.Name, message);
+        notifier?.PersistentAlert(agent.Name, message);
         throw new AgentHaltedException($"[{agent.Name}] {message}");
     }
 }

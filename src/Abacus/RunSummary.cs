@@ -30,16 +30,22 @@ public sealed class RunSummary
     private readonly object gate = new();
     private readonly DateTimeOffset startedAt = DateTimeOffset.UtcNow;
     private readonly Dictionary<string, MutableAgentSummary> agents;
+    private readonly DesktopNotifier? notifier;
 
-    public RunSummary(IEnumerable<string> agentNames)
+    public RunSummary(IEnumerable<string> agentNames, DesktopNotifier? notifier = null)
     {
+        this.notifier = notifier;
         agents = agentNames.ToDictionary(
             static name => name,
             static _ => new MutableAgentSummary(),
             StringComparer.Ordinal);
     }
 
-    public void Record(string agentName, TicketOutcome outcome)
+    public void Record(
+        string agentName,
+        TicketOutcome outcome,
+        string? issueId = null,
+        string? title = null)
     {
         lock (gate)
         {
@@ -65,6 +71,8 @@ public sealed class RunSummary
                     break;
             }
         }
+
+        notifier?.NotifyTicketOutcome(agentName, outcome, issueId, title);
     }
 
     public RunSummarySnapshot Snapshot()

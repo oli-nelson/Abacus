@@ -1,6 +1,9 @@
 namespace Abacus;
 
-public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
+public sealed class AbacusApplication(
+    CommandRunner runner,
+    TextWriter log,
+    DesktopNotifier notifier)
 {
     public async Task RunAsync(PreflightResult preflight, CancellationToken cancellationToken)
     {
@@ -8,7 +11,9 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
             Path.GetTempPath(),
             $"abacus-{Environment.ProcessId}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(temporaryRoot);
-        var summary = new RunSummary(preflight.Agents.Select(static agent => agent.Name));
+        var summary = new RunSummary(
+            preflight.Agents.Select(static agent => agent.Name),
+            notifier);
 
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
@@ -42,14 +47,16 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
                     recovery,
                     log,
                     summary: summary,
-                    dispatchFilters: preflight.Options.DispatchFilters);
+                    dispatchFilters: preflight.Options.DispatchFilters,
+                    notifier: notifier);
                 var supervisor = new TicketSupervisor(
                     beads,
                     agentHost,
                     recovery,
                     log,
                     summary: summary,
-                    ticketTimeout: preflight.Options.TicketTimeout);
+                    ticketTimeout: preflight.Options.TicketTimeout,
+                    notifier: notifier);
                 return new AgentLoop(
                     agent,
                     preflight.Agents.Count == 1,
@@ -62,7 +69,8 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
                     recovery,
                     preflight.Options.ExecutionMode,
                     summary,
-                    log).RunAsync(linkedCancellation.Token);
+                    log,
+                    notifier).RunAsync(linkedCancellation.Token);
             }).ToArray();
 
             foreach (var loop in loops)
@@ -103,7 +111,9 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
                 await log.WarningAsync("abacus", $"temporary files retained in {temporaryRoot}");
             }
 
-            await log.SummaryAsync(summary.Snapshot());
+            var snapshot = summary.Snapshot();
+            notifier.RunCompleted(snapshot);
+            await log.SummaryAsync(snapshot);
         }
     }
 
@@ -122,6 +132,7 @@ public sealed class AbacusApplication(CommandRunner runner, TextWriter log)
                     agent.WorkspacePath,
                     agent.Name,
                     cancellationToken);
+                notifier.UserAttentionChanged(issues);
                 await log.SetUserAttentionIssuesAsync(issues);
                 lastFailure = null;
             }

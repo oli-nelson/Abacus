@@ -17,6 +17,13 @@ public enum ExecutionMode
     Drain,
 }
 
+public enum NotificationMode
+{
+    Off,
+    Attention,
+    All,
+}
+
 public sealed record DispatchFilters(
     IReadOnlyList<string> Labels,
     IReadOnlyList<string> ExcludedLabels,
@@ -40,7 +47,9 @@ public sealed record Options(
     string Effort = "high",
     bool Remote = false,
     DispatchFilters? DispatchFilters = null,
-    TimeSpan? TicketTimeout = null)
+    TimeSpan? TicketTimeout = null,
+    NotificationMode NotificationMode = NotificationMode.Off,
+    bool NotificationSound = false)
 {
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -56,7 +65,7 @@ public sealed record Options(
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <model> [--effort <effort>] [--remote] " +
         "[--label <label>] [--exclude-label <label>] [--type <types>] [--priority <priority>] " +
-        "[--ticket-timeout <duration>] " +
+        "[--ticket-timeout <duration>] [--notify <off|attention|all>] [--notify-sound] " +
         "[--opencode-server <host:port>] [--once | --drain | --check] [--verbose] " +
         "-a <agent_name> <git_workspace_path> [-a ...]";
 
@@ -75,6 +84,7 @@ public sealed record Options(
             [--label <label>] [--exclude-label <label>] \
             [--type <types>] [--priority <priority>] \
             [--ticket-timeout <duration>] \
+            [--notify <off|attention|all>] [--notify-sound] \
             [--opencode-server <host:port>] \
             [--once | --drain | --check] \
             [--verbose] \
@@ -118,6 +128,13 @@ public sealed record Options(
         Ticket runtime guard:
           --ticket-timeout interrupts an agent after a positive duration such as
           30s, 15m, or 2h, then safely reopens and synchronizes the ticket.
+
+        Desktop notifications:
+          --notify defaults to off. attention reports tickets labelled for user
+          attention, blocked tickets, and persistent recovery failures. all also
+          reports every ticket outcome and the final run summary.
+          --notify-sound requests an OS notification sound and permits a terminal
+          bell fallback when desktop notification delivery is unavailable.
 
         Finite execution:
           --once   Process at most one ready ticket per agent, then exit.
@@ -191,6 +208,9 @@ public sealed record Options(
         string? issueType = null;
         int? priority = null;
         TimeSpan? ticketTimeout = null;
+        var notificationMode = NotificationMode.Off;
+        var notificationModeSpecified = false;
+        var notificationSound = false;
         var agents = new List<AgentOptions>();
 
         for (var index = 0; index < arguments.Count; index++)
@@ -260,6 +280,18 @@ public sealed record Options(
                     }
 
                     ticketTimeout = ParseDuration(ReadValue(arguments, ref index, argument));
+                    break;
+                case "--notify":
+                    if (notificationModeSpecified)
+                    {
+                        throw new OptionsException("--notify can only be specified once");
+                    }
+
+                    notificationMode = ParseNotificationMode(ReadValue(arguments, ref index, argument));
+                    notificationModeSpecified = true;
+                    break;
+                case "--notify-sound":
+                    notificationSound = true;
                     break;
                 case "--verbose":
                 case "--debug":
@@ -334,6 +366,11 @@ public sealed record Options(
             throw new OptionsException("--check cannot be combined with --once or --drain");
         }
 
+        if (notificationSound && notificationMode is NotificationMode.Off)
+        {
+            throw new OptionsException("--notify-sound requires --notify attention or --notify all");
+        }
+
         if (string.IsNullOrWhiteSpace(model))
         {
             throw new OptionsException("--model is required");
@@ -405,7 +442,9 @@ public sealed record Options(
                 effort,
                 remote,
                 new DispatchFilters(labels.AsReadOnly(), excludedLabels.AsReadOnly(), issueType, priority),
-                ticketTimeout),
+                ticketTimeout,
+                notificationMode,
+                notificationSound),
             ShowHelp: false);
     }
 
@@ -477,6 +516,14 @@ public sealed record Options(
         "opencode-server" => AgentMode.OpenCodeServer,
         _ => throw new OptionsException(
             "--mode must be one of opencode, codex, claude, or opencode-server"),
+    };
+
+    private static NotificationMode ParseNotificationMode(string value) => value switch
+    {
+        "off" => NotificationMode.Off,
+        "attention" => NotificationMode.Attention,
+        "all" => NotificationMode.All,
+        _ => throw new OptionsException("--notify must be one of off, attention, or all"),
     };
 
     private static bool IsValidModel(string model, AgentMode agentMode)

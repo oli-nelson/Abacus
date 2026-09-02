@@ -52,6 +52,15 @@ public static class Program
                 parsed.Value!.Agents.Select(static agent => agent.Name),
                 parsed.Value.Model,
                 parsed.Value.Verbose);
+            await using var notifier = new DesktopNotifier(
+                new CommandRunner(
+                    output,
+                    commandTimeout: TimeSpan.FromSeconds(3),
+                    terminationTimeout: TimeSpan.FromSeconds(1)),
+                output,
+                Console.Error,
+                parsed.Value.NotificationMode,
+                parsed.Value.NotificationSound);
             try
             {
                 var runner = new CommandRunner(output);
@@ -66,7 +75,7 @@ public static class Program
 
                 await output.SystemAsync(
                     $"Preflight complete; starting {AgentCommandFactory.DisplayName(parsed.Value.AgentMode)} agent loops");
-                await new AbacusApplication(runner, output)
+                await new AbacusApplication(runner, output, notifier)
                     .RunAsync(validated, cancellation.Token);
                 return 0;
             }

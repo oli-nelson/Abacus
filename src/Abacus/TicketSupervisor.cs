@@ -175,7 +175,8 @@ public sealed class TicketSupervisor(
     TimeSpan? pollingInterval = null,
     int maximumInvalidPolls = 3,
     RunSummary? summary = null,
-    TimeSpan? ticketTimeout = null)
+    TimeSpan? ticketTimeout = null,
+    DesktopNotifier? notifier = null)
 {
     private readonly TimeSpan interval = pollingInterval ?? TimeSpan.FromSeconds(5);
     private readonly TimeSpan? runtimeLimit = ticketTimeout;
@@ -233,7 +234,7 @@ public sealed class TicketSupervisor(
                         throw;
                     }
 
-                    await RequireRecoveryAsync(agent, claimedIssue.Id, recoveryResult);
+                    await RequireRecoveryAsync(agent, claimedIssue, recoveryResult);
                     return;
                 }
 
@@ -284,7 +285,7 @@ public sealed class TicketSupervisor(
                 if (statusReadable
                     && current!.Status is IssueStatus.Closed or IssueStatus.Open or IssueStatus.Blocked)
                 {
-                    RecordTerminalOutcome(agent.Name, current.Status);
+                    RecordTerminalOutcome(agent.Name, current);
                     await log.SetAgentAsync(
                         agent.Name,
                         AgentActivity.Finalizing,
@@ -303,7 +304,7 @@ public sealed class TicketSupervisor(
                     var final = await ReadAfterExitAsync(agent, claimedIssue.Id, cancellationToken);
                     if (final is { Status: IssueStatus.Closed or IssueStatus.Open or IssueStatus.Blocked })
                     {
-                        RecordTerminalOutcome(agent.Name, final.Status);
+                        RecordTerminalOutcome(agent.Name, final);
                         await log.SetAgentAsync(
                             agent.Name,
                             AgentActivity.Finalizing,
@@ -325,7 +326,7 @@ public sealed class TicketSupervisor(
                             claimedIssue.Id,
                             $"Abacus agent {agent.Name} exited with process code {exitDescription} before updating the ticket",
                             CancellationToken.None);
-                        await RequireRecoveryAsync(agent, claimedIssue.Id, recoveryResult);
+                        await RequireRecoveryAsync(agent, claimedIssue, recoveryResult);
                     }
                     else
                     {
@@ -353,7 +354,11 @@ public sealed class TicketSupervisor(
         catch (OperationCanceledException)
         {
             shutdownHandled = true;
-            summary?.Record(agent.Name, TicketOutcome.Interrupted);
+            summary?.Record(
+                agent.Name,
+                TicketOutcome.Interrupted,
+                claimedIssue.Id,
+                claimedIssue.Title);
             using var finalization = new CancellationTokenSource(FinalizationDeadline);
             await CleanupRunAsync(agent.Name, run, finalization.Token);
             RecoveryResult recoveryResult;
@@ -371,7 +376,7 @@ public sealed class TicketSupervisor(
                 throw;
             }
 
-            await RequireRecoveryAsync(agent, claimedIssue.Id, recoveryResult, recordOutcome: false);
+            await RequireRecoveryAsync(agent, claimedIssue, recoveryResult, recordOutcome: false);
             await RequirePushAsync(agent, finalization.Token);
             throw;
         }
@@ -444,9 +449,9 @@ public sealed class TicketSupervisor(
         return $"{duration.TotalSeconds:0.###}s";
     }
 
-    private void RecordTerminalOutcome(string agentName, IssueStatus status)
+    private void RecordTerminalOutcome(string agentName, BeadsIssue issue)
     {
-        var outcome = status switch
+        var outcome = issue.Status switch
         {
             IssueStatus.Closed => TicketOutcome.Closed,
             IssueStatus.Open => TicketOutcome.Reopened,
@@ -455,7 +460,7 @@ public sealed class TicketSupervisor(
         };
         if (outcome is not null)
         {
-            summary?.Record(agentName, outcome.Value);
+            summary?.Record(agentName, outcome.Value, issue.Id, issue.Title);
         }
     }
 
@@ -478,7 +483,7 @@ public sealed class TicketSupervisor(
 
     private async Task RequireRecoveryAsync(
         ValidatedAgent agent,
-        string issueId,
+        BeadsIssue issue,
         RecoveryResult result,
         bool recordOutcome = true)
     {
@@ -486,7 +491,7 @@ public sealed class TicketSupervisor(
         {
             await HaltAsync(
                 agent.Name,
-                $"Could not reopen and verify {issueId}; it may remain claimed and no more work will be claimed");
+                $"Could not reopen and verify {issue.Id}; it may remain claimed and no more work will be claimed");
         }
 
         if (!recordOutcome)
@@ -496,11 +501,11 @@ public sealed class TicketSupervisor(
 
         if (result.Outcome is RecoveryOutcome.Reopened)
         {
-            summary?.Record(agent.Name, TicketOutcome.Reopened);
+            summary?.Record(agent.Name, TicketOutcome.Reopened, issue.Id, issue.Title);
         }
         else if (result.VerifiedStatus is { } status)
         {
-            RecordTerminalOutcome(agent.Name, status);
+            RecordTerminalOutcome(agent.Name, issue with { Status = status });
         }
     }
 
@@ -531,6 +536,7 @@ public sealed class TicketSupervisor(
     {
         await WarnAsync(agentName, message);
         await log.SetPersistentAlertAsync(agentName, message);
+        notifier?.PersistentAlert(agentName, message);
         throw new AgentHaltedException($"[{agentName}] {message}");
     }
 }

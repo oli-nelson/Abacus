@@ -119,6 +119,7 @@ Before building the loop, capture the exact behavior of the locally supported co
     [--label <label>] [--exclude-label <label>] \
     [--type <types>] [--priority <priority>] \
     [--ticket-timeout <duration>] \
+    [--notify <off|attention|all>] [--notify-sound] \
     [--opencode-server <host:port>] \
     [--once | --drain | --check] \
     [--verbose] \
@@ -143,6 +144,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   are installed. Do not search the filesystem for separate clones or contact an
   OpenCode server.
 - Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
+- Keep desktop notifications dependency-free and owned by the orchestrator. `--notify attention` reports new user-attention issues, blocked tickets, and persistent recovery failures; `--notify all` also reports all ticket outcomes and the final run summary. Use `osascript` on macOS and optional `notify-send` on Linux through `ProcessStartInfo.ArgumentList`. Treat delivery as best effort, deduplicate polled attention issues, and use a terminal bell fallback only when `--notify-sound` was requested.
 
 ### Exit criteria
 
@@ -316,6 +318,7 @@ All checks happen before any ticket is claimed or agent run is created.
 - `--remote` keeps Claude Code interactive while exposing its CLI-managed Remote Control feature; it is rejected in Codex and both OpenCode modes.
 - Optional dispatch filters limit every fresh and same-agent resumed ready claim without reimplementing Beads query semantics.
 - Optional ticket timeouts stop the hosted run and safely reopen and synchronize work that remains `in_progress`, while preserving terminal-state races.
+- Optional Abacus-owned desktop notifications report attention and ticket outcomes consistently across every agent mode without configuring the selected agent CLI.
 - Every agent uses a unique validated workspace and either a dedicated Abacus-owned tmux pane or directly supervised attached process.
 - Multi-agent execution is impossible unless all workspaces resolve to the same shared Dolt database.
 - Claims are atomic and attributed with `BEADS_ACTOR`.

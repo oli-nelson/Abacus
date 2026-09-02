@@ -76,6 +76,7 @@ abacus --tmux-session <session_name> \
   [--label <label>] [--exclude-label <label>] \
   [--type <types>] [--priority <priority>] \
   [--ticket-timeout <duration>] \
+  [--notify <off|attention|all>] [--notify-sound] \
   [--once | --drain | --check] \
   [--verbose] \
   -a <agent_name> <git_workspace_path> \
@@ -89,6 +90,8 @@ abacus --tmux-session <session_name> \
 Dispatch filters are optional and apply to every fresh or same-agent resumed ready claim. `--label` and `--exclude-label` are repeatable literal passthroughs to `bd ready`; `--type` accepts one literal Beads type filter, including comma-separated types; and `--priority` accepts priorities 0 through 4. Abacus always excludes `gt:slot` in addition to user filters.
 
 `--ticket-timeout` is an optional positive integer duration with an `s`, `m`, or `h` suffix. The guard starts when the agent CLI starts. At the limit, Abacus stops and cleans the hosted agent run, reopens the ticket only if it is still `in_progress`, verifies the result, and pushes when a Dolt remote is configured. A terminal ticket update that races with the timeout is preserved. Recovery or push failure stops that agent, keeps a persistent alert visible, and makes finite runs fail.
+
+`--notify` controls Abacus-owned desktop notifications and defaults to `off`. `attention` reports newly observed `abacus:needs-user-attention` issues, blocked tickets, and persistent recovery failures. `all` additionally reports every ticket outcome and the final run summary. On macOS Abacus uses `osascript`; on Linux it uses `notify-send` when available. Notification delivery is best effort and never changes orchestration outcomes. `--notify-sound` requests the platform notification sound and permits a terminal bell fallback if desktop delivery is unavailable; it requires `--notify attention` or `--notify all`.
 
 Each local agent runs interactively in its own tmux pane using its assigned Git workspace and requested model:
 

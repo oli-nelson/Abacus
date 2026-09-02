@@ -63,6 +63,71 @@ public sealed class OptionsTests
         Assert.Equal(AgentMode.OpenCode, result.Value!.AgentMode);
         Assert.Equal("high", result.Value.Effort);
         Assert.False(result.Value.Remote);
+        Assert.Equal(NotificationMode.Off, result.Value.NotificationMode);
+        Assert.False(result.Value.NotificationSound);
+    }
+
+    [Theory]
+    [InlineData("off", NotificationMode.Off)]
+    [InlineData("attention", NotificationMode.Attention)]
+    [InlineData("all", NotificationMode.All)]
+    public void ParsesDesktopNotificationModes(string value, NotificationMode expected)
+    {
+        var arguments = new List<string>
+        {
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--notify", value,
+        };
+        if (expected is not NotificationMode.Off)
+        {
+            arguments.Add("--notify-sound");
+        }
+
+        arguments.AddRange(["-a", "alice", "/tmp/a"]);
+        var result = Options.Parse(arguments);
+
+        Assert.Equal(expected, result.Value!.NotificationMode);
+        Assert.Equal(expected is not NotificationMode.Off, result.Value.NotificationSound);
+    }
+
+    [Theory]
+    [InlineData("desktop")]
+    [InlineData("true")]
+    [InlineData("ATTENTION")]
+    public void RejectsUnknownDesktopNotificationMode(string value)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--notify", value,
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
+    [Fact]
+    public void NotificationSoundRequiresEnabledNotifications()
+    {
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--notify-sound",
+            "-a", "alice", "/tmp/a",
+        ]));
+
+        Assert.Contains("requires --notify", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RejectsDuplicateDesktopNotificationMode()
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--notify", "attention",
+            "--notify", "all",
+            "-a", "alice", "/tmp/a",
+        ]));
     }
 
     [Fact]

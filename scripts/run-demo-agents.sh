@@ -85,6 +85,8 @@ abacus_args=(
   --tmux-layout tiled
   --model "$model"
   --effort "$effort"
+  --notify all
+  --notify-sound
 )
 
 if [[ "$remote" == true ]]; then
