@@ -41,6 +41,8 @@ public sealed class HealthTests
         Assert.Contains("No additional linked worktrees", rendered, StringComparison.Ordinal);
         Assert.Contains("Separate clones", rendered, StringComparison.Ordinal);
         Assert.Contains("abacus --install-skills", rendered, StringComparison.Ordinal);
+        Assert.Equal(MergeSlotHealthStatus.Missing, report.MergeSlot.Status);
+        Assert.Contains("may attempt merges concurrently", rendered, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -58,7 +60,9 @@ public sealed class HealthTests
             {
                 ["codex"] = "codex-cli 0.152.1",
                 ["tmux"] = "tmux 3.6a",
-            });
+            },
+            mergeSlotExists: true,
+            mergeSlotHolder: "merge-agent");
         await environment.InstallSkillFilesAsync();
 
         var report = await environment.CheckAsync();
@@ -71,6 +75,9 @@ public sealed class HealthTests
         Assert.True(report.DoltIdentity!.IsShared);
         Assert.Equal(2, report.Worktrees.Count);
         Assert.Contains("codex (tmux-hosted)", report.AvailableModes);
+        Assert.Equal(MergeSlotHealthStatus.Held, report.MergeSlot.Status);
+        Assert.Equal("merge-agent", report.MergeSlot.Holder);
+        Assert.Contains("held by merge-agent", rendered, StringComparison.Ordinal);
         Assert.Contains("Bundled skills readiness: READY", rendered, StringComparison.Ordinal);
         Assert.Contains("Multi-agent readiness from linked worktrees: READY", rendered, StringComparison.Ordinal);
     }
@@ -94,6 +101,7 @@ public sealed class HealthTests
         var report = await environment.CheckAsync();
 
         Assert.Null(report.DoltIdentity);
+        Assert.Equal(MergeSlotHealthStatus.NotChecked, report.MergeSlot.Status);
         Assert.False(report.SingleAgentReady);
         Assert.False(report.IsHealthy);
         Assert.Empty(report.AvailableModes);
@@ -149,7 +157,9 @@ public sealed class HealthTests
         public static async Task<HealthEnvironment> CreateAsync(
             bool? embedded,
             int worktreeCount,
-            IReadOnlyDictionary<string, string> tools)
+            IReadOnlyDictionary<string, string> tools,
+            bool mergeSlotExists = false,
+            string? mergeSlotHolder = null)
         {
             var root = Directory.CreateTempSubdirectory("abacus-health-");
             var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
@@ -189,24 +199,28 @@ public sealed class HealthTests
                       exit 2
                     fi
                     """,
-                true => """
+                true => $$"""
                     if [ "$1" = "version" ]; then
                       printf 'bd version 1.2.2\n'
                     elif [ "$1" = "where" ]; then
                       printf '{"database":"abacus"}\n'
                     elif [ "$1 $2" = "dolt show" ]; then
                       printf '{"embedded":true,"database":"abacus"}\n'
+                    elif [ "$1 $2" = "merge-slot check" ]; then
+                      printf '%s\n' '{{MergeSlotJson(mergeSlotExists, mergeSlotHolder)}}'
                     else
                       exit 2
                     fi
                     """,
-                false => """
+                false => $$"""
                     if [ "$1" = "version" ]; then
                       printf 'bd version 1.2.2\n'
                     elif [ "$1" = "where" ]; then
                       printf '{"database":"abacus"}\n'
                     elif [ "$1 $2" = "dolt show" ]; then
                       printf '{"embedded":false,"database":"abacus","host":"127.0.0.1","port":3307,"connection_ok":true}\n'
+                    elif [ "$1 $2" = "merge-slot check" ]; then
+                      printf '%s\n' '{{MergeSlotJson(mergeSlotExists, mergeSlotHolder)}}'
                     else
                       exit 2
                     fi
@@ -219,6 +233,18 @@ public sealed class HealthTests
             }
 
             return new HealthEnvironment(root, bin, nested);
+        }
+
+        private static string MergeSlotJson(bool exists, string? holder)
+        {
+            if (!exists)
+            {
+                return "{\"available\":false,\"error\":\"not found\",\"id\":\"ab-merge-slot\"}";
+            }
+
+            return holder is null
+                ? "{\"available\":true,\"holder\":null,\"id\":\"ab-merge-slot\",\"waiters\":null}"
+                : $"{{\"available\":false,\"holder\":\"{holder}\",\"id\":\"ab-merge-slot\",\"waiters\":null}}";
         }
 
         public Task<HealthReport> CheckAsync() =>

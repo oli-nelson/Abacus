@@ -264,7 +264,7 @@ public sealed class TmuxAgentHostTests
     }
 
     [Fact]
-    public async Task CleanupFailureRetainsRunFilesAndDoesNotMarkRunCleaned()
+    public async Task CleanupMovesOnWhenPaneCannotBeVerifiedAsRemoved()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -280,12 +280,14 @@ public sealed class TmuxAgentHostTests
             "provider/model", "high", null, CancellationToken.None);
         await File.WriteAllTextAsync(Path.Combine(fixture.Root, "keep-pane"), string.Empty);
 
-        await Assert.ThrowsAsync<TmuxException>(() =>
-            tmux.StopAndCleanupAsync(run, CancellationToken.None));
+        await tmux.StopAndCleanupAsync(run, CancellationToken.None);
 
-        Assert.False(run.Cleaned);
-        Assert.True(File.Exists(run.PromptPath));
-        Assert.True(Directory.Exists(run.RunDirectory));
+        Assert.True(run.Cleaned);
+        Assert.False(File.Exists(run.PromptPath));
+        Assert.False(Directory.Exists(run.RunDirectory));
+        Assert.Contains(
+            $"kill-pane -t {run.PaneId}",
+            await File.ReadAllLinesAsync(fixture.CallsPath));
     }
 
     [Fact]
@@ -311,7 +313,7 @@ public sealed class TmuxAgentHostTests
     }
 
     [Fact]
-    public async Task CleanupDeadlineBoundsAWedgedTmuxCommand()
+    public async Task CleanupMovesOnWhenKillPaneExceedsItsDeadline()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -327,17 +329,17 @@ public sealed class TmuxAgentHostTests
             Agent("alice", workspace),
             new BeadsIssue("abc-1", IssueStatus.InProgress),
             "provider/model", "high", null, CancellationToken.None);
-        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "hang-display"), string.Empty);
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "hang-kill"), string.Empty);
 
-        await Assert.ThrowsAsync<TmuxException>(() =>
-            tmux.StopAndCleanupAsync(run, CancellationToken.None));
+        await tmux.StopAndCleanupAsync(run, CancellationToken.None);
 
-        Assert.False(run.Cleaned);
-        Assert.True(File.Exists(run.PromptPath));
+        Assert.True(run.Cleaned);
+        Assert.False(File.Exists(run.PromptPath));
+        Assert.False(Directory.Exists(run.RunDirectory));
     }
 
     [Fact]
-    public async Task AmbiguousPaneProbeFailureDoesNotPretendCleanupSucceeded()
+    public async Task CleanupDoesNotProbePaneAndMovesOnWhenInspectionWouldFail()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -353,12 +355,15 @@ public sealed class TmuxAgentHostTests
             "provider/model", "high", null, CancellationToken.None);
         await File.WriteAllTextAsync(Path.Combine(fixture.Root, "probe-error"), string.Empty);
 
-        var exception = await Assert.ThrowsAsync<TmuxException>(() =>
-            tmux.StopAndCleanupAsync(run, CancellationToken.None));
+        await tmux.StopAndCleanupAsync(run, CancellationToken.None);
 
-        Assert.Contains("could not inspect pane", exception.Message, StringComparison.Ordinal);
-        Assert.False(run.Cleaned);
-        Assert.True(File.Exists(run.PromptPath));
+        var calls = await File.ReadAllLinesAsync(fixture.CallsPath);
+        Assert.DoesNotContain(calls, static line =>
+            line.StartsWith("display-message", StringComparison.Ordinal));
+        Assert.Contains($"send-keys -t {run.PaneId} C-c", calls);
+        Assert.Contains($"kill-pane -t {run.PaneId}", calls);
+        Assert.True(run.Cleaned);
+        Assert.False(File.Exists(run.PromptPath));
     }
 
     private static ValidatedAgent Agent(string name, string workspace) =>
@@ -421,6 +426,7 @@ public sealed class TmuxAgentHostTests
                   test -f "$panes" && grep -Fx "$4" "$panes" >/dev/null || { printf "can't find pane: %s\n" "$4" >&2; exit 1; }
                   printf '%s\n' "$4"
                 elif test "$1" = kill-pane; then
+                  test -f {{QuoteForShell(Path.Combine(root.FullName, "hang-kill"))}} && sleep 10
                   panes={{QuoteForShell(Path.Combine(root.FullName, "panes"))}}
                   if ! test -f {{QuoteForShell(Path.Combine(root.FullName, "keep-pane"))}}; then
                     grep -Fvx "$3" "$panes" > "$panes.tmp" || true

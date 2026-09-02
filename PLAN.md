@@ -139,10 +139,12 @@ Before building the loop, capture the exact behavior of the locally supported co
 - Add a standalone, read-only `--health` report. Reuse the documented minimum
   versions while probing Git, Beads, OpenCode, Claude Code, Codex, and tmux;
   require at least one supported harness. Report Beads storage/concurrency,
-  available agent modes, every root-referenced Git worktree, whether additional
-  worktrees make multi-agent workspaces possible, and whether all bundled skills
-  are installed. Do not search the filesystem for separate clones or contact an
-  OpenCode server.
+  merge-slot availability and holder, available agent modes, every
+  root-referenced Git worktree, whether additional worktrees make multi-agent
+  workspaces possible, and whether all bundled skills are installed. Warn—but do
+  not fail—when no merge slot exists because the repository may provide another
+  serialized merge process. Do not search the filesystem for separate clones or
+  contact an OpenCode server.
 - Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 - Keep desktop notifications dependency-free and owned by the orchestrator. `--notify attention` reports new user-attention issues, blocked tickets, and persistent recovery failures; `--notify all` also reports all ticket outcomes and the final run summary. Use `osascript` on macOS and optional `notify-send` on Linux through `ProcessStartInfo.ArgumentList`. Treat delivery as best effort, deduplicate polled attention issues, and use a terminal bell fallback only when `--notify-sound` was requested.
 
@@ -152,9 +154,9 @@ Before building the loop, capture the exact behavior of the locally supported co
 - Skill installation works from a subdirectory, requires confirmation before
   replacing existing bundled skills, removes obsolete files from confirmed
   replacements, and is covered by tests.
-- Health parsing, version comparisons, Beads concurrency classification,
-  worktree reporting, harness-mode availability, and skill presence are covered
-  by fake-CLI tests.
+- Health parsing, version comparisons, Beads concurrency and merge-slot
+  classification, worktree reporting, harness-mode availability, and skill
+  presence are covered by fake-CLI tests.
 - A fake executable test proves arguments with spaces and special characters are passed literally and `BEADS_ACTOR` is scoped to the child.
 - `abacus --help` documents prerequisites and examples from SPEC.md.
 
@@ -232,7 +234,7 @@ All checks happen before any ticket is claimed or agent run is created.
 - Keep one small agent host boundary so ticket supervision can observe exit and perform idempotent cleanup for either a pane or a direct process. Use one explicit switch-based command builder for the four known modes; this is not a plugin system.
 - Interrupt direct children, wait a short grace period, then terminate the process tree if needed.
 - Do not use tmux control mode or a tmux protocol library. All lifecycle operations are CLI commands using the recorded pane ID.
-- Implement idempotent cleanup: send Ctrl-C, allow a short grace period, then `tmux kill-pane` if the pane remains. Never target panes that Abacus did not create.
+- Implement idempotent, best-effort tmux cleanup: send Ctrl-C, allow a short grace period, then attempt `tmux kill-pane` for the recorded pane ID. Remove run files and continue finalization regardless of tmux command or pane-verification results. Never target a pane ID that Abacus did not record at launch.
 - Remove prompt, wrapper, and marker files when their run ends.
 
 ### Exit criteria
@@ -254,7 +256,7 @@ All checks happen before any ticket is claimed or agent run is created.
 - If the agent CLI exits and the ticket remains `in_progress`, log a warning and reopen it with a note containing the agent name and process exit code.
 - After every agent exit or forced stop, run `bd dolt push` when the project has a remote. A push failure must be visible and retried a small bounded number of times, but must not misreport the ticket as completed.
 - On Abacus shutdown, interrupt all active agent runs. For any ticket still `in_progress`, attempt to reopen it with an “Abacus shut down” note, push if configured, and then remove the pane or direct process.
-- When `--ticket-timeout` is configured, measure from successful agent-host startup, stop and verify cleanup at the deadline, then use the same terminal-state-preserving reopen verification and push path. Do not count the timeout as a user shutdown interruption.
+- When `--ticket-timeout` is configured, measure from successful agent-host startup, attempt bounded host cleanup at the deadline, then use the same terminal-state-preserving reopen verification and push path. Do not count the timeout as a user shutdown interruption.
 - Isolate loop failures: one agent's transient command failure should be logged and delayed without crashing other loops. A failure that invalidates a startup invariant, such as a missing workspace, should stop Abacus with a clear error.
 
 ### Exit criteria
@@ -327,7 +329,9 @@ All checks happen before any ticket is claimed or agent run is created.
 - Ticket transitions control session lifetime exactly as specified.
 - Unexpected exits reopen rather than complete work.
 - Remote pull/push behavior matches the single-agent/shared-database rules in SPEC.md.
-- Shutdown and failure paths do not strand `in_progress` tickets or Abacus-created panes/processes.
+- Shutdown and failure paths do not strand `in_progress` tickets, make a bounded
+  best-effort attempt to stop Abacus-created tmux panes, and verify directly
+  supervised process cleanup.
 
 ## Explicit non-goals for the first version
 

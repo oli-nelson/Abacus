@@ -104,6 +104,9 @@ The report checks:
 - Git and Beads installation, minimum versions, and the resolved repository root;
 - whether Beads is initialized and configured for embedded single-agent use or
   reachable shared-Dolt multi-agent use;
+- whether the project has a Beads merge slot, including its current holder when
+  occupied; a missing slot warns that agents may not serialize merges unless the
+  repository defines another coordination mechanism;
 - OpenCode, Claude Code, and Codex installation and minimum versions—individual
   harnesses are optional, but at least one supported harness is required;
 - the minimum tmux version and which pane-hosted modes it enables;
@@ -121,7 +124,8 @@ not attempt to find or contact an OpenCode server.
 
 `--health` exits with status 0 when at least one single-agent mode is runnable
 and all bundled skills are installed. It exits with status 1 when the repository
-needs attention.
+needs attention. A missing merge slot is advisory and does not change the exit
+status because repositories may use another serialized merge process.
 
 ## Agent modes
 
@@ -481,7 +485,7 @@ abacus --mode opencode-server --model "$MODEL" \
   -a "$AGENT" "$REPO"
 ```
 
-`--ticket-timeout` is an optional runtime guard measured from agent CLI startup. It accepts a positive integer followed by `s`, `m`, or `h`, such as `30s`, `15m`, or `2h`. At the limit, Abacus stops and verifies cleanup of the hosted run, reopens the ticket only if it remains `in_progress`, verifies that recovery, and pushes when a Dolt remote is configured. If the agent's terminal ticket update races with the limit, Abacus preserves it. Failed recovery or synchronization stops that agent with a persistent attention alert; finite runs exit nonzero.
+`--ticket-timeout` is an optional runtime guard measured from agent CLI startup. It accepts a positive integer followed by `s`, `m`, or `h`, such as `30s`, `15m`, or `2h`. At the limit, Abacus attempts to stop and clean the hosted run, reopens the ticket only if it remains `in_progress`, verifies that recovery, and pushes when a Dolt remote is configured. If the agent's terminal ticket update races with the limit, Abacus preserves it. Failed recovery or synchronization stops that agent with a persistent attention alert; finite runs exit nonzero.
 
 ### Finite and preflight-only runs
 
@@ -579,7 +583,7 @@ In default mode, agent states and recent warnings are shown without subprocess n
 
 Ctrl-C cancels all loops. Abacus interrupts every active pane or direct process, checks the ticket again, attempts to reopen any ticket still `in_progress` with a shutdown note, performs configured Dolt pushes with bounded retries, and removes only runs it created. Ordinary shell commands have a fixed 30-second deadline; recovery has a fixed 15-second total budget, host cleanup has a fixed 10-second budget, and the complete per-ticket finalization path has a fixed 30-second budget, so a wedged external tool cannot block shutdown indefinitely.
 
-Tmux cleanup checks that the recorded pane is gone after interrupting and, when necessary, killing it. Run files are removed and a run is marked clean only after that check succeeds. Initialization failures after `split-window` use the same verified cleanup path; if cleanup cannot be verified, the diagnostic files remain and the agent stops with an attention alert.
+Tmux cleanup is best effort: Abacus sends Ctrl-C to the recorded pane, waits briefly, attempts `kill-pane`, removes its run files, and moves on. It does not block shutdown or stop future work because tmux returned an unexpected pane during verification, rejected a cleanup command, or disappeared during shutdown. Abacus still targets only the pane ID it recorded when starting that agent.
 
 ## Deliberate boundaries
 

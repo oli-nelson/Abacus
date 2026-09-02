@@ -240,62 +240,70 @@ public sealed class TmuxAgentHost(
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(cleanupDeadline);
-        await run.CleanupLock.WaitAsync(budget.Token);
+        var lockTaken = false;
         try
         {
+            try
+            {
+                await run.CleanupLock.WaitAsync(budget.Token);
+                lockTaken = true;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
             if (run.Cleaned)
             {
                 return;
             }
 
-            if (await PaneExistsAsync(run, budget.Token))
+            await TryCleanupCommandAsync(
+                ["send-keys", "-t", run.PaneId, "C-c"],
+                budget.Token);
+
+            try
             {
-                var interrupt = await runner.RunAsync(new CommandSpec(
-                    tmuxExecutable,
-                    ["send-keys", "-t", run.PaneId, "C-c"],
-                    temporaryRoot), budget.Token);
-
-                try
-                {
-                    await Task.Delay(gracePeriod, budget.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw new TmuxException($"cleanup deadline expired for pane {run.PaneId}");
-                }
-
-                if (await PaneExistsAsync(run, budget.Token))
-                {
-                    var kill = await runner.RunAsync(new CommandSpec(
-                        tmuxExecutable,
-                        ["kill-pane", "-t", run.PaneId],
-                        temporaryRoot), budget.Token);
-                    if (!kill.Succeeded && await PaneExistsAsync(run, budget.Token))
-                    {
-                        throw new TmuxException(
-                            $"could not kill pane {run.PaneId}: {Beads.FailureDetail(kill)}");
-                    }
-                }
-
-                if (await PaneExistsAsync(run, budget.Token))
-                {
-                    var detail = interrupt.Succeeded
-                        ? "pane remained after interrupt and kill"
-                        : $"interrupt failed ({Beads.FailureDetail(interrupt)}) and pane remained after kill";
-                    throw new TmuxException($"could not verify cleanup of pane {run.PaneId}: {detail}");
-                }
+                await Task.Delay(gracePeriod, budget.Token);
             }
+            catch (OperationCanceledException)
+            {
+                // Pane shutdown is best effort. Continue to the kill attempt even
+                // when the grace-period budget has expired.
+            }
+
+            await TryCleanupCommandAsync(
+                ["kill-pane", "-t", run.PaneId],
+                budget.Token);
 
             CleanupRunFiles(run);
             run.Cleaned = true;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new TmuxException($"cleanup deadline expired for pane {run.PaneId}");
-        }
         finally
         {
-            run.CleanupLock.Release();
+            if (lockTaken)
+            {
+                run.CleanupLock.Release();
+            }
+        }
+    }
+
+    private async Task TryCleanupCommandAsync(
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await runner.RunAsync(new CommandSpec(
+                tmuxExecutable,
+                arguments,
+                temporaryRoot), cancellationToken);
+        }
+        catch (Exception)
+        {
+            // Pane cleanup must never hold up agent finalization. The command was
+            // attempted against the recorded Abacus-owned pane; move on whether
+            // tmux rejected it, timed out, or disappeared during shutdown.
         }
     }
 

@@ -89,7 +89,7 @@ abacus --tmux-session <session_name> \
 
 Dispatch filters are optional and apply to every fresh or same-agent resumed ready claim. `--label` and `--exclude-label` are repeatable literal passthroughs to `bd ready`; `--type` accepts one literal Beads type filter, including comma-separated types; and `--priority` accepts priorities 0 through 4. Abacus always excludes `gt:slot` in addition to user filters.
 
-`--ticket-timeout` is an optional positive integer duration with an `s`, `m`, or `h` suffix. The guard starts when the agent CLI starts. At the limit, Abacus stops and cleans the hosted agent run, reopens the ticket only if it is still `in_progress`, verifies the result, and pushes when a Dolt remote is configured. A terminal ticket update that races with the timeout is preserved. Recovery or push failure stops that agent, keeps a persistent alert visible, and makes finite runs fail.
+`--ticket-timeout` is an optional positive integer duration with an `s`, `m`, or `h` suffix. The guard starts when the agent CLI starts. At the limit, Abacus attempts to stop and clean the hosted agent run, reopens the ticket only if it is still `in_progress`, verifies the result, and pushes when a Dolt remote is configured. A terminal ticket update that races with the timeout is preserved. Recovery or push failure stops that agent, keeps a persistent alert visible, and makes finite runs fail.
 
 `--notify` controls Abacus-owned desktop notifications and defaults to `off`. `attention` reports newly observed `abacus:needs-user-attention` issues, blocked tickets, and persistent recovery failures. `all` additionally reports every ticket outcome and the final run summary. On macOS Abacus uses `osascript`; on Linux it uses `notify-send` when available. Notification delivery is best effort and never changes orchestration outcomes. `--notify-sound` requests the platform notification sound and permits a terminal bell fallback if desktop delivery is unavailable; it requires `--notify attention` or `--notify all`.
 
@@ -102,6 +102,11 @@ Each local agent runs interactively in its own tmux pane using its assigned Git 
 These commands deliberately start the interactive interfaces rather than Codex `exec` or Claude `--print`. Codex and Claude use their automatic permission reviewers so ordinary approvals do not block an unattended Abacus pane while actions still receive background safety checks.
 
 Each pane has a stable `<agent> • <issue-id>` tmux title that the child process cannot replace. The selected agent CLI remains connected directly to the pane terminal so it has a TTY. When `--tmux-window` is supplied, Abacus verifies that the existing window belongs to the requested session and creates every agent pane there. Without it, tmux targets the session's current window. `--tmux-layout` is optional and reapplies a supported built-in layout (`even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`) to that target after each pane is spawned.
+
+Tmux shutdown is deliberately best effort. Abacus sends Ctrl-C to the recorded
+pane, waits briefly, attempts `kill-pane`, removes its temporary run files, and
+continues finalization regardless of tmux command output or pane-verification
+races. Cleanup never targets a pane other than the ID Abacus recorded at launch.
 
 To connect the agents to an existing OpenCode server:
 
@@ -129,6 +134,9 @@ repository it reports:
 - whether Git and Beads meet their minimum versions and Beads is initialized;
 - whether Beads uses embedded single-writer storage or a reachable shared,
   server-backed Dolt database suitable for multiple agents;
+- whether a Beads merge slot exists and, when occupied, who holds it; a missing
+  slot warns that cross-workspace or cross-machine merge synchronization may be
+  unsafe unless another serialized merge process is configured;
 - which of OpenCode, Claude Code, and Codex are installed at supported versions,
   requiring at least one supported harness;
 - whether tmux meets its minimum version and therefore enables pane-hosted modes;
@@ -141,8 +149,9 @@ Direct OpenCode Server mode does not require tmux, but health does not attempt t
 find or contact a server. Multi-agent readiness requires a reachable shared
 Beads database and more than one referenced Git worktree. Separate clones may
 also provide distinct workspaces, but health deliberately does not search for
-them. The command exits zero when at least one single-agent mode is runnable and
-all bundled skills are installed; otherwise it exits one.
+them. Merge-slot availability is advisory because repositories may serialize
+merges another way. The command exits zero when at least one single-agent mode is
+runnable and all bundled skills are installed; otherwise it exits one.
 
 ## Agent workflow
 

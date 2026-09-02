@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Abacus;
@@ -29,6 +30,21 @@ public sealed record SkillHealth(
     bool IsInstalled,
     IReadOnlyList<string> MissingFiles);
 
+public enum MergeSlotHealthStatus
+{
+    NotChecked,
+    Missing,
+    Available,
+    Held,
+    Error,
+}
+
+public sealed record MergeSlotHealth(
+    MergeSlotHealthStatus Status,
+    string? Id,
+    string? Holder,
+    string Detail);
+
 public sealed record HealthReport(
     string? RepositoryRoot,
     ToolHealth Git,
@@ -39,6 +55,7 @@ public sealed record HealthReport(
     ToolHealth Tmux,
     DoltIdentity? DoltIdentity,
     string? BeadsError,
+    MergeSlotHealth MergeSlot,
     IReadOnlyList<GitWorktreeHealth> Worktrees,
     string? WorktreeError,
     IReadOnlyList<SkillHealth> Skills,
@@ -84,6 +101,26 @@ public sealed record HealthReport(
         {
             text.AppendLine($"  [PASS] Initialized with shared Dolt database {DoltIdentity.SharedKey}.");
             text.AppendLine("  Agent concurrency: Beads permits single- and multi-agent execution.");
+        }
+
+        switch (MergeSlot.Status)
+        {
+            case MergeSlotHealthStatus.Available:
+                text.AppendLine($"  [PASS] Merge slot {MergeSlot.Id}: available.");
+                break;
+            case MergeSlotHealthStatus.Held:
+                text.AppendLine($"  [PASS] Merge slot {MergeSlot.Id}: held by {MergeSlot.Holder}.");
+                break;
+            case MergeSlotHealthStatus.Missing:
+                text.AppendLine("  [WARN] Merge slot: not configured.");
+                text.AppendLine("  Without a merge slot, agents on multiple workspaces or machines may attempt merges concurrently unless another serialized merge process is configured. Create one with: bd merge-slot create");
+                break;
+            case MergeSlotHealthStatus.Error:
+                text.AppendLine($"  [WARN] Merge slot could not be checked: {MergeSlot.Detail}");
+                break;
+            default:
+                text.AppendLine($"  [INFO] Merge slot not checked: {MergeSlot.Detail}");
+                break;
         }
 
         text.AppendLine();
@@ -254,6 +291,11 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
 
         DoltIdentity? identity = null;
         string? beadsError = null;
+        var mergeSlot = new MergeSlotHealth(
+            MergeSlotHealthStatus.NotChecked,
+            Id: null,
+            Holder: null,
+            Detail: "Beads is not initialized or available");
         if (repositoryRoot is null)
         {
             beadsError = repositoryError ?? "Git is unavailable";
@@ -281,6 +323,11 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
                 catch (Exception exception) when (exception is BeadsException or PreflightException)
                 {
                     beadsError = exception.Message;
+                }
+
+                if (identity is not null)
+                {
+                    mergeSlot = await CheckMergeSlotAsync(repositoryRoot, cancellationToken);
                 }
             }
         }
@@ -324,12 +371,85 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
             tmux,
             identity,
             beadsError,
+            mergeSlot,
             worktrees,
             worktreeError,
             skills,
             modes,
             singleAgentReady,
             multiAgentReady);
+    }
+
+    private async Task<MergeSlotHealth> CheckMergeSlotAsync(
+        string repositoryRoot,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(
+            "bd",
+            ["merge-slot", "check", "--json"],
+            repositoryRoot,
+            cancellationToken);
+        if (!result.Succeeded)
+        {
+            return new MergeSlotHealth(
+                MergeSlotHealthStatus.Error,
+                Id: null,
+                Holder: null,
+                Detail: FailureDetail(result));
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.StandardOutput);
+            var root = document.RootElement;
+            var id = root.TryGetProperty("id", out var idElement)
+                && idElement.ValueKind is JsonValueKind.String
+                ? idElement.GetString()
+                : null;
+            if (root.TryGetProperty("error", out var errorElement)
+                && errorElement.ValueKind is JsonValueKind.String)
+            {
+                var error = errorElement.GetString() ?? "unknown error";
+                return error.Equals("not found", StringComparison.OrdinalIgnoreCase)
+                    ? new MergeSlotHealth(MergeSlotHealthStatus.Missing, id, Holder: null, error)
+                    : new MergeSlotHealth(MergeSlotHealthStatus.Error, id, Holder: null, error);
+            }
+
+            if (!root.TryGetProperty("available", out var availableElement)
+                || availableElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return new MergeSlotHealth(
+                    MergeSlotHealthStatus.Error,
+                    id,
+                    Holder: null,
+                    "response did not contain an availability value");
+            }
+
+            if (availableElement.GetBoolean())
+            {
+                return new MergeSlotHealth(MergeSlotHealthStatus.Available, id, Holder: null, "available");
+            }
+
+            var holder = root.TryGetProperty("holder", out var holderElement)
+                && holderElement.ValueKind is JsonValueKind.String
+                ? holderElement.GetString()
+                : null;
+            return string.IsNullOrWhiteSpace(holder)
+                ? new MergeSlotHealth(
+                    MergeSlotHealthStatus.Error,
+                    id,
+                    Holder: null,
+                    "slot was unavailable but did not identify a holder")
+                : new MergeSlotHealth(MergeSlotHealthStatus.Held, id, holder, "held");
+        }
+        catch (JsonException exception)
+        {
+            return new MergeSlotHealth(
+                MergeSlotHealthStatus.Error,
+                Id: null,
+                Holder: null,
+                Detail: $"invalid JSON: {exception.Message}");
+        }
     }
 
     internal static IReadOnlyList<GitWorktreeHealth> ParseWorktrees(string output)
