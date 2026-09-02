@@ -1,124 +1,164 @@
 namespace Abacus;
 
+public enum RecoveryOutcome
+{
+    Reopened,
+    AlreadyTerminal,
+    Failed,
+}
+
+public sealed record RecoveryResult(RecoveryOutcome Outcome, IssueStatus? VerifiedStatus = null);
+
+public enum PushOutcome
+{
+    NotRequired,
+    Pushed,
+    Failed,
+}
+
 public sealed class TicketRecovery(
     Beads beads,
     TextWriter log,
     int maximumAttempts = 3,
-    TimeSpan? retryDelay = null)
+    TimeSpan? retryDelay = null,
+    TimeSpan? totalTimeout = null)
 {
     private readonly TimeSpan delay = retryDelay ?? TimeSpan.FromSeconds(1);
+    private readonly TimeSpan deadline = totalTimeout ?? TimeSpan.FromSeconds(15);
 
-    public async Task ReopenKnownClaimAsync(
+    public Task<RecoveryResult> ReopenKnownClaimAsync(
+        ValidatedAgent agent,
+        string issueId,
+        string note,
+        CancellationToken cancellationToken) =>
+        ReopenAndVerifyAsync(agent, issueId, note, cancellationToken);
+
+    public Task<RecoveryResult> ReopenIfStillInProgressAsync(
+        ValidatedAgent agent,
+        string issueId,
+        string note,
+        CancellationToken cancellationToken) =>
+        ReopenAndVerifyAsync(agent, issueId, note, cancellationToken);
+
+    private async Task<RecoveryResult> ReopenAndVerifyAsync(
         ValidatedAgent agent,
         string issueId,
         string note,
         CancellationToken cancellationToken)
     {
-        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(deadline);
+        try
         {
-            try
+            for (var attempt = 1; attempt <= maximumAttempts; attempt++)
             {
-                var reopen = await beads.ReopenAsync(
-                    agent.WorkspacePath,
-                    agent.Name,
-                    issueId,
-                    note,
-                    cancellationToken);
-                if (reopen.Succeeded)
+                try
                 {
-                    await PushWithRetryAsync(agent, cancellationToken);
-                    return;
+                    var current = await beads.GetIssueAsync(
+                        agent.WorkspacePath, agent.Name, issueId, budget.Token);
+                    if (current is { Status: IssueStatus.Open or IssueStatus.Closed or IssueStatus.Blocked })
+                    {
+                        return new RecoveryResult(RecoveryOutcome.AlreadyTerminal, current.Status);
+                    }
+
+                    if (current is null || current.Status is IssueStatus.Unknown)
+                    {
+                        throw new BeadsException("issue is missing or has an unknown status");
+                    }
+
+                    var reopen = await beads.ReopenAsync(
+                        agent.WorkspacePath,
+                        agent.Name,
+                        issueId,
+                        note,
+                        budget.Token);
+                    if (!reopen.Succeeded)
+                    {
+                        await WarnAsync(agent.Name,
+                            $"failed to reopen {issueId} (attempt {attempt}/{maximumAttempts}): {Beads.FailureDetail(reopen)}");
+                    }
+                    else
+                    {
+                        var verified = await beads.GetIssueAsync(
+                            agent.WorkspacePath, agent.Name, issueId, budget.Token);
+                        if (verified is { Status: IssueStatus.Open })
+                        {
+                            return new RecoveryResult(RecoveryOutcome.Reopened, IssueStatus.Open);
+                        }
+
+                        if (verified is { Status: IssueStatus.Closed or IssueStatus.Blocked })
+                        {
+                            return new RecoveryResult(RecoveryOutcome.AlreadyTerminal, verified.Status);
+                        }
+
+                        await WarnAsync(agent.Name,
+                            $"could not verify that {issueId} reopened (attempt {attempt}/{maximumAttempts})");
+                    }
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    await WarnAsync(agent.Name,
+                        $"could not reopen and verify {issueId} (attempt {attempt}/{maximumAttempts}): {exception.Message}");
                 }
 
-                await WarnAsync(agent.Name,
-                    $"failed to reopen {issueId} (attempt {attempt}/{maximumAttempts}): {Beads.FailureDetail(reopen)}");
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                await WarnAsync(agent.Name,
-                    $"failed to reopen {issueId} (attempt {attempt}/{maximumAttempts}): {exception.Message}");
-            }
-
-            if (attempt < maximumAttempts)
-            {
-                await Task.Delay(delay, cancellationToken);
+                if (attempt < maximumAttempts)
+                {
+                    await Task.Delay(delay, budget.Token);
+                }
             }
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            await WarnAsync(agent.Name, $"recovery deadline expired while reopening {issueId}");
+        }
 
-        await PushWithRetryAsync(agent, cancellationToken);
+        return new RecoveryResult(RecoveryOutcome.Failed);
     }
 
-    public async Task ReopenIfStillInProgressAsync(
+    public async Task<PushOutcome> PushWithRetryAsync(
         ValidatedAgent agent,
-        string issueId,
-        string note,
         CancellationToken cancellationToken)
-    {
-        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
-        {
-            try
-            {
-                var current = await beads.GetIssueAsync(
-                    agent.WorkspacePath, agent.Name, issueId, cancellationToken);
-                if (current is not { Status: IssueStatus.InProgress })
-                {
-                    return;
-                }
-
-                var reopen = await beads.ReopenAsync(
-                    agent.WorkspacePath, agent.Name, issueId, note, cancellationToken);
-                if (reopen.Succeeded)
-                {
-                    return;
-                }
-
-                await WarnAsync(agent.Name,
-                    $"failed to reopen {issueId} (attempt {attempt}/{maximumAttempts}): {Beads.FailureDetail(reopen)}");
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                await WarnAsync(agent.Name,
-                    $"could not verify {issueId} before reopening (attempt {attempt}/{maximumAttempts}): {exception.Message}");
-            }
-
-            if (attempt < maximumAttempts)
-            {
-                await Task.Delay(delay, cancellationToken);
-            }
-        }
-    }
-
-    public async Task PushWithRetryAsync(ValidatedAgent agent, CancellationToken cancellationToken)
     {
         if (!agent.HasRemote)
         {
-            return;
+            return PushOutcome.NotRequired;
         }
 
-        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(deadline);
+        try
         {
-            try
+            for (var attempt = 1; attempt <= maximumAttempts; attempt++)
             {
-                var push = await beads.PushAsync(agent.WorkspacePath, agent.Name, cancellationToken);
-                if (push.Succeeded)
+                try
                 {
-                    return;
+                    var push = await beads.PushAsync(agent.WorkspacePath, agent.Name, budget.Token);
+                    if (push.Succeeded)
+                    {
+                        return PushOutcome.Pushed;
+                    }
+
+                    await WarnAsync(agent.Name,
+                        $"Beads push failed (attempt {attempt}/{maximumAttempts}): {Beads.FailureDetail(push)}");
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    await WarnAsync(agent.Name,
+                        $"Beads push failed (attempt {attempt}/{maximumAttempts}): {exception.Message}");
                 }
 
-                await WarnAsync(agent.Name,
-                    $"Beads push failed (attempt {attempt}/{maximumAttempts}): {Beads.FailureDetail(push)}");
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                await WarnAsync(agent.Name,
-                    $"Beads push failed (attempt {attempt}/{maximumAttempts}): {exception.Message}");
-            }
-
-            if (attempt < maximumAttempts)
-            {
-                await Task.Delay(delay, cancellationToken);
+                if (attempt < maximumAttempts)
+                {
+                    await Task.Delay(delay, budget.Token);
+                }
             }
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            await WarnAsync(agent.Name, "recovery deadline expired while pushing Beads data");
+        }
+
+        return PushOutcome.Failed;
     }
 
     private Task WarnAsync(string agentName, string message) =>
@@ -135,6 +175,7 @@ public sealed class TicketSupervisor(
     RunSummary? summary = null)
 {
     private readonly TimeSpan interval = pollingInterval ?? TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan FinalizationDeadline = TimeSpan.FromSeconds(30);
 
     public async Task SuperviseAsync(
         ValidatedAgent agent,
@@ -155,9 +196,11 @@ public sealed class TicketSupervisor(
                         $"[{agent.Name}] workspace disappeared: '{agent.WorkspacePath}'");
                 }
 
-                BeadsIssue? current;
+                BeadsIssue? current = null;
+                var statusReadable = true;
                 try
                 {
+                    var wasDegraded = consecutiveInvalidPolls > 0;
                     current = await beads.GetIssueAsync(
                         agent.WorkspacePath,
                         agent.Name,
@@ -169,23 +212,36 @@ public sealed class TicketSupervisor(
                     }
 
                     consecutiveInvalidPolls = 0;
+                    if (wasDegraded && current.Status is IssueStatus.InProgress)
+                    {
+                        await log.SetAgentAsync(
+                            agent.Name,
+                            AgentActivity.Working,
+                            $"{claimedIssue.Id} • ticket status readable again; agent remains supervised");
+                    }
                 }
-                catch (Exception exception) when (exception is BeadsException or CommandStartException)
+                catch (Exception exception) when (
+                    exception is BeadsException or CommandStartException or CommandTimeoutException)
                 {
                     consecutiveInvalidPolls++;
-                    await WarnAsync(agent.Name,
-                        $"could not poll {claimedIssue.Id} ({consecutiveInvalidPolls}/{maximumInvalidPolls}): {exception.Message}");
-                    if (consecutiveInvalidPolls >= maximumInvalidPolls)
+                    statusReadable = false;
+                    if (consecutiveInvalidPolls <= maximumInvalidPolls)
                     {
-                        throw new SupervisionException(
-                            $"stopped supervising {claimedIssue.Id} after {maximumInvalidPolls} invalid polls");
+                        var suffix = consecutiveInvalidPolls == maximumInvalidPolls
+                            ? "; continuing supervision and suppressing repeated warnings"
+                            : string.Empty;
+                        await WarnAsync(agent.Name,
+                            $"could not poll {claimedIssue.Id} ({consecutiveInvalidPolls}/{maximumInvalidPolls}): {exception.Message}{suffix}");
                     }
 
-                    await Task.Delay(interval, cancellationToken);
-                    continue;
+                    await log.SetAgentAsync(
+                        agent.Name,
+                        AgentActivity.Recovering,
+                        $"{claimedIssue.Id} • ticket status unavailable; agent remains supervised");
                 }
 
-                if (current.Status is IssueStatus.Closed or IssueStatus.Open or IssueStatus.Blocked)
+                if (statusReadable
+                    && current!.Status is IssueStatus.Closed or IssueStatus.Open or IssueStatus.Blocked)
                 {
                     RecordTerminalOutcome(agent.Name, current.Status);
                     await log.SetAgentAsync(
@@ -223,12 +279,18 @@ public sealed class TicketSupervisor(
                             agent.Name,
                             AgentActivity.Recovering,
                             $"{claimedIssue.Id} • agent CLI exited; reopening ticket");
-                        await recovery.ReopenIfStillInProgressAsync(
+                        var recoveryResult = await recovery.ReopenIfStillInProgressAsync(
                             agent,
                             claimedIssue.Id,
                             $"Abacus agent {agent.Name} exited with process code {exitDescription} before updating the ticket",
                             CancellationToken.None);
-                        summary?.Record(agent.Name, TicketOutcome.Reopened);
+                        await RequireRecoveryAsync(agent, claimedIssue.Id, recoveryResult);
+                    }
+                    else
+                    {
+                        await HaltAsync(
+                            agent.Name,
+                            $"Agent CLI exited while {claimedIssue.Id} status remained unreadable; no more work will be claimed");
                     }
 
                     return;
@@ -239,23 +301,36 @@ public sealed class TicketSupervisor(
         }
         catch (OperationCanceledException)
         {
-            summary?.Record(agent.Name, TicketOutcome.Interrupted);
-            await CleanupRunAsync(agent.Name, run);
-            await recovery.ReopenIfStillInProgressAsync(
-                agent,
-                claimedIssue.Id,
-                $"Abacus shut down while {agent.Name} was working on this ticket",
-                CancellationToken.None);
-            await recovery.PushWithRetryAsync(agent, CancellationToken.None);
             shutdownHandled = true;
+            summary?.Record(agent.Name, TicketOutcome.Interrupted);
+            using var finalization = new CancellationTokenSource(FinalizationDeadline);
+            await CleanupRunAsync(agent.Name, run, finalization.Token);
+            RecoveryResult recoveryResult;
+            try
+            {
+                recoveryResult = await recovery.ReopenIfStillInProgressAsync(
+                    agent,
+                    claimedIssue.Id,
+                    $"Abacus shut down while {agent.Name} was working on this ticket",
+                    finalization.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                await HaltAsync(agent.Name, $"Cleanup deadline expired while recovering {claimedIssue.Id}");
+                throw;
+            }
+
+            await RequireRecoveryAsync(agent, claimedIssue.Id, recoveryResult, recordOutcome: false);
+            await RequirePushAsync(agent, finalization.Token);
             throw;
         }
         finally
         {
             if (!shutdownHandled)
             {
-                await CleanupRunAsync(agent.Name, run);
-                await recovery.PushWithRetryAsync(agent, CancellationToken.None);
+                using var finalization = new CancellationTokenSource(FinalizationDeadline);
+                await CleanupRunAsync(agent.Name, run, finalization.Token);
+                await RequirePushAsync(agent, finalization.Token);
             }
         }
     }
@@ -275,7 +350,7 @@ public sealed class TicketSupervisor(
                     return issue;
                 }
             }
-            catch (BeadsException exception)
+            catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 await WarnAsync(agent.Name,
                     $"could not resolve exit/status race for {issueId}: {exception.Message}");
@@ -314,17 +389,80 @@ public sealed class TicketSupervisor(
         }
     }
 
-    private async Task CleanupRunAsync(string agentName, IAgentRun run)
+    private async Task CleanupRunAsync(
+        string agentName,
+        IAgentRun run,
+        CancellationToken cancellationToken)
     {
         try
         {
-            await agentHost.StopAndCleanupAsync(run, CancellationToken.None);
+            await agentHost.StopAndCleanupAsync(run, cancellationToken);
         }
         catch (Exception exception)
         {
-            await WarnAsync(agentName, $"could not completely clean {run.Location}: {exception.Message}");
+            await HaltAsync(
+                agentName,
+                $"Could not verify cleanup of {run.Location}: {exception.Message}; no more work will be claimed");
         }
+    }
+
+    private async Task RequireRecoveryAsync(
+        ValidatedAgent agent,
+        string issueId,
+        RecoveryResult result,
+        bool recordOutcome = true)
+    {
+        if (result.Outcome is RecoveryOutcome.Failed)
+        {
+            await HaltAsync(
+                agent.Name,
+                $"Could not reopen and verify {issueId}; it may remain claimed and no more work will be claimed");
+        }
+
+        if (!recordOutcome)
+        {
+            return;
+        }
+
+        if (result.Outcome is RecoveryOutcome.Reopened)
+        {
+            summary?.Record(agent.Name, TicketOutcome.Reopened);
+        }
+        else if (result.VerifiedStatus is { } status)
+        {
+            RecordTerminalOutcome(agent.Name, status);
+        }
+    }
+
+    private async Task RequirePushAsync(
+        ValidatedAgent agent,
+        CancellationToken cancellationToken)
+    {
+        PushOutcome outcome;
+        try
+        {
+            outcome = await recovery.PushWithRetryAsync(agent, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            await HaltAsync(agent.Name, "Cleanup deadline expired while pushing Beads data");
+            throw;
+        }
+
+        if (outcome is PushOutcome.Failed)
+        {
+            await HaltAsync(
+                agent.Name,
+                "All Beads push attempts failed; no more work will be claimed");
+        }
+    }
+
+    private async Task HaltAsync(string agentName, string message)
+    {
+        await WarnAsync(agentName, message);
+        await log.SetPersistentAlertAsync(agentName, message);
+        throw new AgentHaltedException($"[{agentName}] {message}");
     }
 }
 
-public sealed class SupervisionException(string message) : Exception(message);
+public sealed class AgentHaltedException(string message) : Exception(message);

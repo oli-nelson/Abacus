@@ -45,6 +45,90 @@ public sealed class EndToEndTests
     }
 
     [Fact]
+    public async Task FiniteRunExitsNonzeroWhenAllPushAttemptsFail()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-push-failure-");
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+
+            var startInfo = DirectStartInfo(root.FullName, bin, workspace, "--once");
+            startInfo.Environment["ABACUS_TEST_REMOTE"] = "1";
+            startInfo.Environment["ABACUS_TEST_PUSH_FAIL"] = "1";
+            using var process = Process.Start(startInfo)!;
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await process.WaitForExitAsync(timeout.Token);
+
+            Assert.Equal(1, process.ExitCode);
+            Assert.Contains("ATTENTION", await stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ContinuousRunStopsClaimingAndKeepsAttentionVisibleAfterPushFailure()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-push-attention-");
+        Process? process = null;
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+
+            var startInfo = DirectStartInfo(root.FullName, bin, workspace, executionOption: null);
+            startInfo.Environment["ABACUS_TEST_REMOTE"] = "1";
+            startInfo.Environment["ABACUS_TEST_PUSH_FAIL"] = "1";
+            process = Process.Start(startInfo)!;
+            var stderr = process.StandardError.ReadToEndAsync();
+
+            using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var callsPath = Path.Combine(root.FullName, "bd-calls");
+            while (!File.Exists(callsPath)
+                   || (await File.ReadAllTextAsync(callsPath, wait.Token))
+                       .Split("dolt push", StringSplitOptions.None).Length - 1 < 3)
+            {
+                await Task.Delay(20, wait.Token);
+            }
+
+            Assert.False(process.HasExited);
+            Assert.Equal("1", await File.ReadAllTextAsync(Path.Combine(root.FullName, "ready-count"), wait.Token));
+
+            await RunAsync("/bin/kill", "-INT", process.Id.ToString());
+            await process.WaitForExitAsync(wait.Token);
+            Assert.Equal(130, process.ExitCode);
+            Assert.Contains("ATTENTION", await stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (process is { HasExited: false })
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+
+            process?.Dispose();
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task CheckModeRunsPreflightWithoutClaimingOrStartingOpenCode()
     {
         if (OperatingSystem.IsWindows())
@@ -327,7 +411,7 @@ public sealed class EndToEndTests
             if test "$1" = dolt && test "$2" = show; then
               printf '{"backend":"dolt","data_dir":"/tmp/db","database":"abc","embedded":true,"schema_version":1}\n'
             elif test "$1" = dolt && test "$2" = remote; then
-              printf '[]\n'
+              test "$ABACUS_TEST_REMOTE" = 1 && printf '[{"name":"origin"}]\n' || printf '[]\n'
             elif test "$1" = ready; then
               if test "$2" = --claim; then
                 count=0
@@ -349,7 +433,10 @@ public sealed class EndToEndTests
             elif test "$1" = update; then
               printf 'open' > "$root/status"
               printf '[{"id":"abc-1","status":"open"}]\n'
+            elif test "$1" = dolt && test "$2" = pull; then
+              exit 0
             elif test "$1" = dolt && test "$2" = push; then
+              test "$ABACUS_TEST_PUSH_FAIL" = 1 && { printf 'push failed\n' >&2; exit 1; }
               exit 0
             else
               exit 2
@@ -431,7 +518,7 @@ public sealed class EndToEndTests
               exit 0
             elif test "$1" = display-message; then
               pid=$(cat "$root/pane-pid")
-              kill -0 "$pid" 2>/dev/null || exit 1
+              kill -0 "$pid" 2>/dev/null || { printf "can't find pane: %%1\n" >&2; exit 1; }
               printf '%%1\n'
             elif test "$1" = send-keys; then
               pid=$(cat "$root/pane-pid")
@@ -439,7 +526,7 @@ public sealed class EndToEndTests
               touch "$root/pane-cleaned"
             elif test "$1" = kill-pane; then
               pid=$(cat "$root/pane-pid")
-              kill -TERM "$pid" 2>/dev/null || true
+              kill -KILL "$pid" 2>/dev/null || true
               touch "$root/pane-cleaned"
             else
               exit 2
@@ -484,7 +571,7 @@ public sealed class EndToEndTests
         string root,
         string bin,
         string workspace,
-        string executionOption)
+        string? executionOption)
     {
         var startInfo = new ProcessStartInfo(FindOnPath("dotnet"))
         {
@@ -498,7 +585,10 @@ public sealed class EndToEndTests
         startInfo.ArgumentList.Add("provider/exact-model");
         startInfo.ArgumentList.Add("--opencode-server");
         startInfo.ArgumentList.Add("127.0.0.1:4096");
-        startInfo.ArgumentList.Add(executionOption);
+        if (executionOption is not null)
+        {
+            startInfo.ArgumentList.Add(executionOption);
+        }
         startInfo.ArgumentList.Add("-a");
         startInfo.ArgumentList.Add("alice");
         startInfo.ArgumentList.Add(workspace);

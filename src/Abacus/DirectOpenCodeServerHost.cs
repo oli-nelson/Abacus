@@ -54,9 +54,11 @@ public sealed class DirectOpenCodeServerHost(
     CommandRunner runner,
     TextWriter log,
     string executable,
-    TimeSpan? interruptGracePeriod = null) : IAgentHost
+    TimeSpan? interruptGracePeriod = null,
+    TimeSpan? cleanupTimeout = null) : IAgentHost
 {
     private readonly TimeSpan gracePeriod = interruptGracePeriod ?? TimeSpan.FromSeconds(1);
+    private readonly TimeSpan cleanupDeadline = cleanupTimeout ?? TimeSpan.FromSeconds(10);
 
     public async Task<DirectAgentRun> StartAgentAsync(
         ValidatedAgent agent,
@@ -139,7 +141,9 @@ public sealed class DirectOpenCodeServerHost(
         DirectAgentRun run,
         CancellationToken cancellationToken)
     {
-        await run.CleanupLock.WaitAsync(CancellationToken.None);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(cleanupDeadline);
+        await run.CleanupLock.WaitAsync(budget.Token);
         try
         {
             if (run.Cleaned)
@@ -153,9 +157,10 @@ public sealed class DirectOpenCodeServerHost(
                     "/bin/kill",
                     ["-INT", run.ProcessId.ToString()],
                     run.WorkspacePath,
-                    AgentName: run.AgentName), CancellationToken.None);
+                    AgentName: run.AgentName), budget.Token);
 
-                using var grace = new CancellationTokenSource(gracePeriod);
+                using var grace = CancellationTokenSource.CreateLinkedTokenSource(budget.Token);
+                grace.CancelAfter(gracePeriod);
                 try
                 {
                     await run.Process.WaitForExitAsync(grace.Token);
@@ -174,12 +179,12 @@ public sealed class DirectOpenCodeServerHost(
                         // The process exited between the status check and Kill.
                     }
 
-                    await run.Process.WaitForExitAsync(CancellationToken.None);
+                    await run.Process.WaitForExitAsync(budget.Token);
                 }
             }
 
-            await DrainAsync(run.StdoutDrain);
-            await DrainAsync(run.StderrDrain);
+            await DrainAsync(run.StdoutDrain).WaitAsync(budget.Token);
+            await DrainAsync(run.StderrDrain).WaitAsync(budget.Token);
             run.Process.Dispose();
             run.Cleaned = true;
         }

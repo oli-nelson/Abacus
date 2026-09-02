@@ -22,6 +22,7 @@ internal interface IAgentOutput
     Task SetAgentAsync(string agentName, AgentActivity activity, string detail);
     Task SetTicketAsync(string agentName, string issueId, string? title);
     Task SetUserAttentionIssuesAsync(IReadOnlyList<BeadsIssue> issues);
+    Task SetPersistentAlertAsync(string source, string message);
     Task ClearTicketAsync(string agentName);
     Task SetRunLocationAsync(string agentName, string location);
     Task SetLastExitCodeAsync(string agentName, int? exitCode);
@@ -70,6 +71,14 @@ internal static class OutputExtensions
                 ? Task.CompletedTask
                 : output.WriteLineAsync(
                     $"[abacus] ATTENTION: {string.Join(", ", issues.Select(FormatIssue))}");
+
+    public static Task SetPersistentAlertAsync(
+        this TextWriter output,
+        string source,
+        string message) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.SetPersistentAlertAsync(source, message)
+            : output.WriteLineAsync($"[{source}] ATTENTION: {message}");
 
     public static Task SetRunLocationAsync(this TextWriter output, string agentName, string location) =>
         output is IAgentOutput agentOutput
@@ -152,6 +161,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private readonly string model;
     private readonly Dictionary<string, AgentRow> agents;
     private readonly Queue<string> warnings = new();
+    private readonly Dictionary<string, string> persistentAlerts = new(StringComparer.Ordinal);
     private IReadOnlyList<BeadsIssue> userAttentionIssues = [];
     private readonly Timer? refreshTimer;
     private string systemStatus = "Running preflight checks";
@@ -276,6 +286,26 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         return Task.CompletedTask;
     }
 
+    public Task SetPersistentAlertAsync(string source, string message)
+    {
+        lock (gate)
+        {
+            var changed = !persistentAlerts.TryGetValue(source, out var current)
+                || !string.Equals(current, message, StringComparison.Ordinal);
+            persistentAlerts[source] = message;
+            if (interactive)
+            {
+                RenderDashboard();
+            }
+            else if (changed)
+            {
+                WriteEvent(source, "ATTENTION", message);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task ClearTicketAsync(string agentName) =>
         UpdateRowAsync(agentName, row => row with
         {
@@ -372,6 +402,15 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             {
                 writer.WriteLine(
                     $"{agent.AgentName,-16} closed {agent.Closed}  reopened {agent.Reopened}  blocked {agent.Blocked}  interrupted {agent.Interrupted}");
+            }
+
+            if (persistentAlerts.Count > 0)
+            {
+                writer.WriteLine("USER ATTENTION");
+                foreach (var (source, message) in persistentAlerts.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+                {
+                    writer.WriteLine($"! {source} — {message}");
+                }
             }
 
             writer.Flush();
@@ -478,9 +517,9 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             }
         }
 
-        if (userAttentionIssues.Count > 0)
+        if (userAttentionIssues.Count > 0 || persistentAlerts.Count > 0)
         {
-            builder.Append(Color(Bold + Red, $" ! USER ATTENTION ({userAttentionIssues.Count})"));
+            builder.Append(Color(Bold + Red, $" ! USER ATTENTION ({userAttentionIssues.Count + persistentAlerts.Count})"));
             builder.Append("\u001b[K\n");
             foreach (var issue in userAttentionIssues)
             {
@@ -488,6 +527,13 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 builder.Append(Truncate(
                     OutputExtensions.FormatIssue(issue),
                     Math.Max(0, width - 5)));
+                builder.Append("\u001b[K\n");
+            }
+
+            foreach (var (source, message) in persistentAlerts.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+            {
+                builder.Append(Color(Red, "   ! "));
+                builder.Append(Truncate($"{source} — {message}", Math.Max(0, width - 5)));
                 builder.Append("\u001b[K\n");
             }
         }

@@ -14,8 +14,14 @@ public sealed record CommandResult(int ExitCode, string StandardOutput, string S
     public bool Succeeded => ExitCode == 0;
 }
 
-public sealed class CommandRunner(TextWriter log)
+public sealed class CommandRunner(
+    TextWriter log,
+    TimeSpan? commandTimeout = null,
+    TimeSpan? terminationTimeout = null)
 {
+    private readonly TimeSpan timeout = commandTimeout ?? TimeSpan.FromSeconds(30);
+    private readonly TimeSpan killTimeout = terminationTimeout ?? TimeSpan.FromSeconds(5);
+
     public async Task<CommandResult> RunAsync(
         CommandSpec command,
         CancellationToken cancellationToken = default)
@@ -63,17 +69,35 @@ public sealed class CommandRunner(TextWriter log)
             throw new CommandStartException(command.FileName, exception);
         }
 
-        var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        using var deadline = new CancellationTokenSource(timeout);
+        using var commandCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            deadline.Token);
 
         try
         {
-            await process.WaitForExitAsync(cancellationToken);
+            await process.WaitForExitAsync(commandCancellation.Token);
         }
         catch (OperationCanceledException)
         {
             TryKillProcessTree(process);
-            await process.WaitForExitAsync(CancellationToken.None);
+            try
+            {
+                await process.WaitForExitAsync(CancellationToken.None).WaitAsync(killTimeout);
+            }
+            catch (TimeoutException)
+            {
+                // The original cancellation or deadline remains the useful failure.
+            }
+
+            if (!cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
+            {
+                throw new CommandTimeoutException(command.FileName, timeout);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
             throw;
         }
 
@@ -112,3 +136,6 @@ public sealed class CommandRunner(TextWriter log)
 
 public sealed class CommandStartException(string fileName, Exception innerException)
     : Exception($"could not start '{fileName}': {innerException.Message}", innerException);
+
+public sealed class CommandTimeoutException(string fileName, TimeSpan timeout)
+    : Exception($"'{fileName}' exceeded its {timeout.TotalSeconds:0.###}-second command deadline");

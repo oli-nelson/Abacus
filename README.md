@@ -189,9 +189,88 @@ Press `Ctrl-C` in the Abacus terminal to stop it cleanly. Abacus interrupts its 
 tmux kill-session -t "$SESSION"
 ```
 
+## Four-agent walkthrough with Git worktrees and shared Dolt
+
+This example keeps the repository's primary checkout as an administrative workspace and creates four linked worktrees exclusively for Abacus agents. All four worktrees automatically discover the primary checkout's Beads workspace, so initialize Beads only once; do not run `bd init` separately in each worktree.
+
+Choose paths, the base branch, the tmux target, and an OpenCode model:
+
+```sh
+export REPO=/path/to/your/repository
+export WORKTREES=/path/to/your/repository-worktrees
+export BASE=main
+export SESSION=abacus-work
+export WINDOW=agents
+export MODEL=provider/model
+export EFFORT=high
+
+opencode models
+git -C "$REPO" rev-parse --verify "$BASE"
+git -C "$REPO" status --porcelain
+```
+
+Start from a clean repository and initialize Beads in shared-server mode. This uses the Beads-managed Dolt server under `~/.beads/shared-server/`, allowing the four agents to claim and update tickets concurrently against one database. Review and commit any project files changed by `bd init` before creating the worktrees.
+
+```sh
+cd "$REPO"
+bd init --shared-server --non-interactive
+bd dolt start
+bd dolt show --json
+```
+
+Create four detached worktrees from the same base branch. Detached worktrees are intentional: after claiming a ticket, Abacus creates or checks out the corresponding `abacus/<issue-id>` branch itself.
+
+```sh
+mkdir -p "$WORKTREES"
+git -C "$REPO" worktree add --detach "$WORKTREES/alice" "$BASE"
+git -C "$REPO" worktree add --detach "$WORKTREES/bob" "$BASE"
+git -C "$REPO" worktree add --detach "$WORKTREES/carol" "$BASE"
+git -C "$REPO" worktree add --detach "$WORKTREES/dave" "$BASE"
+git -C "$REPO" worktree list
+```
+
+Confirm that every worktree resolves the same server-backed Dolt database. The normalized host, port, and database reported by each command must match or Abacus will reject the configuration.
+
+```sh
+bd -C "$WORKTREES/alice" dolt show --json
+bd -C "$WORKTREES/bob" dolt show --json
+bd -C "$WORKTREES/carol" dolt show --json
+bd -C "$WORKTREES/dave" dolt show --json
+```
+
+Create at least four independent ready tickets so every agent can claim work immediately. Replace the example titles, descriptions, and acceptance criteria with real tasks that the agents can complete without further input:
+
+```sh
+cd "$REPO"
+bd create "Implement task one" --description "Describe task one." --acceptance "Define task one completion." --json
+bd create "Implement task two" --description "Describe task two." --acceptance "Define task two completion." --json
+bd create "Implement task three" --description "Describe task three." --acceptance "Define task three completion." --json
+bd create "Implement task four" --description "Describe task four." --acceptance "Define task four completion." --json
+bd ready --json
+```
+
+Start the tmux target and run one Abacus agent in each worktree:
+
+```sh
+tmux new-session -d -s "$SESSION" -n "$WINDOW"
+
+abacus \
+  --tmux-session "$SESSION" \
+  --tmux-window "$WINDOW" \
+  --tmux-layout tiled \
+  --model "$MODEL" \
+  --effort "$EFFORT" \
+  -a alice "$WORKTREES/alice" \
+  -a bob "$WORKTREES/bob" \
+  -a carol "$WORKTREES/carol" \
+  -a dave "$WORKTREES/dave"
+```
+
+Abacus verifies the shared Dolt identity during preflight, then each agent atomically claims a different ready ticket and works only in its assigned worktree. Attach with `tmux attach-session -t "$SESSION"` to watch the four tiled agent panes. As in the single-agent walkthrough, each worktree is disposable: Abacus resets tracked changes and removes untracked non-ignored files before every claim.
+
 ## Single-agent walkthrough with an OpenCode server and no tmux
 
-The repository, Beads ticket, and clean-workspace check are identical to the preceding walkthrough. Start the server yourself and pass its address to Abacus; no tmux session is needed.
+The repository, Beads ticket, and clean-workspace check are identical to the single-agent walkthrough above. Start the server yourself and pass its address to Abacus; no tmux session is needed.
 
 ### 1. Start the OpenCode server
 
@@ -305,7 +384,11 @@ Each agent has one asynchronous loop:
 5. Start the selected OpenCode, Codex, or Claude CLI in a dedicated Abacus-owned tmux pane. Start attached OpenCode Server clients in a pane when tmux was supplied, otherwise as directly supervised child processes.
 6. Watch both the Beads status and the hosted agent run for exit.
 7. Stop and clean the pane or direct process when the ticket becomes `closed`, `open`, or `blocked`.
-8. Reopen tickets left `in_progress` by an unexpected exit, push when configured, and continue waiting.
+8. Reopen tickets left `in_progress` by an unexpected exit, verify the resulting ticket state, push when configured, and continue waiting only after recovery and synchronization succeed.
+
+Temporary `bd show` failures put the agent row into `RECOVERING`, but Abacus keeps the agent process supervised and continues polling with repeated-warning suppression. If the agent process exits while ticket status is still unreadable, Abacus does not guess or claim more work for that agent: it stops the loop and raises a persistent attention alert.
+
+Reopen and Dolt-push retries return explicit success or failure outcomes. Exhausted retries stop that agent, remain visible as an attention alert, and make `--once` or `--drain` exit nonzero. A ticket counts as reopened in the final summary only after its `open` state has been read back from Beads.
 
 Every agent session receives this exact prompt after substituting the agent name, issue ID, and canonical workspace path:
 
@@ -350,7 +433,9 @@ The implementation is in [`Prompt.cs`](src/Abacus/Prompt.cs) and the source cont
 
 In default mode, agent states and recent warnings are shown without subprocess noise. In verbose mode, every external command is logged concisely to stderr with a timestamp and agent prefix. Pane-hosted prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. Agent CLI output is displayed directly in tmux for pane-hosted runs; direct attached-process output is drained to preserve the dashboard.
 
-Ctrl-C cancels all loops. Abacus interrupts every active pane or direct process, checks the ticket again, attempts to reopen any ticket still `in_progress` with a shutdown note, performs configured Dolt pushes with bounded retries, and removes only runs it created.
+Ctrl-C cancels all loops. Abacus interrupts every active pane or direct process, checks the ticket again, attempts to reopen any ticket still `in_progress` with a shutdown note, performs configured Dolt pushes with bounded retries, and removes only runs it created. Ordinary shell commands have a fixed 30-second deadline; recovery has a fixed 15-second total budget, host cleanup has a fixed 10-second budget, and the complete per-ticket finalization path has a fixed 30-second budget, so a wedged external tool cannot block shutdown indefinitely.
+
+Tmux cleanup checks that the recorded pane is gone after interrupting and, when necessary, killing it. Run files are removed and a run is marked clean only after that check succeeds. Initialization failures after `split-window` use the same verified cleanup path; if cleanup cannot be verified, the diagnostic files remain and the agent stops with an attention alert.
 
 ## Deliberate boundaries
 

@@ -263,6 +263,104 @@ public sealed class TmuxAgentHostTests
         Assert.False(Directory.Exists(run.RunDirectory));
     }
 
+    [Fact]
+    public async Task CleanupFailureRetainsRunFilesAndDoesNotMarkRunCleaned()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
+        var tmux = fixture.CreateTmux(TimeSpan.Zero);
+        var run = await tmux.StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            "provider/model", "high", null, CancellationToken.None);
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "keep-pane"), string.Empty);
+
+        await Assert.ThrowsAsync<TmuxException>(() =>
+            tmux.StopAndCleanupAsync(run, CancellationToken.None));
+
+        Assert.False(run.Cleaned);
+        Assert.True(File.Exists(run.PromptPath));
+        Assert.True(Directory.Exists(run.RunDirectory));
+    }
+
+    [Fact]
+    public async Task InitializationFailureAfterSplitCleansTheRecordedPane()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "fail-title"), string.Empty);
+        var tmux = fixture.CreateTmux(TimeSpan.Zero);
+
+        await Assert.ThrowsAsync<TmuxException>(() => tmux.StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            "provider/model", "high", null, CancellationToken.None));
+
+        Assert.Contains("kill-pane -t %1", await File.ReadAllTextAsync(fixture.CallsPath), StringComparison.Ordinal);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(fixture.TemporaryRoot));
+    }
+
+    [Fact]
+    public async Task CleanupDeadlineBoundsAWedgedTmuxCommand()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
+        var tmux = fixture.CreateTmux(
+            TimeSpan.Zero,
+            cleanupTimeout: TimeSpan.FromMilliseconds(100));
+        var run = await tmux.StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            "provider/model", "high", null, CancellationToken.None);
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "hang-display"), string.Empty);
+
+        await Assert.ThrowsAsync<TmuxException>(() =>
+            tmux.StopAndCleanupAsync(run, CancellationToken.None));
+
+        Assert.False(run.Cleaned);
+        Assert.True(File.Exists(run.PromptPath));
+    }
+
+    [Fact]
+    public async Task AmbiguousPaneProbeFailureDoesNotPretendCleanupSucceeded()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
+        var tmux = fixture.CreateTmux(TimeSpan.Zero);
+        var run = await tmux.StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            "provider/model", "high", null, CancellationToken.None);
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "probe-error"), string.Empty);
+
+        var exception = await Assert.ThrowsAsync<TmuxException>(() =>
+            tmux.StopAndCleanupAsync(run, CancellationToken.None));
+
+        Assert.Contains("could not inspect pane", exception.Message, StringComparison.Ordinal);
+        Assert.False(run.Cleaned);
+        Assert.True(File.Exists(run.PromptPath));
+    }
+
     private static ValidatedAgent Agent(string name, string workspace) =>
         new(name, workspace, new DoltIdentity(true, "abc", null, null, true), HasRemote: false);
 
@@ -309,13 +407,27 @@ public sealed class TmuxAgentHostTests
                 printf '%s\n' "$*" >> {{QuoteForShell(Path.Combine(root.FullName, "tmux-calls"))}}
                 if test "$1" = split-window; then
                   counter={{QuoteForShell(Path.Combine(root.FullName, "counter"))}}
+                  panes={{QuoteForShell(Path.Combine(root.FullName, "panes"))}}
                   value=0
                   test -f "$counter" && value=$(cat "$counter")
                   value=$((value + 1))
                   printf '%s' "$value" > "$counter"
+                  printf '%%%s\n' "$value" >> "$panes"
                   printf '%%%s\n' "$value"
                 elif test "$1" = display-message; then
+                  test -f {{QuoteForShell(Path.Combine(root.FullName, "hang-display"))}} && sleep 10
+                  test -f {{QuoteForShell(Path.Combine(root.FullName, "probe-error"))}} && { printf 'socket permission denied\n' >&2; exit 1; }
+                  panes={{QuoteForShell(Path.Combine(root.FullName, "panes"))}}
+                  test -f "$panes" && grep -Fx "$4" "$panes" >/dev/null || { printf "can't find pane: %s\n" "$4" >&2; exit 1; }
                   printf '%s\n' "$4"
+                elif test "$1" = kill-pane; then
+                  panes={{QuoteForShell(Path.Combine(root.FullName, "panes"))}}
+                  if ! test -f {{QuoteForShell(Path.Combine(root.FullName, "keep-pane"))}}; then
+                    grep -Fvx "$3" "$panes" > "$panes.tmp" || true
+                    mv "$panes.tmp" "$panes"
+                  fi
+                elif test "$1" = set-option && test -f {{QuoteForShell(Path.Combine(root.FullName, "fail-title"))}}; then
+                  exit 7
                 fi
                 exit 0
                 """);
@@ -342,7 +454,8 @@ public sealed class TmuxAgentHostTests
             string? window = null,
             string? layout = null,
             AgentMode mode = AgentMode.OpenCode,
-            bool remote = false) => new(
+            bool remote = false,
+            TimeSpan? cleanupTimeout = null) => new(
             new CommandRunner(TextWriter.Null),
             TmuxPath,
             AgentExecutablePath,
@@ -352,7 +465,8 @@ public sealed class TmuxAgentHostTests
             gracePeriod,
             window,
             layout,
-            remote);
+            remote,
+            cleanupTimeout);
 
         private static string QuoteForShell(string value) =>
             $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";

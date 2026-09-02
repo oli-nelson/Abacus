@@ -25,7 +25,11 @@ public static class Prompt
 
           bd update {{issueId}} --remove-label {{Beads.NeedsUserAttentionLabel}} --json
 
-        When you are completely finished, update the ticket:
+        When you are completely finished, add a summary of what you did to the ticket notes:
+
+          bd update {{issueId}} --append-notes "<summary of completed work>" --json
+
+        Then finally update the ticket:
 
         - Success:
             bd close {{issueId}} --reason "<summary of completed work>" --json

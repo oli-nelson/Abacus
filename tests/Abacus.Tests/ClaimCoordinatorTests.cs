@@ -188,6 +188,12 @@ public sealed class ClaimCoordinatorTests
                   printf '%s\n' "$*" >> "$root/updates"
                   touch "$root/recovered"
                   printf '[{"id":"abc-bad","status":"open"}]\n'
+                elif test "$1" = show; then
+                  if test -f "$root/recovered"; then
+                    printf '[{"id":"abc-bad","status":"open"}]\n'
+                  else
+                    printf '[{"id":"abc-bad","status":"in_progress"}]\n'
+                  fi
                 elif test "$1" = dolt && test "$2" = push; then
                   count=$(cat "$root/push-count"); count=$((count + 1)); printf '%s' "$count" > "$root/push-count"
                   exit 0

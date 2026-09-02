@@ -69,6 +69,7 @@ public sealed class OutputTests
             await output.WarningAsync("alice", "example warning");
             await output.SetUserAttentionIssuesAsync(
                 [new BeadsIssue("abc-9", IssueStatus.Blocked, "Choose a save format")]);
+            await output.SetPersistentAlertAsync("alice", "Recovery could not be verified");
         }
 
         var text = writer.ToString();
@@ -82,8 +83,9 @@ public sealed class OutputTests
         Assert.Contains("retries 1", text, StringComparison.Ordinal);
         Assert.Contains("last exit 17", text, StringComparison.Ordinal);
         Assert.Contains("example warning", text, StringComparison.Ordinal);
-        Assert.Contains("USER ATTENTION (1)", text, StringComparison.Ordinal);
+        Assert.Contains("USER ATTENTION (2)", text, StringComparison.Ordinal);
         Assert.Contains("abc-9 — Choose a save format", text, StringComparison.Ordinal);
+        Assert.Contains("alice — Recovery could not be verified", text, StringComparison.Ordinal);
         Assert.Contains("\u001b[?25h", text, StringComparison.Ordinal);
     }
 
@@ -125,6 +127,7 @@ public sealed class OutputTests
             interactive: true,
             color: false);
 
+        await output.SetPersistentAlertAsync("alice", "Could not verify recovery");
         await output.SummaryAsync(new RunSummarySnapshot(
             TimeSpan.FromMinutes(2) + TimeSpan.FromSeconds(3),
             [
@@ -141,5 +144,7 @@ public sealed class OutputTests
         Assert.Contains("bob", text, StringComparison.Ordinal);
         Assert.Contains("blocked 1", text, StringComparison.Ordinal);
         Assert.Contains("interrupted 1", text, StringComparison.Ordinal);
+        Assert.Contains("USER ATTENTION", text, StringComparison.Ordinal);
+        Assert.Contains("alice — Could not verify recovery", text, StringComparison.Ordinal);
     }
 }

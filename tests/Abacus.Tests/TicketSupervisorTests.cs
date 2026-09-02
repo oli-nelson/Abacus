@@ -77,6 +77,41 @@ public sealed class TicketSupervisorTests
     }
 
     [Fact]
+    public async Task ExhaustedPushRetriesHaltTheAgentWithPersistentAttention()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await SupervisorFixture.CreateAsync(["closed"], pushFailures: 3);
+
+        await Assert.ThrowsAsync<AgentHaltedException>(() => fixture.SuperviseAsync(hasRemote: true));
+
+        Assert.Equal("3", (await File.ReadAllTextAsync(fixture.PushCount)).Trim());
+        Assert.Contains("ATTENTION", fixture.Log.ToString(), StringComparison.Ordinal);
+        Assert.Contains("no more work will be claimed", fixture.Log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExhaustedReopenRetriesDoNotIncrementReopenedSummary()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await SupervisorFixture.CreateAsync(
+            ["in_progress"], markerExitCode: 17, reopenFailures: 3);
+
+        await Assert.ThrowsAsync<AgentHaltedException>(() => fixture.SuperviseAsync(hasRemote: false));
+
+        Assert.Equal(0, Assert.Single(fixture.Summary.Snapshot().Agents).Reopened);
+        Assert.Equal(3, (await File.ReadAllLinesAsync(fixture.UpdateCalls)).Length);
+        Assert.Contains("ATTENTION", fixture.Log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ShutdownInterruptsAndReopensInProgressIssue()
     {
         if (OperatingSystem.IsWindows())
@@ -99,18 +134,39 @@ public sealed class TicketSupervisorTests
     }
 
     [Fact]
-    public async Task ThreeInvalidPollsStopWithoutChangingUnknownTicket()
+    public async Task InvalidPollsEnterDegradedModeAndSupervisionContinues()
     {
         if (OperatingSystem.IsWindows())
         {
             return;
         }
 
-        using var fixture = await SupervisorFixture.CreateAsync(["INVALID", "INVALID", "INVALID"]);
+        using var fixture = await SupervisorFixture.CreateAsync(["INVALID", "INVALID", "INVALID", "closed"]);
 
-        await Assert.ThrowsAsync<SupervisionException>(() => fixture.SuperviseAsync(hasRemote: false));
+        await fixture.SuperviseAsync(hasRemote: false);
         Assert.False(File.Exists(fixture.UpdateCalls));
         Assert.Contains("3/3", fixture.Log.ToString(), StringComparison.Ordinal);
+        Assert.Contains("suppressing repeated warnings", fixture.Log.ToString(), StringComparison.Ordinal);
+        Assert.Equal(1, Assert.Single(fixture.Summary.Snapshot().Agents).Closed);
+    }
+
+    [Fact]
+    public async Task AgentExitWhileStatusRemainsUnreadableHaltsWithoutGuessing()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await SupervisorFixture.CreateAsync(
+            ["INVALID", "INVALID", "INVALID", "INVALID"], markerExitCode: 23);
+
+        await Assert.ThrowsAsync<AgentHaltedException>(() => fixture.SuperviseAsync(hasRemote: false));
+
+        Assert.False(File.Exists(fixture.UpdateCalls));
+        Assert.Equal(0, Assert.Single(fixture.Summary.Snapshot().Agents).Reopened);
+        Assert.Contains("status remained unreadable", fixture.Log.ToString(), StringComparison.Ordinal);
+        Assert.Contains("ATTENTION", fixture.Log.ToString(), StringComparison.Ordinal);
     }
 
     private sealed class SupervisorFixture : IDisposable
@@ -140,7 +196,8 @@ public sealed class TicketSupervisorTests
         public static async Task<SupervisorFixture> CreateAsync(
             IReadOnlyList<string> statuses,
             int? markerExitCode = null,
-            int pushFailures = 0)
+            int pushFailures = 0,
+            int reopenFailures = 0)
         {
             if (OperatingSystem.IsWindows())
             {
@@ -163,8 +220,14 @@ public sealed class TicketSupervisorTests
 
             var statusesPath = Path.Combine(root.FullName, "statuses");
             await File.WriteAllLinesAsync(statusesPath, statuses);
+            await File.WriteAllTextAsync(
+                Path.Combine(root.FullName, "current-status"),
+                statuses.LastOrDefault(static status => status is not "INVALID" and not "MISSING") ?? "in_progress");
+            await File.WriteAllTextAsync(Path.Combine(root.FullName, "pane"), "%9");
             await File.WriteAllTextAsync(Path.Combine(root.FullName, "push-failures"), pushFailures.ToString());
             await File.WriteAllTextAsync(Path.Combine(root.FullName, "push-count"), "0");
+            await File.WriteAllTextAsync(Path.Combine(root.FullName, "reopen-failures"), reopenFailures.ToString());
+            await File.WriteAllTextAsync(Path.Combine(root.FullName, "reopen-count"), "0");
 
             var bd = Path.Combine(root.FullName, "bd");
             var tmux = Path.Combine(root.FullName, "tmux");
@@ -175,6 +238,7 @@ public sealed class TicketSupervisorTests
                   status=$(sed -n '1p' "$root/statuses")
                   sed '1d' "$root/statuses" > "$root/statuses.tmp"
                   mv "$root/statuses.tmp" "$root/statuses"
+                  test -z "$status" && status=$(cat "$root/current-status")
                   if test "$status" = INVALID; then
                     printf '{invalid\n'
                   elif test "$status" = MISSING || test -z "$status"; then
@@ -184,6 +248,12 @@ public sealed class TicketSupervisorTests
                   fi
                 elif test "$1" = update; then
                   printf '%s\n' "$*" >> "$root/update-calls"
+                  count=$(cat "$root/reopen-count")
+                  count=$((count + 1))
+                  printf '%s' "$count" > "$root/reopen-count"
+                  failures=$(cat "$root/reopen-failures")
+                  test "$count" -le "$failures" && { printf 'reopen failed\n' >&2; exit 1; }
+                  printf 'open' > "$root/current-status"
                   printf '[{"id":"abc-1","status":"open"}]\n'
                 elif test "$1" = dolt && test "$2" = push; then
                   count=$(cat "$root/push-count")
@@ -201,7 +271,10 @@ public sealed class TicketSupervisorTests
                 root={{Q(root.FullName)}}
                 printf '%s\n' "$*" >> "$root/tmux-calls"
                 if test "$1" = display-message; then
-                  printf '%s\n' "$4"
+                  test -s "$root/pane" || { printf "can't find pane: %%9\n" >&2; exit 1; }
+                  cat "$root/pane"
+                elif test "$1" = kill-pane; then
+                  : > "$root/pane"
                 fi
                 exit 0
                 """);

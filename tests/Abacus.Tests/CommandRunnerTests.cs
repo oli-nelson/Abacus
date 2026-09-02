@@ -78,4 +78,34 @@ public sealed class CommandRunnerTests
             directory.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public async Task CommandDeadlineKillsACommandThatNeverExits()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var directory = Directory.CreateTempSubdirectory("abacus-deadline-");
+        try
+        {
+            var script = Path.Combine(directory.FullName, "wait-forever");
+            await File.WriteAllTextAsync(script, "#!/bin/sh\nwhile :; do sleep 1; done\n");
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var runner = new CommandRunner(
+                TextWriter.Null,
+                commandTimeout: TimeSpan.FromMilliseconds(100),
+                terminationTimeout: TimeSpan.FromSeconds(1));
+
+            var exception = await Assert.ThrowsAsync<CommandTimeoutException>(() => runner.RunAsync(
+                new CommandSpec(script, [], directory.FullName)));
+
+            Assert.Contains("command deadline", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
 }

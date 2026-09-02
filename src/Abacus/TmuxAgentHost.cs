@@ -51,9 +51,11 @@ public sealed class TmuxAgentHost(
     TimeSpan? interruptGracePeriod = null,
     string? tmuxWindow = null,
     string? tmuxLayout = null,
-    bool remote = false) : IAgentHost
+    bool remote = false,
+    TimeSpan? cleanupTimeout = null) : IAgentHost
 {
     private readonly TimeSpan gracePeriod = interruptGracePeriod ?? TimeSpan.FromSeconds(1);
+    private readonly TimeSpan cleanupDeadline = cleanupTimeout ?? TimeSpan.FromSeconds(10);
     private readonly string splitTarget = Target(tmuxSession, tmuxWindow);
 
     public async Task<TmuxAgentRun> StartAgentAsync(
@@ -78,6 +80,7 @@ public sealed class TmuxAgentHost(
         var wrapperPath = Path.Combine(runDirectory, "run.sh");
         var markerPath = Path.Combine(runDirectory, "exit-code");
 
+        TmuxAgentRun? run = null;
         try
         {
             await File.WriteAllTextAsync(
@@ -103,7 +106,7 @@ public sealed class TmuxAgentHost(
                     ShellQuote(wrapperPath),
                 ],
                 agent.WorkspacePath,
-                AgentName: agent.Name), CancellationToken.None);
+                AgentName: agent.Name), cancellationToken);
             if (!result.Succeeded)
             {
                 throw new TmuxException($"could not create agent pane: {Beads.FailureDetail(result)}");
@@ -115,7 +118,7 @@ public sealed class TmuxAgentHost(
                 throw new TmuxException("tmux did not return the created pane ID");
             }
 
-            var run = new TmuxAgentRun(paneId, runDirectory, promptPath, wrapperPath, markerPath);
+            run = new TmuxAgentRun(paneId, runDirectory, promptPath, wrapperPath, markerPath);
             var title = await runner.RunAsync(new CommandSpec(
                 tmuxExecutable,
                 [
@@ -125,10 +128,9 @@ public sealed class TmuxAgentHost(
                     "allow-set-title", "off",
                 ],
                 temporaryRoot,
-                AgentName: agent.Name), CancellationToken.None);
+                AgentName: agent.Name), cancellationToken);
             if (!title.Succeeded)
             {
-                await StopAndCleanupAsync(run, CancellationToken.None);
                 throw new TmuxException($"could not protect agent pane title: {Beads.FailureDetail(title)}");
             }
 
@@ -140,10 +142,9 @@ public sealed class TmuxAgentHost(
                     "-T", EscapeFormat($"{agent.Name} • {issue.Id}"),
                 ],
                 temporaryRoot,
-                AgentName: agent.Name), CancellationToken.None);
+                AgentName: agent.Name), cancellationToken);
             if (!title.Succeeded)
             {
-                await StopAndCleanupAsync(run, CancellationToken.None);
                 throw new TmuxException($"could not title agent pane: {Beads.FailureDetail(title)}");
             }
 
@@ -153,25 +154,38 @@ public sealed class TmuxAgentHost(
                     tmuxExecutable,
                     ["select-layout", "-t", splitTarget, tmuxLayout],
                     temporaryRoot,
-                    AgentName: agent.Name), CancellationToken.None);
+                    AgentName: agent.Name), cancellationToken);
                 if (!layout.Succeeded)
                 {
-                    await StopAndCleanupAsync(run, CancellationToken.None);
                     throw new TmuxException($"could not arrange agent panes: {Beads.FailureDetail(layout)}");
                 }
             }
 
             if (cancellationToken.IsCancellationRequested)
             {
-                await StopAndCleanupAsync(run, CancellationToken.None);
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
             return run;
         }
-        catch
+        catch (Exception initializationFailure)
         {
-            TryDeleteDirectory(runDirectory);
+            if (run is null)
+            {
+                TryDeleteDirectory(runDirectory);
+                throw;
+            }
+
+            try
+            {
+                await StopAndCleanupAsync(run, CancellationToken.None);
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new TmuxException(
+                    $"{initializationFailure.Message}; pane {run.PaneId} cleanup also failed: {cleanupFailure.Message}");
+            }
+
             throw;
         }
     }
@@ -182,7 +196,25 @@ public sealed class TmuxAgentHost(
             tmuxExecutable,
             ["display-message", "-p", "-t", run.PaneId, "#{pane_id}"],
             temporaryRoot), cancellationToken);
-        return result.Succeeded && string.Equals(result.StandardOutput.Trim(), run.PaneId, StringComparison.Ordinal);
+        if (result.Succeeded)
+        {
+            if (string.Equals(result.StandardOutput.Trim(), run.PaneId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            throw new TmuxException(
+                $"tmux returned an unexpected pane while checking {run.PaneId}: '{result.StandardOutput.Trim()}'");
+        }
+
+        var detail = Beads.FailureDetail(result);
+        if (detail.Contains("can't find pane", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("no server running", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        throw new TmuxException($"could not inspect pane {run.PaneId}: {detail}");
     }
 
     async Task<IAgentRun> IAgentHost.StartAgentAsync(
@@ -206,7 +238,9 @@ public sealed class TmuxAgentHost(
 
     public async Task StopAndCleanupAsync(TmuxAgentRun run, CancellationToken cancellationToken)
     {
-        await run.CleanupLock.WaitAsync(CancellationToken.None);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(cleanupDeadline);
+        await run.CleanupLock.WaitAsync(budget.Token);
         try
         {
             if (run.Cleaned)
@@ -214,33 +248,50 @@ public sealed class TmuxAgentHost(
                 return;
             }
 
-            if (await PaneExistsAsync(run, CancellationToken.None))
+            if (await PaneExistsAsync(run, budget.Token))
             {
-                await runner.RunAsync(new CommandSpec(
+                var interrupt = await runner.RunAsync(new CommandSpec(
                     tmuxExecutable,
                     ["send-keys", "-t", run.PaneId, "C-c"],
-                    temporaryRoot), CancellationToken.None);
+                    temporaryRoot), budget.Token);
 
                 try
                 {
-                    await Task.Delay(gracePeriod, cancellationToken);
+                    await Task.Delay(gracePeriod, budget.Token);
                 }
                 catch (OperationCanceledException)
                 {
-                    // Cleanup must continue even when application cancellation is active.
+                    throw new TmuxException($"cleanup deadline expired for pane {run.PaneId}");
                 }
 
-                if (await PaneExistsAsync(run, CancellationToken.None))
+                if (await PaneExistsAsync(run, budget.Token))
                 {
-                    await runner.RunAsync(new CommandSpec(
+                    var kill = await runner.RunAsync(new CommandSpec(
                         tmuxExecutable,
                         ["kill-pane", "-t", run.PaneId],
-                        temporaryRoot), CancellationToken.None);
+                        temporaryRoot), budget.Token);
+                    if (!kill.Succeeded && await PaneExistsAsync(run, budget.Token))
+                    {
+                        throw new TmuxException(
+                            $"could not kill pane {run.PaneId}: {Beads.FailureDetail(kill)}");
+                    }
+                }
+
+                if (await PaneExistsAsync(run, budget.Token))
+                {
+                    var detail = interrupt.Succeeded
+                        ? "pane remained after interrupt and kill"
+                        : $"interrupt failed ({Beads.FailureDetail(interrupt)}) and pane remained after kill";
+                    throw new TmuxException($"could not verify cleanup of pane {run.PaneId}: {detail}");
                 }
             }
 
             CleanupRunFiles(run);
             run.Cleaned = true;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TmuxException($"cleanup deadline expired for pane {run.PaneId}");
         }
         finally
         {

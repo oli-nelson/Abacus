@@ -124,7 +124,7 @@ public sealed class ClaimCoordinator(
             }
             catch (OperationCanceledException)
             {
-                await recovery.ReopenKnownClaimAsync(
+                await RecoverClaimAsync(
                     agent,
                     issue.Id,
                     $"Abacus shut down while preparing the workspace for {agent.Name}",
@@ -137,8 +137,7 @@ public sealed class ClaimCoordinator(
                 var note = $"Abacus could not prepare the workspace for {agent.Name}: {exception.Message}";
                 await log.SetAgentAsync(agent.Name, AgentActivity.Recovering, $"{issue.Id} • reopening ticket");
                 await WarnAsync(agent.Name, note);
-                await recovery.ReopenKnownClaimAsync(agent, issue.Id, note, cancellationToken);
-                summary?.Record(agent.Name, TicketOutcome.Reopened);
+                await RecoverClaimAsync(agent, issue.Id, note, cancellationToken);
                 if (executionMode is not ExecutionMode.Continuous)
                 {
                     throw;
@@ -153,6 +152,48 @@ public sealed class ClaimCoordinator(
 
     private Task WarnAsync(string agentName, string message) =>
         log.WarningAsync(agentName, message);
+
+    private async Task RecoverClaimAsync(
+        ValidatedAgent agent,
+        string issueId,
+        string note,
+        CancellationToken cancellationToken)
+    {
+        var result = await recovery.ReopenKnownClaimAsync(agent, issueId, note, cancellationToken);
+        if (result.Outcome is RecoveryOutcome.Failed)
+        {
+            await HaltAsync(agent.Name, $"Could not reopen and verify {issueId}; no more work will be claimed");
+        }
+
+        if (result.Outcome is RecoveryOutcome.Reopened)
+        {
+            summary?.Record(agent.Name, TicketOutcome.Reopened);
+        }
+        else if (result.VerifiedStatus is IssueStatus.Closed)
+        {
+            summary?.Record(agent.Name, TicketOutcome.Closed);
+        }
+        else if (result.VerifiedStatus is IssueStatus.Open)
+        {
+            summary?.Record(agent.Name, TicketOutcome.Reopened);
+        }
+        else if (result.VerifiedStatus is IssueStatus.Blocked)
+        {
+            summary?.Record(agent.Name, TicketOutcome.Blocked);
+        }
+
+        if (await recovery.PushWithRetryAsync(agent, CancellationToken.None) is PushOutcome.Failed)
+        {
+            await HaltAsync(agent.Name, "All Beads push attempts failed; no more work will be claimed");
+        }
+    }
+
+    private async Task HaltAsync(string agentName, string message)
+    {
+        await WarnAsync(agentName, message);
+        await log.SetPersistentAlertAsync(agentName, message);
+        throw new AgentHaltedException($"[{agentName}] {message}");
+    }
 }
 
 public sealed class AgentLoop(
@@ -203,11 +244,9 @@ public sealed class AgentLoop(
                 }
                 catch (OperationCanceledException)
                 {
-                    await recovery.ReopenKnownClaimAsync(
-                        agent,
+                    await RecoverClaimAsync(
                         claim.Issue.Id,
-                        $"Abacus shut down before the agent CLI started for {agent.Name}",
-                        CancellationToken.None);
+                        $"Abacus shut down before the agent CLI started for {agent.Name}");
                     summary.Record(agent.Name, TicketOutcome.Interrupted);
                     throw;
                 }
@@ -217,12 +256,9 @@ public sealed class AgentLoop(
                         agent.Name,
                         AgentActivity.Recovering,
                         $"{claim.Issue.Id} • agent CLI could not start; reopening ticket");
-                    await recovery.ReopenKnownClaimAsync(
-                        agent,
+                    await RecoverClaimAsync(
                         claim.Issue.Id,
-                        $"Abacus could not start the agent CLI for {agent.Name}: {exception.Message}",
-                        CancellationToken.None);
-                    summary.Record(agent.Name, TicketOutcome.Reopened);
+                        $"Abacus could not start the agent CLI for {agent.Name}: {exception.Message}");
                     throw;
                 }
 
@@ -255,6 +291,18 @@ public sealed class AgentLoop(
                 await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, "Shutting down");
                 throw;
             }
+            catch (AgentHaltedException exception)
+            {
+                await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, "Persistent recovery failure needs user attention");
+                if (executionMode is not ExecutionMode.Continuous)
+                {
+                    throw;
+                }
+
+                await log.WarningAsync(agent.Name, exception.Message);
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return;
+            }
             catch (Exception exception)
             {
                 await log.WarningAsync(agent.Name, $"agent loop failed: {exception.Message}");
@@ -268,6 +316,45 @@ public sealed class AgentLoop(
                 await Task.Delay(claims.PollingInterval, cancellationToken);
             }
         }
+    }
+
+    private async Task RecoverClaimAsync(string issueId, string note)
+    {
+        var result = await recovery.ReopenKnownClaimAsync(
+            agent, issueId, note, CancellationToken.None);
+        if (result.Outcome is RecoveryOutcome.Failed)
+        {
+            await HaltAsync($"Could not reopen and verify {issueId}; no more work will be claimed");
+        }
+
+        if (result.Outcome is RecoveryOutcome.Reopened)
+        {
+            summary.Record(agent.Name, TicketOutcome.Reopened);
+        }
+        else if (result.VerifiedStatus is IssueStatus.Closed)
+        {
+            summary.Record(agent.Name, TicketOutcome.Closed);
+        }
+        else if (result.VerifiedStatus is IssueStatus.Open)
+        {
+            summary.Record(agent.Name, TicketOutcome.Reopened);
+        }
+        else if (result.VerifiedStatus is IssueStatus.Blocked)
+        {
+            summary.Record(agent.Name, TicketOutcome.Blocked);
+        }
+
+        if (await recovery.PushWithRetryAsync(agent, CancellationToken.None) is PushOutcome.Failed)
+        {
+            await HaltAsync("All Beads push attempts failed; no more work will be claimed");
+        }
+    }
+
+    private async Task HaltAsync(string message)
+    {
+        await log.WarningAsync(agent.Name, message);
+        await log.SetPersistentAlertAsync(agent.Name, message);
+        throw new AgentHaltedException($"[{agent.Name}] {message}");
     }
 }
 
