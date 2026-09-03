@@ -87,6 +87,7 @@ abacus_args=(
   --tmux-layout tiled
   --model "$model"
   --effort "$effort"
+  --append-agent-prompt "NEVER use the git-commit-staged skill"
   --notify all
   --notify-sound
 )

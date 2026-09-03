@@ -58,4 +58,40 @@ public sealed class PromptTests
 
         Assert.Equal(expected, Prompt.Render("alice", "abc-123", "/work/repo"));
     }
+
+    [Fact]
+    public void AppendsCommandLinePromptBeforeRepositoryPrompt()
+    {
+        var appended = Prompt.CombineAppends(
+            "  Command-line instructions.  ",
+            "\nRepository instructions.\n");
+
+        var prompt = Prompt.Render("alice", "abc-123", "/work/repo", appended);
+
+        Assert.Equal(
+            $"{Prompt.Render("alice", "abc-123", "/work/repo")}\n\n" +
+            "Command-line instructions.\n\nRepository instructions.",
+            prompt);
+    }
+
+    [Fact]
+    public async Task ReadsAppendPromptFromRepositoryRoot()
+    {
+        var root = Directory.CreateTempSubdirectory("abacus-prompt-");
+        try
+        {
+            var promptDirectory = Directory.CreateDirectory(Path.Combine(root.FullName, ".abacus"));
+            await File.WriteAllTextAsync(
+                Path.Combine(promptDirectory.FullName, "append-prompt.md"),
+                "\nUse the repository-specific verification workflow.\n");
+
+            var prompt = await Prompt.ReadRepositoryAppendAsync(root.FullName, CancellationToken.None);
+
+            Assert.Equal("Use the repository-specific verification workflow.", prompt);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
 }

@@ -148,6 +148,33 @@ public sealed class PreflightTests
         Assert.Equal("alice", result.Agents[0].Name);
     }
 
+    [Fact]
+    public async Task CombinesCommandLineAndRepositoryPromptInThatOrder()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await PreflightFixture.CreateAsync();
+        var workspace = await fixture.AddWorkspaceAsync("one", EmbeddedIdentity, "[]");
+        var promptDirectory = Directory.CreateDirectory(Path.Combine(workspace, ".abacus"));
+        await File.WriteAllTextAsync(
+            Path.Combine(promptDirectory.FullName, "append-prompt.md"),
+            "Repository prompt");
+
+        var result = await fixture.RunAsync(new Options(
+            "workers",
+            "provider/model",
+            null,
+            [new("alice", workspace)],
+            AppendAgentPrompt: "Command-line prompt"));
+
+        Assert.Equal(
+            "Command-line prompt\n\nRepository prompt",
+            Assert.Single(result.Agents).AppendedPrompt);
+    }
+
     [Theory]
     [InlineData("localhost")]
     [InlineData("http://localhost:1234")]

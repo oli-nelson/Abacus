@@ -14,8 +14,12 @@ public sealed class DirectOpenCodeServerHostTests
 
         using var fixture = await DirectFixture.CreateAsync(exitImmediately: true);
         var host = fixture.CreateHost();
+        var agent = fixture.Agent with
+        {
+            AppendedPrompt = "Command-line prompt\n\nRepository prompt",
+        };
         var run = await host.StartAgentAsync(
-            fixture.Agent,
+            agent,
             new BeadsIssue("abc-1", IssueStatus.InProgress),
             "provider/exact-model",
             "xhigh",
@@ -32,7 +36,11 @@ public sealed class DirectOpenCodeServerHostTests
             await fixture.ReadAsync("directory"),
             StringComparison.Ordinal);
         Assert.Equal(
-            Prompt.Render("alice", "abc-1", fixture.Workspace),
+            Prompt.Render(
+                "alice",
+                "abc-1",
+                fixture.Workspace,
+                "Command-line prompt\n\nRepository prompt"),
             await fixture.ReadAsync("prompt"));
         Assert.Equal(
             ["--model", "provider/exact-model", "--variant", "xhigh", "--attach", "http://127.0.0.1:4096", "--dir", fixture.Workspace],

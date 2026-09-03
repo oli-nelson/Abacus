@@ -52,7 +52,8 @@ public sealed record Options(
     TimeSpan? TicketTimeout = null,
     NotificationMode NotificationMode = NotificationMode.Off,
     bool NotificationSound = false,
-    int LatestCommentCount = 8)
+    int LatestCommentCount = 8,
+    string? AppendAgentPrompt = null)
 {
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -69,6 +70,7 @@ public sealed record Options(
         "abacus [--mode <opencode|codex|claude|opencode-server>] " +
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <model> [--effort <effort>] [--remote] " +
+        "[--append-agent-prompt <prompt>] " +
         "[--label <label>] [--exclude-label <label>] [--type <types>] [--priority <priority>] " +
         "[--ticket-timeout <duration>] [--latest-comments <count>] " +
         "[--notify <off|attention|all>] [--notify-sound] " +
@@ -88,6 +90,7 @@ public sealed record Options(
             --model <model> \
             [--effort <effort>] \
             [--remote] \
+            [--append-agent-prompt <prompt>] \
             [--label <label>] [--exclude-label <label>] \
             [--type <types>] [--priority <priority>] \
             [--ticket-timeout <duration>] \
@@ -134,6 +137,11 @@ public sealed record Options(
         Remote control:
           --remote enables Claude Code Remote Control while keeping the session
           interactive and naming it after the Beads issue.
+
+        Additional agent prompt:
+          --append-agent-prompt appends a nonempty prompt fragment to every agent
+          prompt. If <workspace>/.abacus/append-prompt.md exists, its contents are
+          appended after the command-line fragment.
 
         Dispatch filters:
           --label and --exclude-label are repeatable. --type accepts the literal
@@ -254,6 +262,8 @@ public sealed record Options(
         var notificationSound = false;
         var latestCommentCount = 8;
         var latestCommentCountSpecified = false;
+        string? appendAgentPrompt = null;
+        var appendAgentPromptSpecified = false;
         var agents = new List<AgentOptions>();
 
         for (var index = 0; index < arguments.Count; index++)
@@ -293,6 +303,15 @@ public sealed record Options(
                     break;
                 case "--remote":
                     remote = true;
+                    break;
+                case "--append-agent-prompt":
+                    if (appendAgentPromptSpecified)
+                    {
+                        throw new OptionsException("--append-agent-prompt can only be specified once");
+                    }
+
+                    appendAgentPrompt = ReadValue(arguments, ref index, argument);
+                    appendAgentPromptSpecified = true;
                     break;
                 case "--label":
                     labels.Add(ReadFilterValue(arguments, ref index, argument));
@@ -423,6 +442,11 @@ public sealed record Options(
             throw new OptionsException("--notify-sound requires --notify attention or --notify all");
         }
 
+        if (appendAgentPrompt is not null && string.IsNullOrWhiteSpace(appendAgentPrompt))
+        {
+            throw new OptionsException("--append-agent-prompt cannot be empty");
+        }
+
         if (string.IsNullOrWhiteSpace(model))
         {
             throw new OptionsException("--model is required");
@@ -497,7 +521,8 @@ public sealed record Options(
                 ticketTimeout,
                 notificationMode,
                 notificationSound,
-                latestCommentCount),
+                latestCommentCount,
+                appendAgentPrompt),
             ShowHelp: false);
     }
 

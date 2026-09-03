@@ -470,6 +470,7 @@ abacus --mode <opencode|codex|claude> \
   --model <model> \
   [--effort <effort>] \
   [--remote] \
+  [--append-agent-prompt <prompt>] \
   [--label <label>] [--exclude-label <label>] \
   [--type <types>] [--priority <priority>] \
   [--ticket-timeout <duration>] \
@@ -485,6 +486,7 @@ Connect new OpenCode client sessions to an existing server:
 ```sh
 abacus --mode opencode-server --model <provider/model> [--effort <effort>] \
   --opencode-server 127.0.0.1:1234 \
+  [--append-agent-prompt <prompt>] \
   [--label <label>] [--exclude-label <label>] \
   [--type <types>] [--priority <priority>] \
   [--ticket-timeout <duration>] \
@@ -496,6 +498,35 @@ abacus --mode opencode-server --model <provider/model> [--effort <effort>] \
 ```
 
 `--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific effort or variant name without whitespace. `--remote` is valid only for Claude. OpenCode modes require `provider/model`; Codex and Claude accept nonempty native model IDs without whitespace. OpenCode, Codex, and Claude modes require `--tmux-session`. With OpenCode Server mode, tmux is optional: omit `--tmux-session` for directly supervised child processes, or include it for pane-hosted attached clients. `--tmux-window` accepts a window name or index and is valid only with `--tmux-session`; when omitted, panes use that session's current window. `--tmux-layout` is also tmux-only and accepts `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`; Abacus reapplies it after each pane is spawned. `--opencode-server` accepts `host:port`; Abacus normalizes it to an HTTP URL and still uses only `opencode run --attach`, never the server API.
+
+### Append repository-specific agent instructions
+
+Abacus can add extra instructions to the end of its built-in agent prompt in two ways:
+
+- Put Markdown in `.abacus/append-prompt.md` at the root of an agent's Git workspace.
+  Each workspace's file is read during preflight and applies to agents using that
+  workspace.
+- Pass one global `--append-agent-prompt <prompt>` value. Quote the value when it
+  contains spaces or newlines.
+
+When both are present, Abacus appends the command-line prompt first, followed by
+the contents of `.abacus/append-prompt.md`, with a blank line between the two.
+For example:
+
+```sh
+mkdir -p .abacus
+cat > .abacus/append-prompt.md <<'EOF'
+Run the repository's smoke-test checklist before completing the ticket.
+EOF
+
+abacus --mode claude --tmux-session work --model sonnet \
+  --append-agent-prompt "Keep the change narrowly scoped." \
+  -a alice /work/repo-a
+```
+
+The final prompt order is: built-in Abacus prompt, command-line addition, then
+repository addition. Empty repository files are ignored, and an empty
+`--append-agent-prompt` value is rejected.
 
 Output has two levels: the default live agent dashboard and `--verbose` debug output. `--debug` and `-v` are aliases for `--verbose`.
 
@@ -568,7 +599,9 @@ Every agent session receives the prompt defined in
 [`src/Abacus/Prompt.cs`](src/Abacus/Prompt.cs), with the agent name, issue ID,
 and canonical workspace path substituted at runtime. The source contract is in
 [`SPEC.md`](SPEC.md#agent-prompt-template). Repository-specific agent
-instructions must define the serialized merge process named in the prompt.
+instructions must define the serialized merge process named in the prompt. The
+optional command-line and repository prompt additions described above are
+appended after this built-in prompt in that order.
 
 In default mode, agent states and recent warnings are shown without subprocess noise. In verbose mode, every external command is logged concisely to stderr with a timestamp and agent prefix. Pane-hosted prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. Agent CLI output is displayed directly in tmux for pane-hosted runs; direct attached-process output is drained to preserve the dashboard.
 

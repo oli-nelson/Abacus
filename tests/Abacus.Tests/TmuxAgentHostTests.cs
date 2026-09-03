@@ -15,7 +15,10 @@ public sealed class TmuxAgentHostTests
 
         using var fixture = await TmuxFixture.CreateAsync();
         var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "work space's")).FullName;
-        var agent = Agent("alice", workspace);
+        var agent = Agent("alice", workspace) with
+        {
+            AppendedPrompt = "Command-line prompt\n\nRepository prompt",
+        };
         var tmux = fixture.CreateTmux(mode: AgentMode.OpenCodeServer);
 
         var run = await tmux.StartAgentAsync(
@@ -36,7 +39,12 @@ public sealed class TmuxAgentHostTests
         await WaitForFileAsync(run.MarkerPath);
 
         Assert.Equal(7, run.TryReadExitCode());
-        Assert.Equal(Prompt.Render("alice", "abc-123", workspace),
+        Assert.Equal(
+            Prompt.Render(
+                "alice",
+                "abc-123",
+                workspace,
+                "Command-line prompt\n\nRepository prompt"),
             await File.ReadAllTextAsync(Path.Combine(workspace, "received-prompt")));
         Assert.Equal("alice", await File.ReadAllTextAsync(Path.Combine(workspace, "received-actor")));
         Assert.Equal(workspace, await File.ReadAllTextAsync(Path.Combine(workspace, "received-directory")));

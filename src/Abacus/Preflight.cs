@@ -6,7 +6,8 @@ public sealed record ValidatedAgent(
     string Name,
     string WorkspacePath,
     DoltIdentity DoltIdentity,
-    bool HasRemote);
+    bool HasRemote,
+    string? AppendedPrompt = null);
 
 public sealed record PreflightResult(
     Options Options,
@@ -63,7 +64,25 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
             await git.VerifyWorkspaceAsync(agent.WorkspacePath, agent.Name, cancellationToken);
             var identity = await beads.ReadDoltIdentityAsync(agent.WorkspacePath, agent.Name, cancellationToken);
             var hasRemote = await beads.HasRemoteAsync(agent.WorkspacePath, agent.Name, cancellationToken);
-            validated.Add(new ValidatedAgent(agent.Name, agent.WorkspacePath, identity, hasRemote));
+            string? repositoryPrompt;
+            try
+            {
+                repositoryPrompt = await Prompt.ReadRepositoryAppendAsync(
+                    agent.WorkspacePath,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                throw new PreflightException(
+                    $"could not read '{Path.Combine(agent.WorkspacePath, Prompt.RepositoryAppendPromptPath)}': {exception.Message}");
+            }
+
+            validated.Add(new ValidatedAgent(
+                agent.Name,
+                agent.WorkspacePath,
+                identity,
+                hasRemote,
+                Prompt.CombineAppends(options.AppendAgentPrompt, repositoryPrompt)));
         }
 
         ValidateDoltSafety(validated);

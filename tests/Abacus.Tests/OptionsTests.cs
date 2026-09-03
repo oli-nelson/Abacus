@@ -81,6 +81,44 @@ public sealed class OptionsTests
         Assert.Equal(24, result.Value!.LatestCommentCount);
     }
 
+    [Fact]
+    public void ParsesAdditionalAgentPrompt()
+    {
+        var result = Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--append-agent-prompt", "Run the focused integration checks before merging.",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Equal(
+            "Run the focused integration checks before merging.",
+            result.Value!.AppendAgentPrompt);
+    }
+
+    [Fact]
+    public void RejectsDuplicateAdditionalAgentPrompt()
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--append-agent-prompt", "first",
+            "--append-agent-prompt", "second",
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
+    [Fact]
+    public void RejectsEmptyAdditionalAgentPrompt()
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "--tmux-session", "workers",
+            "--model", "provider/model",
+            "--append-agent-prompt", "   ",
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
     [Theory]
     [InlineData("0")]
     [InlineData("101")]

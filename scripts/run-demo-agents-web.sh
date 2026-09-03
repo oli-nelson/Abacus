@@ -121,6 +121,7 @@ printf 'In OpenCode Web, use the project menu to Enable workspaces, then expand 
 "$abacus_bin" \
   --model "$model" \
   --opencode-server "$server_address" \
+  --append-agent-prompt "NEVER use the git-commit-staged skill" \
   -a demo-0 "$root/wt/0" \
   -a demo-1 "$root/wt/1" \
   -a demo-2 "$root/wt/2" \

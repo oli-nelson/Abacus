@@ -2,7 +2,15 @@ namespace Abacus;
 
 public static class Prompt
 {
-    public static string Render(string agentName, string issueId, string workspacePath) => $$"""
+    public static readonly string RepositoryAppendPromptPath = Path.Combine(".abacus", "append-prompt.md");
+
+    public static string Render(
+        string agentName,
+        string issueId,
+        string workspacePath,
+        string? appendedPrompt = null)
+    {
+        var prompt = $$"""
         You are {{agentName}}, working on Beads ticket {{issueId}} in {{workspacePath}}.
 
         Abacus has already claimed the ticket for you and set BEADS_ACTOR to your agent
@@ -27,7 +35,7 @@ public static class Prompt
           bd comment {{issueId}} "<why user attention is no longer needed>"
           bd update {{issueId}} --remove-label {{Beads.NeedsUserAttentionLabel}} --json
 
-        When you are completely finished, add a small message of what you did as a comment:
+        When you are completely finished, add a summary of what you did as a comment:
 
           bd comment {{issueId}} "<summary of completed work>"
 
@@ -50,4 +58,32 @@ public static class Prompt
         status change one of your final actions, after all code, commits, merges, and
         ticket updates are complete.
         """;
+
+        return string.IsNullOrWhiteSpace(appendedPrompt)
+            ? prompt
+            : $"{prompt}\n\n{appendedPrompt.Trim()}";
+    }
+
+    public static async Task<string?> ReadRepositoryAppendAsync(
+        string workspaceRoot,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(workspaceRoot, RepositoryAppendPromptPath);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        var contents = await File.ReadAllTextAsync(path, cancellationToken);
+        return string.IsNullOrWhiteSpace(contents) ? null : contents.Trim();
+    }
+
+    public static string? CombineAppends(string? commandLinePrompt, string? repositoryPrompt)
+    {
+        var fragments = new[] { commandLinePrompt, repositoryPrompt }
+            .Where(static fragment => !string.IsNullOrWhiteSpace(fragment))
+            .Select(static fragment => fragment!.Trim())
+            .ToArray();
+        return fragments.Length == 0 ? null : string.Join("\n\n", fragments);
+    }
 }
