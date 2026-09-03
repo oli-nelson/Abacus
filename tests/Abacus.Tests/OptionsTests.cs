@@ -5,6 +5,35 @@ namespace Abacus.Tests;
 public sealed class OptionsTests
 {
     [Fact]
+    public void ParsesNewMultiAgentRepositoryInitialization()
+    {
+        var result = Options.Parse([
+            "--init-new-multi-agent-repo",
+            "sample-project",
+            "4",
+        ]);
+
+        var initialization = Assert.IsType<NewMultiAgentRepositoryOptions>(
+            result.NewMultiAgentRepository);
+        Assert.Equal("sample-project", initialization.ProjectName);
+        Assert.Equal(4, initialization.AgentCount);
+        Assert.Null(result.Value);
+        Assert.False(result.ShowHelp);
+    }
+
+    [Theory]
+    [InlineData("--init-new-multi-agent-repo")]
+    [InlineData("--init-new-multi-agent-repo", "sample-project")]
+    [InlineData("--init-new-multi-agent-repo", "sample-project", "0")]
+    [InlineData("--init-new-multi-agent-repo", "sample-project", "many")]
+    [InlineData("--init-new-multi-agent-repo", "../sample-project", "2")]
+    [InlineData("--verbose", "--init-new-multi-agent-repo", "sample-project", "2")]
+    public void RejectsInvalidNewMultiAgentRepositoryInitialization(params string[] arguments)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse(arguments));
+    }
+
+    [Fact]
     public void ParsesExactCliAndCanonicalizesWorkspaces()
     {
         var first = Path.Combine(Path.GetTempPath(), "abacus", "one", "..");

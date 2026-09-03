@@ -10,6 +10,26 @@ It uses:
 
 ## Setup
 
+Create a brand-new multi-agent repository layout from the current directory:
+
+```sh
+abacus --init-new-multi-agent-repo <project-name> <agent-count>
+```
+
+This standalone operation must reject an existing `<project-name>` destination,
+then create `<project-name>/repo`, initialize its `main` branch, configure a
+unique shared-server Beads database with `no-git-ops=false`, local-only Dolt,
+and a merge slot, install all bundled Abacus skills, and commit the initial
+repository state. It then creates `<agent-count>` detached Git worktrees at
+`<project-name>/worktrees/0` through `worktrees/<agent-count-1>`.
+Beads initialization must be non-interactive and select the maintainer role.
+
+The project root also receives executable `run_abacus_opencode.sh`,
+`run_abacus_codex.sh`, and `run_abacus_claude.sh` launchers. Each launcher must
+discover the worktree directories at run time and pass one uniquely named agent
+per worktree to Abacus. Launchers accept model and effort overrides but do not
+create the tmux session.
+
 Before running Abacus:
 
 1. Set up a Beads project in your Git repository.
@@ -50,6 +70,12 @@ A single agent can use a normal local Beads database.
 Multiple agents must use the same shared Dolt database so task claims are atomic and immediately visible to every agent. Abacus should refuse to start multiple agents if the Beads project is not configured this way.
 
 ## Usage
+
+Initialize a new multi-agent repository:
+
+```sh
+abacus --init-new-multi-agent-repo <project-name> <agent-count>
+```
 
 Install the bundled agent skills:
 

@@ -13,6 +13,25 @@ public static class Program
                 return 0;
             }
 
+            if (parsed.NewMultiAgentRepository is { } repositoryOptions)
+            {
+                var result = await new MultiAgentRepositoryInitializer(
+                        new CommandRunner(TextWriter.Null))
+                    .InitializeAsync(
+                        Environment.CurrentDirectory,
+                        repositoryOptions,
+                        CancellationToken.None);
+                Console.Out.WriteLine($"Initialized '{repositoryOptions.ProjectName}' at {result.ProjectRoot}");
+                Console.Out.WriteLine($"Repository:     {result.RepositoryPath}");
+                Console.Out.WriteLine($"Worktrees:      {result.WorktreesPath} (0-{result.AgentCount - 1})");
+                Console.Out.WriteLine($"Beads database: {result.BeadsDatabase}");
+                Console.Out.WriteLine(
+                    $"Launchers:      {string.Join(", ", result.LauncherPaths.Select(Path.GetFileName))}");
+                Console.Out.WriteLine(
+                    $"Create tmux session '{MultiAgentRepositoryInitializer.CreateIdentifier(repositoryOptions.ProjectName)}', then run a launcher from the project root.");
+                return 0;
+            }
+
             if (parsed.InstallSkills)
             {
                 var installer = new SkillInstaller(new CommandRunner(TextWriter.Null));

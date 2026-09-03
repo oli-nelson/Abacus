@@ -1,6 +1,6 @@
 # External CLI contracts
 
-Captured through 2026-09-02 with the minimum versions listed in `README.md`. Tests use the sanitized JSON in `tests/Abacus.Tests/Fixtures/Beads`; timestamps, generated IDs, repository paths, and clone identities are intentionally stable fixture values rather than the disposable repository's values.
+Captured through 2026-09-03 with the minimum versions listed in `README.md`. Tests use the sanitized JSON in `tests/Abacus.Tests/Fixtures/Beads`; timestamps, generated IDs, repository paths, and clone identities are intentionally stable fixture values rather than the disposable repository's values.
 
 ## Beads 1.2.2
 
@@ -8,6 +8,8 @@ All commands run with the agent workspace as the working directory. Agent-owned 
 
 | Operation | Invocation | Successful stdout | Exit behavior |
 | --- | --- | --- | --- |
+| New multi-agent project | From `<repo>`: `bd init --shared-server --setup-exclude --prefix <project-id> --database <unique-database> --skip-agents --non-interactive --role maintainer --quiet` | Suppressed by `--quiet`; `--non-interactive` and the explicit role prevent setup questions on an attached terminal. | Nonzero aborts the standalone initializer before skills or worktrees are created. Running inside `<repo>` is required because `bd -C <repo> init` attempts workspace resolution before initialization. The unique database name prevents unrelated generated projects from sharing data. |
+| New-project configuration | From `<repo>`: `bd config set no-git-ops false`; `bd config set dolt.local-only true`; `bd merge-slot create` | Human-readable confirmations. | Every command must succeed before the initializer continues. The merge slot serializes direct local merges by generated agents. |
 | Ready candidate lookup | `bd ready --unassigned --exclude-label gt:slot [--label <label>] [--exclude-label <label>] [--type <types>] [--priority <priority>] --limit 0 --json` | A priority-ordered JSON array of every matching ready issue, including `priority` and `comment_count`. Optional dispatch filters are literal passthroughs. | No ready work returns `[]`. Invalid/missing projects exit nonzero, so empty stdout is not treated as idle. Merge-slot coordination beads are excluded from the work queue. |
 | Ready candidate comments | `bd show <commented-highest-priority-ids...> --include-comments --json` | Issue details containing comment `created_at` values. | Called only when multiple highest-priority candidates remain and at least one reports comments. The newest comment wins; when none has comments, the first ready result wins. |
 | Atomic selected claim | `bd update <selected-id> --claim --json` | A one-element JSON array whose issue is `in_progress` and assigned to `BEADS_ACTOR`. | A lost race or Dolt serialization conflict refreshes the ready candidates and selection. Other failures stop the claim attempt. |
@@ -104,3 +106,10 @@ The wrapper ran a child command, atomically renamed a temporary marker containin
 ## Git 2.55.0
 
 Abacus uses only argument-list invocations: `git -C <workspace> rev-parse`, `status --porcelain`, `show-ref --verify --quiet refs/heads/<branch>`, `switch <branch>`, `switch -c <branch>`, and `branch --show-current`. Exit codes are authoritative; branch names and workspace paths are never interpolated into a shell command.
+
+The standalone repository initializer additionally uses
+`git -C <repo> init --initial-branch=main`, `add`, and `commit --no-gpg-sign` to
+create a usable initial revision, followed by
+`git -C <repo> worktree add --detach <project>/worktrees/<index> main` once per
+requested agent. The initializer supplies a commit-only Abacus author through
+Git `-c` options without persisting repository identity settings.

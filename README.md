@@ -23,6 +23,47 @@ Before running Abacus:
 3. For OpenCode, Codex, or Claude mode, start the named tmux session and optionally select a specific window.
 4. For OpenCode Server mode, start an OpenCode server. tmux is optional.
 
+For a brand-new multi-agent project, Abacus can perform the repository, Beads,
+skill, and worktree setup in one standalone command:
+
+```sh
+abacus --init-new-multi-agent-repo my-project 4
+```
+
+Run it from the directory that should contain `my-project/`. It creates this
+layout:
+
+```text
+my-project/
+├── repo/                       # main Git worktree and shared Beads project
+├── worktrees/0/                # detached agent worktree
+├── worktrees/1/
+├── worktrees/2/
+├── worktrees/3/
+├── run_abacus_opencode.sh
+├── run_abacus_codex.sh
+└── run_abacus_claude.sh
+```
+
+The initializer refuses to replace an existing destination. It initializes
+`main`, configures Beads with a unique shared-server Dolt database, disables
+`no-git-ops`, marks the database local-only, creates a Beads merge slot,
+installs the bundled skills, and commits the initial repository before making
+the detached worktrees. Beads initialization is non-interactive and selects the
+maintainer role. It does not create the tmux session.
+
+Each launcher discovers every directory under `worktrees/` and starts one agent
+per directory. Its default tmux session is the normalized project name; override
+it with `ABACUS_TMUX_SESSION`. Override the executable, model, or effort with
+`ABACUS_BIN`, `ABACUS_MODEL`, or `ABACUS_EFFORT`, or pass model and effort as
+the first two launcher arguments:
+
+```sh
+cd my-project
+tmux new-session -d -s my-project
+./run_abacus_codex.sh gpt-5.6-sol high
+```
+
 For multiple agents, every workspace must connect to the same server-backed Dolt database. Abacus reads `bd dolt show --json` in each workspace, rejects embedded/local storage, and requires equal normalized host, port, and database identities. A single agent may use embedded Dolt storage. Remote presence is discovered with `bd dolt remote list --json`.
 
 ## Build and install
@@ -500,6 +541,12 @@ If you prefer pane-hosted attached clients, also pass `--tmux-session` and optio
 
 ## Usage
 
+Initialize a new multi-agent repository from the current directory:
+
+```sh
+abacus --init-new-multi-agent-repo <project-name> <agent-count>
+```
+
 Install the bundled skills:
 
 ```sh
@@ -690,8 +737,10 @@ Tmux cleanup is best effort: Abacus sends Ctrl-C to the recorded pane, waits bri
 
 Abacus does **not**:
 
-- create, delete, or repair Git worktrees or clones;
-- initialize or configure Beads, Dolt databases, or remotes;
+- create, delete, or repair Git worktrees or clones during orchestration; the
+  standalone `--init-new-multi-agent-repo` command only creates a new layout;
+- initialize or configure Beads, Dolt databases, or remotes outside the new
+  standalone initializer;
 - create or start the requested tmux session or window;
 - start or manage an OpenCode server;
 - merge branches or decide whether agent work is correct;

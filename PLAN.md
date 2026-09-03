@@ -328,7 +328,10 @@ All checks happen before any ticket is claimed or agent run is created.
 ### Documentation
 
 - Add a README containing installation (`dotnet publish`), prerequisites, both usage examples from SPEC.md, how shared Dolt is validated, branch behavior, logs, and shutdown behavior.
-- State explicitly that Abacus does not create worktrees, configure Beads/Dolt, start tmux, start OpenCode servers, merge branches, or decide ticket outcomes.
+- State explicitly that normal orchestration does not create worktrees or
+  configure Beads/Dolt; the standalone new-repository initializer is the only
+  setup exception. Abacus still does not start tmux, start OpenCode servers,
+  merge branches, or decide ticket outcomes.
 - Document the exact shared agent prompt, its basic default merge process, optional
   merge-slot behavior, and how repository-specific instructions can replace it.
 
@@ -385,8 +388,10 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ## Explicit non-goals for the first version
 
-- Creating, deleting, or repairing Git worktrees/clones.
-- Setting up or migrating Beads/Dolt databases and remotes.
+- Creating, deleting, or repairing Git worktrees/clones during orchestration;
+  only the standalone new-repository initializer creates worktrees.
+- Setting up or migrating Beads/Dolt databases and remotes outside the
+  standalone new-repository initializer.
 - Starting or managing the requested tmux session, tmux window, or OpenCode server.
 - Direct Codex app-server, Claude Remote Control, or other Git, tmux, Dolt, Beads, OpenCode, Codex, or Claude API/protocol integrations beyond invoking their supported CLI commands.
 - A persistent queue, dashboard, web service, configuration file, dynamic agent pool, or automatic scaling.

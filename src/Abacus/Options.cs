@@ -4,6 +4,8 @@ public sealed record AgentOptions(string Name, string WorkspacePath);
 
 public sealed record AttentionResolutionOptions(string IssueId, string? Message, bool Reopen);
 
+public sealed record NewMultiAgentRepositoryOptions(string ProjectName, int AgentCount);
+
 public enum AgentMode
 {
     OpenCode,
@@ -65,7 +67,8 @@ public sealed record Options(
     };
 
     public const string ShortUsage =
-        "Usage: abacus --install-skills | abacus --health | abacus --models | " +
+        "Usage: abacus --init-new-multi-agent-repo <project-name> <agent-count> | " +
+        "abacus --install-skills | abacus --health | abacus --models | " +
         "abacus --prune-closed-branches | abacus --list-user-attention | " +
         "abacus --resolve-attention <issue-id> [<message>] [--reopen] | " +
         "abacus [--mode <opencode|codex|claude|opencode-server>] " +
@@ -82,6 +85,7 @@ public sealed record Options(
         Abacus coordinates Beads tasks and interactive coding agents.
 
         Usage:
+          abacus --init-new-multi-agent-repo <project-name> <agent-count>
           abacus --install-skills
           abacus --health
           abacus --models
@@ -106,6 +110,11 @@ public sealed record Options(
             -a <agent_name> <git_workspace_path> [-a ...]
 
         Setup:
+          --init-new-multi-agent-repo creates <project-name>/repo as a new Git
+          repository with shared-server Beads, bundled skills, <agent-count>
+          detached worktrees under <project-name>/worktrees, and launch scripts
+          for OpenCode, Codex, and Claude modes.
+
           --install-skills installs the bundled abacus-beads-planner,
           abacus-beads-doctor, and abacus-beads-attention skills under
           .agents/skills at the Git root. Existing skills require confirmation
@@ -213,6 +222,30 @@ public sealed record Options(
         if (arguments.Any(static argument => argument is "--help" or "-h"))
         {
             return OptionsParseResult.Help;
+        }
+
+        if (arguments.Contains("--init-new-multi-agent-repo", StringComparer.Ordinal))
+        {
+            if (arguments.Count != 3
+                || !string.Equals(arguments[0], "--init-new-multi-agent-repo", StringComparison.Ordinal))
+            {
+                throw new OptionsException(
+                    "--init-new-multi-agent-repo must be used alone as --init-new-multi-agent-repo <project-name> <agent-count>");
+            }
+
+            var projectName = arguments[1];
+            if (!IsValidProjectName(projectName))
+            {
+                throw new OptionsException(
+                    "project name must be a single nonempty directory name, not a path");
+            }
+
+            if (!int.TryParse(arguments[2], out var agentCount) || agentCount <= 0)
+            {
+                throw new OptionsException("agent count must be a positive integer");
+            }
+
+            return OptionsParseResult.InitializeNewMultiAgentRepository(projectName, agentCount);
         }
 
         if (arguments.Contains("--install-skills", StringComparer.Ordinal))
@@ -707,6 +740,14 @@ public sealed record Options(
 
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
     }
+
+    private static bool IsValidProjectName(string projectName) =>
+        !string.IsNullOrWhiteSpace(projectName)
+        && projectName is not "." and not ".."
+        && !Path.IsPathRooted(projectName)
+        && projectName.IndexOf(Path.DirectorySeparatorChar) < 0
+        && projectName.IndexOf(Path.AltDirectorySeparatorChar) < 0
+        && projectName.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
 }
 
 public sealed record OptionsParseResult(
@@ -717,7 +758,8 @@ public sealed record OptionsParseResult(
     bool ShowModels = false,
     bool PruneClosedBranches = false,
     bool ListUserAttention = false,
-    AttentionResolutionOptions? AttentionResolution = null)
+    AttentionResolutionOptions? AttentionResolution = null,
+    NewMultiAgentRepositoryOptions? NewMultiAgentRepository = null)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);
@@ -732,6 +774,11 @@ public sealed record OptionsParseResult(
             null,
             ShowHelp: false,
             AttentionResolution: new AttentionResolutionOptions(issueId, message, reopen));
+    public static OptionsParseResult InitializeNewMultiAgentRepository(string projectName, int agentCount) =>
+        new(
+            null,
+            ShowHelp: false,
+            NewMultiAgentRepository: new NewMultiAgentRepositoryOptions(projectName, agentCount));
 }
 
 public sealed class OptionsException(string message) : Exception(message);
