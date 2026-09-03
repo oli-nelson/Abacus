@@ -265,9 +265,13 @@ Initialize Beads. `--init-if-missing` makes this safe to repeat when the reposit
 
 ```sh
 bd init --init-if-missing --non-interactive
+bd config set no-git-ops false
 bd dolt show --json
 bd dolt remote list --json
 ```
+
+Abacus agents must be allowed to commit and merge. Set `no-git-ops` explicitly
+after initialization so the project does not inherit a global Beads setting.
 
 Make sure the repository's agent instructions define how an issue branch is serialized and merged into `main`. Abacus tells the agent to follow that process, but does not perform the merge itself.
 
@@ -389,6 +393,7 @@ Start from a clean repository and initialize Beads in shared-server mode. This u
 ```sh
 cd "$REPO"
 bd init --shared-server --non-interactive
+bd config set no-git-ops false
 bd dolt start
 bd dolt show --json
 ```
@@ -666,7 +671,12 @@ and canonical workspace path substituted at runtime. The source contract is in
 [`SPEC.md`](SPEC.md#agent-prompt-template). The built-in prompt supplies a basic
 merge process that uses a Beads merge slot when the project has one and proceeds
 without it when it does not. Repository-specific instructions can replace that
-default with a custom merge process. The optional command-line and repository
+default with a custom merge process. The prompt explicitly grants agents authority
+to stage, commit, and merge locally, but forbids `git push`. This overrides Beads
+1.2.2's no-Git-authority guidance only when that
+guidance is caused by the absence of a Git remote; `no-git-ops=true` still stops
+Abacus during preflight, and more restrictive user or repository instructions
+still take precedence. The optional command-line and repository
 prompt additions described above are appended after this built-in prompt in
 that order.
 

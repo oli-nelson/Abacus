@@ -7,10 +7,10 @@
 #   accessible theme controls, and the demo footer.
 # - styles.css contains the responsive component styles and light/dark themes.
 # - app.js renders activity timestamps and persists the selected theme.
-# - all four Beads demo tickets are closed in the shared Dolt database after a
-#   user explicitly acknowledges the user-attention ticket.
-# - the acknowledged ticket retains the abacus:needs-user-attention label so the
-#   dashboard continues to show it until a user removes the label.
+# - all four Beads demo tickets are closed in the shared Dolt database after the
+#   special ticket's work is complete and a user explicitly acknowledges it.
+# - the acknowledged ticket no longer carries the abacus:needs-user-attention
+#   label, and it records the observing agent's branch-state assessment.
 # - the Beads merge-slot gate is open and ready for another serialized merge.
 # - wt/0 through wt/3 are clean and retain their abacus/<issue-id> branches.
 # - the serialized merges may include conflict-resolution commits because the
@@ -174,7 +174,10 @@ git -C "$repo" commit -m "Create the Abacus demo dashboard"
 
   # Keep the demo free of project-level agent instruction files. Abacus provides
   # the workflow and default merge guidance directly in each launched prompt.
+  # Set no-git-ops explicitly because a global Beads setting may otherwise be
+  # inherited by the demo and prevent agents from committing or merging.
   bd init --shared-server --setup-exclude --prefix abacus-demo --database "$beads_database" --skip-agents --quiet
+  bd config set no-git-ops false
   bd config set dolt.local-only true
 
   # Abacus excludes gt:slot issues when claiming work. Agents use this Beads
@@ -198,8 +201,8 @@ git -C "$repo" commit -m "Create the Abacus demo dashboard"
 
   bd create "Add theme controls and demo footer" \
     --type task --priority 2 --labels demo,frontend --estimate 30 \
-    --description "This is the demo's user-attention checkpoint. As the first action after reading the issue, if a human user—not the coding agent—has not added an issue comment whose entire content is exactly 'acknowledged' add the abacus:needs-user-attention label yourself. Then wait for a human user to add a new issue comment whose entire content is exactly 'acknowledged'. Adding the label is a coordination step only: do not edit files, write code, or otherwise begin implementation until that comment appears. The coding agent is not allowed to add, edit, forge, or simulate the acknowledgement comment under any circumstances; it must come from the user. After the user acknowledges the issue, add an accessible light/dark theme toggle to the page header and a compact footer explaining that the page was assembled by Abacus agents. Implement the toggle in app.js, remember the choice in localStorage, and add both theme palettes plus control/footer styles to styles.css. Keep the attention label on the issue through completion." \
-    --acceptance "Before any implementation starts, a human user—not the coding agent—has added an issue comment whose entire content is exactly 'acknowledged'; the agent has not added, edited, forged, or simulated that comment; after acknowledgement, the theme toggle is keyboard accessible and updates its accessible label or pressed state; the choice survives reloads; both themes remain legible; the footer credits the parallel-agent demo; the attention label remains present; the completed branch is committed and merged into main using Abacus's default merge process and the issue is closed."
+    --description "This is the demo's user-attention checkpoint. First inspect the issue branch and comments. Determine whether commits already present from a previous run fully or partially satisfy the ticket, complete any remaining implementation, and validate the result. Add an accessible light/dark theme toggle to the page header and a compact footer explaining that the page was assembled by Abacus agents. Implement the toggle in app.js, remember the choice in localStorage, and add both theme palettes plus control/footer styles to styles.css. Do not request acknowledgement or add the abacus:needs-user-attention label until the work is complete, validated, and ready for user review. Once it is ready, add an agent comment beginning 'Branch ready for acknowledgement:' that summarizes the completed work, add the attention label, mark the ticket blocked, and stop without merging or closing it. A qualifying acknowledgement is a later comment from a human user—not the coding agent—whose entire content is exactly 'acknowledged'. The coding agent must never add, edit, forge, or simulate that comment. When an agent observes a qualifying acknowledgement, it must check whether an agent comment beginning 'Acknowledgement observed; branch state:' already exists after that acknowledgement. If none exists, this is the first observation: inspect the branch history and diff against main, then add exactly one such comment explaining whether commits inherited from a previous run satisfy all or part of the ticket and what, if anything, the current run changed. Do not duplicate that assessment if it already exists. After the assessment is recorded, ensure the attention label is removed and never re-add it, then merge the branch and close the ticket. Never merge or close before both the qualifying acknowledgement and branch-state assessment exist." \
+    --acceptance "The theme toggle is keyboard accessible and updates its accessible label or pressed state; the choice survives reloads; both themes remain legible; the footer credits the parallel-agent demo; all implementation is complete and validated before the agent adds its 'Branch ready for acknowledgement:' comment or requests user attention; a human user—not the coding agent—later adds a comment whose entire content is exactly 'acknowledged'; the agent has not added, edited, forged, or simulated that comment; the first agent to observe the acknowledgement adds exactly one 'Acknowledgement observed; branch state:' comment that explains whether inherited commits satisfy all or part of the ticket and describes any current-run changes; the attention label is absent at completion; the branch is not merged and the issue is not closed until the acknowledgement and branch-state comment exist; the completed branch is merged into main using Abacus's default merge process and the issue is closed."
 )
 
 original_umask="$(umask)"
@@ -227,9 +230,10 @@ printf 'Dolt database:   %s\n' "$beads_database"
 printf '\nBeads status:\n'
 bd -C "$repo" status
 printf '\nNo Git or Dolt remote was configured.\n'
-printf '\nOne demo ticket instructs its agent to add abacus:needs-user-attention before starting work.\n'
-printf 'Before its agent may start any implementation, a human user must add the exact comment "acknowledged".\n'
+printf '\nOne demo ticket instructs its agent to finish and validate its work before requesting user attention.\n'
+printf 'After the agent reports that the branch is ready, a human user must add the exact comment "acknowledged".\n'
 printf 'The agent is explicitly forbidden from adding that acknowledgement itself.\n'
 printf 'After the agent flags it, find the ticket with: bd -C "%s" list --label abacus:needs-user-attention\n' "$repo"
-printf 'A human can acknowledge it with: bd -C "%s" comment <issue-id> "acknowledged"\n' "$repo"
+printf 'From the main repository, acknowledge and reopen it with: abacus --resolve-attention <issue-id> "acknowledged" --reopen\n'
+printf 'The first agent to observe that acknowledgement records the branch state before it merges and closes the ticket.\n'
 printf 'From the demo root, run the Abacus launcher script supplied with Abacus.\n'

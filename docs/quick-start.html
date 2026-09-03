@@ -891,6 +891,7 @@ git -C "$REPO" worktree list --porcelain</code></pre>
               <div class="code-label"><span>Initialize embedded</span><button class="copy-button" type="button">Copy</button></div>
               <pre><code>cd "$REPO"
 bd init --non-interactive
+bd config set no-git-ops false
 bd dolt show --json
 bd where
 abacus --install-skills
@@ -907,6 +908,7 @@ abacus --health</code></pre>
               <div class="code-label"><span>Initialize shared server</span><button class="copy-button" type="button">Copy</button></div>
               <pre><code>cd "$REPO"
 bd init --shared-server --non-interactive
+bd config set no-git-ops false
 bd dolt start
 bd dolt status
 bd dolt show --json
@@ -916,6 +918,11 @@ abacus --health</code></pre>
             </div>
             <p class="small">Expect <code>"embedded": false</code>, a reachable host/port, and <code>"connection_ok": true</code>.</p>
           </section>
+        </div>
+
+        <div class="callout warning">
+          <span class="icon">!</span>
+          <p><strong>Enable Git operations explicitly.</strong> Run <code>bd config set no-git-ops false</code> after initialization so the project does not inherit a global Beads setting that prevents Abacus agents from committing and merging. A Git remote is not required: Abacus explicitly authorizes local staging, commits, and merges in its agent prompt while forbidding <code>git push</code>.</p>
         </div>
 
         <table class="comparison">
@@ -947,6 +954,7 @@ bd -C "$WORKTREES/bob" dolt show --json</code></pre>
   --server-port 3307 \
   --server-user root \
   --database acme_widget
+bd config set no-git-ops false
 bd dolt test
 bd dolt show --json</code></pre>
           </div>
