@@ -18,6 +18,7 @@ public sealed class AttentionResolutionTests
             fixture.Root,
             "ab-123",
             message: null,
+            reopen: false,
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
@@ -41,6 +42,7 @@ public sealed class AttentionResolutionTests
             fixture.Root,
             "ab-456",
             message,
+            reopen: false,
             CancellationToken.None);
 
         Assert.Equal(
@@ -73,6 +75,7 @@ public sealed class AttentionResolutionTests
                 fixture.Root,
                 "missing-123",
                 message: null,
+                reopen: false,
                 CancellationToken.None));
 
         Assert.Contains("resolve user attention", exception.Message, StringComparison.Ordinal);
@@ -80,7 +83,7 @@ public sealed class AttentionResolutionTests
     }
 
     [Fact]
-    public async Task LeavesAttentionLabelInPlaceWhenAddingTheCommentFails()
+    public async Task DoesNotResolveOrReopenWhenAddingTheCommentFails()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -94,6 +97,7 @@ public sealed class AttentionResolutionTests
                 fixture.Root,
                 "ab-789",
                 "Need another revision",
+                reopen: true,
                 CancellationToken.None));
 
         Assert.Contains("record user response", exception.Message, StringComparison.Ordinal);
@@ -102,6 +106,74 @@ public sealed class AttentionResolutionTests
                 "comment",
                 "ab-789",
                 "Need another revision",
+                "--json",
+            ],
+            await File.ReadAllLinesAsync(fixture.CallsPath));
+    }
+
+    [Fact]
+    public async Task ReopensAndUnassignsTheTicketWhileRemovingTheLabel()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await AttentionFixture.CreateAsync();
+
+        await fixture.Beads.ResolveUserAttentionAsync(
+            fixture.Root,
+            "ab-321",
+            message: null,
+            reopen: true,
+            CancellationToken.None);
+
+        Assert.Equal(
+            [
+                "update",
+                "ab-321",
+                "--remove-label",
+                "abacus:needs-user-attention",
+                "--status",
+                "open",
+                "--assignee",
+                "",
+                "--json",
+            ],
+            await File.ReadAllLinesAsync(fixture.CallsPath));
+    }
+
+    [Fact]
+    public async Task RecordsResponseBeforeReopeningAndRemovingTheLabel()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await AttentionFixture.CreateAsync();
+
+        await fixture.Beads.ResolveUserAttentionAsync(
+            fixture.Root,
+            "ab-654",
+            "Approved option B",
+            reopen: true,
+            CancellationToken.None);
+
+        Assert.Equal(
+            [
+                "comment",
+                "ab-654",
+                "Approved option B",
+                "--json",
+                "update",
+                "ab-654",
+                "--remove-label",
+                "abacus:needs-user-attention",
+                "--status",
+                "open",
+                "--assignee",
+                "",
                 "--json",
             ],
             await File.ReadAllLinesAsync(fixture.CallsPath));

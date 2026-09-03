@@ -112,7 +112,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   ```text
   abacus --install-skills
   abacus --health
-  abacus --resolve-attention <issue-id> [<message>]
+  abacus --resolve-attention <issue-id> [<message>] [--reopen]
 
   abacus [--mode <opencode|codex|claude|opencode-server>] \
     [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
@@ -132,7 +132,9 @@ Before building the loop, capture the exact behavior of the locally supported co
 
 - Support standalone user-attention resolution: optionally add the exact
   supplied message with `bd comment`, then use `bd update` to remove the
-  `abacus:needs-user-attention` label from the requested issue. Do not run normal
+  `abacus:needs-user-attention` label from the requested issue. When `--reopen`
+  is present, use that same update to set the issue status to `open` and clear
+  its assignee so it can be claimed again. Do not run normal
   preflight or require agent options for this operation.
 
 - Reject a missing or malformed `--model` value, a malformed `--effort` value, `--remote` outside Claude mode, malformed or duplicate singular dispatch filters, malformed ticket timeouts, invalid mode/server/tmux combinations, other missing values, unknown options, duplicate agent names, duplicate canonical workspace paths, and zero agents. OpenCode model IDs use `provider/model`; Codex and Claude IDs must be nonempty and whitespace-free. Effort defaults to `high`; model and effort availability remain the selected CLI's responsibility. Dispatch labels are repeatable, priority is 0 through 4, and ticket timeouts are positive integer seconds, minutes, or hours.
@@ -326,8 +328,9 @@ All checks happen before any ticket is claimed or agent run is created.
   it replaces existing bundled skill directories.
 - `abacus --health` reports project readiness without mutating it and fails when
   no single-agent mode is runnable or a bundled skill is missing.
-- `abacus --resolve-attention` removes the attention label from one issue and
-  optionally records the user's response without starting agent orchestration.
+- `abacus --resolve-attention` removes the attention label from one issue,
+  optionally records the user's response, and can reopen and unassign the issue
+  with `--reopen`, without starting agent orchestration.
 - The CLI and prompt match SPEC.md.
 - `--mode` selects exactly one of OpenCode, Codex, Claude, or OpenCode Server; legacy `--opencode-server` implies server mode.
 - `--model <model>` is required and every selected agent instance receives that exact model ID.

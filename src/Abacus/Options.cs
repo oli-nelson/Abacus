@@ -2,7 +2,7 @@ namespace Abacus;
 
 public sealed record AgentOptions(string Name, string WorkspacePath);
 
-public sealed record AttentionResolutionOptions(string IssueId, string? Message);
+public sealed record AttentionResolutionOptions(string IssueId, string? Message, bool Reopen);
 
 public enum AgentMode
 {
@@ -66,7 +66,7 @@ public sealed record Options(
 
     public const string ShortUsage =
         "Usage: abacus --install-skills | abacus --health | " +
-        "abacus --resolve-attention <issue-id> [<message>] | " +
+        "abacus --resolve-attention <issue-id> [<message>] [--reopen] | " +
         "abacus [--mode <opencode|codex|claude|opencode-server>] " +
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <model> [--effort <effort>] [--remote] " +
@@ -83,7 +83,7 @@ public sealed record Options(
         Usage:
           abacus --install-skills
           abacus --health
-          abacus --resolve-attention <issue-id> [<message>]
+          abacus --resolve-attention <issue-id> [<message>] [--reopen]
 
           abacus [--mode <opencode|codex|claude|opencode-server>] \
             [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
@@ -115,7 +115,8 @@ public sealed record Options(
         Resolve user attention:
           --resolve-attention removes the abacus:needs-user-attention label from
           one Beads issue. If a quoted message is supplied, Abacus first adds a
-          Beads comment containing that exact message.
+          Beads comment containing that exact message. --reopen also sets the
+          issue status to open and clears its assignee.
 
         Output:
           The default interactive display is a live dashboard of agent activity
@@ -219,11 +220,11 @@ public sealed record Options(
 
         if (arguments.Contains("--resolve-attention", StringComparer.Ordinal))
         {
-            if (arguments.Count is < 2 or > 3
+            if (arguments.Count is < 2 or > 4
                 || !string.Equals(arguments[0], "--resolve-attention", StringComparison.Ordinal))
             {
                 throw new OptionsException(
-                    "--resolve-attention must be used alone as --resolve-attention <issue-id> [<message>]");
+                    "--resolve-attention must be used alone as --resolve-attention <issue-id> [<message>] [--reopen]");
             }
 
             var issueId = arguments[1];
@@ -232,13 +233,29 @@ public sealed record Options(
                 throw new OptionsException("--resolve-attention requires a nonempty issue ID without whitespace");
             }
 
-            var message = arguments.Count == 3 ? arguments[2] : null;
+            var trailingArguments = arguments.Skip(2).ToArray();
+            var reopenCount = trailingArguments.Count(static argument => argument == "--reopen");
+            if (reopenCount > 1)
+            {
+                throw new OptionsException("--reopen can only be specified once");
+            }
+
+            var messageArguments = trailingArguments
+                .Where(static argument => argument != "--reopen")
+                .ToArray();
+            if (messageArguments.Length > 1)
+            {
+                throw new OptionsException(
+                    "--resolve-attention must be used alone as --resolve-attention <issue-id> [<message>] [--reopen]");
+            }
+
+            var message = messageArguments.SingleOrDefault();
             if (message is not null && string.IsNullOrWhiteSpace(message))
             {
                 throw new OptionsException("--resolve-attention message cannot be empty");
             }
 
-            return OptionsParseResult.ResolveAttentionOnly(issueId, message);
+            return OptionsParseResult.ResolveAttentionOnly(issueId, message, reopenCount == 1);
         }
 
         string? tmuxSession = null;
@@ -655,11 +672,11 @@ public sealed record OptionsParseResult(
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);
     public static OptionsParseResult Health { get; } = new(null, ShowHelp: false, ShowHealth: true);
-    public static OptionsParseResult ResolveAttentionOnly(string issueId, string? message) =>
+    public static OptionsParseResult ResolveAttentionOnly(string issueId, string? message, bool reopen) =>
         new(
             null,
             ShowHelp: false,
-            AttentionResolution: new AttentionResolutionOptions(issueId, message));
+            AttentionResolution: new AttentionResolutionOptions(issueId, message, reopen));
 }
 
 public sealed class OptionsException(string message) : Exception(message);

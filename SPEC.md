@@ -66,7 +66,7 @@ abacus --health
 Resolve a user-attention callout from the current Beads project:
 
 ```sh
-abacus --resolve-attention <issue-id> [<message>]
+abacus --resolve-attention <issue-id> [<message>] [--reopen]
 ```
 
 Start agents in an existing tmux session:
@@ -102,13 +102,15 @@ Dispatch filters are optional and apply to every fresh or same-agent resumed rea
 
 `--notify` controls Abacus-owned desktop notifications and defaults to `off`. `attention` reports newly observed `abacus:needs-user-attention` issues, blocked tickets, and persistent recovery failures. `all` additionally reports every ticket outcome and the final run summary. On macOS Abacus uses `osascript`; on Linux it uses `notify-send` when available. Notification delivery is best effort and never changes orchestration outcomes. `--notify-sound` uses a positive sound for closed tickets and runs with only closed outcomes, and a negative sound for attention, persistent failures, reopened, blocked, or interrupted outcomes and run summaries containing any of those outcomes. It permits a terminal bell fallback if desktop delivery is unavailable and requires `--notify attention` or `--notify all`.
 
-`--resolve-attention <issue-id> [<message>]` is a standalone operation. It runs
+`--resolve-attention <issue-id> [<message>] [--reopen]` is a standalone operation. It runs
 `bd update` in the current directory to remove
 `abacus:needs-user-attention`. When the optional message is present, it first
 uses `bd comment` to add the exact supplied message. The label is not removed if
-the comment fails. On success it prints a concise confirmation instead of the
+the comment fails. When `--reopen` is present, the same update that removes the
+label also sets the issue status to `open` and clears its assignee so it can be
+claimed again. On success it prints a concise confirmation instead of the
 raw Beads JSON. It does not run agent preflight or require normal run options.
-The command fails if Beads cannot perform either operation.
+The command fails if Beads cannot perform any requested operation.
 
 Each local agent runs interactively in its own tmux pane using its assigned Git workspace and requested model:
 

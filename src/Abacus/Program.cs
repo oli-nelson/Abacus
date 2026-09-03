@@ -46,10 +46,16 @@ public static class Program
                         Environment.CurrentDirectory,
                         attentionResolution.IssueId,
                         attentionResolution.Message,
+                        attentionResolution.Reopen,
                         CancellationToken.None);
-                Console.Out.WriteLine(attentionResolution.Message is null
-                    ? $"Resolved user attention for {attentionResolution.IssueId}."
-                    : $"Resolved user attention for {attentionResolution.IssueId} and recorded the response.");
+                var action = (attentionResolution.Message is not null, attentionResolution.Reopen) switch
+                {
+                    (false, false) => "",
+                    (true, false) => " and recorded the response",
+                    (false, true) => " and reopened the ticket",
+                    (true, true) => ", recorded the response, and reopened the ticket",
+                };
+                Console.Out.WriteLine($"Resolved user attention for {attentionResolution.IssueId}{action}.");
 
                 return 0;
             }

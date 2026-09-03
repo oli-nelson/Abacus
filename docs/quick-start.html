@@ -1410,6 +1410,9 @@ abacus --resolve-attention &lt;issue-id&gt; "Approved: use public-api"
 <span class="comment"># Or remove the alert without adding a response comment.</span>
 abacus --resolve-attention &lt;issue-id&gt;
 
+<span class="comment"># Resolve, reopen, and unassign the ticket so an agent can claim it again.</span>
+abacus --resolve-attention &lt;issue-id&gt; "Approved: use public-api" --reopen
+
 <span class="comment"># If no work can continue, also mark the ticket blocked.</span>
 bd comment &lt;issue-id&gt; "Waiting for the API name decision."
 bd update &lt;issue-id&gt; --status blocked --json</code></pre>
@@ -1419,7 +1422,7 @@ bd update &lt;issue-id&gt; --status blocked --json</code></pre>
           <section class="card accent-green">
             <p class="kicker">Resolve with context</p>
             <h3>Leave a durable response</h3>
-            <p class="small">When you supply a quoted message, Abacus first adds that exact message as a Beads comment, then removes the attention label. If the comment fails, the label stays in place.</p>
+            <p class="small">When you supply a quoted message, Abacus first adds that exact message as a Beads comment, then removes the attention label. Add <code>--reopen</code> to make that same update set the ticket to <code>open</code> and clear its assignee. If the comment fails, the label and status stay in place.</p>
           </section>
           <section class="card accent-blue">
             <p class="kicker">Standalone command</p>

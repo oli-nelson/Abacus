@@ -629,6 +629,7 @@ public sealed class OptionsTests
         var resolution = Assert.IsType<AttentionResolutionOptions>(result.AttentionResolution);
         Assert.Equal("ab-123", resolution.IssueId);
         Assert.Null(resolution.Message);
+        Assert.False(resolution.Reopen);
         Assert.False(result.ShowHelp);
         Assert.Null(result.Value);
     }
@@ -644,11 +645,33 @@ public sealed class OptionsTests
 
         var resolution = Assert.IsType<AttentionResolutionOptions>(result.AttentionResolution);
         Assert.Equal("Use option A after QA", resolution.Message);
+        Assert.False(resolution.Reopen);
+    }
+
+    [Theory]
+    [InlineData("--reopen")]
+    [InlineData("Approved option A", "--reopen")]
+    [InlineData("--reopen", "Approved option A")]
+    public void ResolveAttentionAcceptsReopenWithOrWithoutAMessage(params string[] trailingArguments)
+    {
+        var result = Options.Parse([
+            "--resolve-attention",
+            "ab-123",
+            .. trailingArguments,
+        ]);
+
+        var resolution = Assert.IsType<AttentionResolutionOptions>(result.AttentionResolution);
+        Assert.Equal("ab-123", resolution.IssueId);
+        Assert.Equal(
+            trailingArguments.SingleOrDefault(static argument => argument != "--reopen"),
+            resolution.Message);
+        Assert.True(resolution.Reopen);
     }
 
     [Theory]
     [InlineData("--resolve-attention")]
     [InlineData("--resolve-attention", "ab-123", "message", "extra")]
+    [InlineData("--resolve-attention", "ab-123", "--reopen", "--reopen")]
     [InlineData("--verbose", "--resolve-attention", "ab-123")]
     public void ResolveAttentionRejectsMissingOrCombinedArguments(params string[] arguments)
     {

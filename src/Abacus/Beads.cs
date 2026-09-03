@@ -57,6 +57,7 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         string workspace,
         string issueId,
         string? message,
+        bool reopen,
         CancellationToken cancellationToken)
     {
         if (message is not null)
@@ -69,16 +70,23 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             EnsureCommandSuccess(comment, $"record user response for '{issueId}'");
         }
 
+        var updateArguments = new List<string>
+        {
+            "update",
+            issueId,
+            "--remove-label",
+            NeedsUserAttentionLabel,
+        };
+        if (reopen)
+        {
+            updateArguments.AddRange(["--status", "open", "--assignee", ""]);
+        }
+
+        updateArguments.Add("--json");
         var result = await RunAsync(
             workspace,
             agentName: null,
-            [
-                "update",
-                issueId,
-                "--remove-label",
-                NeedsUserAttentionLabel,
-                "--json",
-            ],
+            updateArguments,
             cancellationToken);
         EnsureCommandSuccess(result, $"resolve user attention for '{issueId}'");
         return result;

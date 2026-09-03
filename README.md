@@ -142,9 +142,17 @@ Optionally provide a quoted response message:
 abacus --resolve-attention ab-123 "Approved option A"
 ```
 
+Add `--reopen` to also set the ticket back to `open` and clear its assignee so
+an agent can claim it again:
+
+```sh
+abacus --resolve-attention ab-123 "Approved option A" --reopen
+```
+
 Without a message, Abacus performs one `bd update` that removes the label. When
 a message is present, Abacus first adds the exact message as a Beads comment and
-then removes the label:
+then removes the label. With `--reopen`, that same update also reopens and
+unassigns the ticket:
 
 ```text
 Approved option A
