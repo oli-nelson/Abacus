@@ -193,7 +193,9 @@ public sealed class ClaimCoordinatorTests
                     printf '[{"id":"abc-bad","status":"open"}]\n'
                   fi
                 elif test "$1" = show; then
-                  if test -f "$root/recovered"; then
+                  if test "$3" = --children; then
+                    printf '{"schema_version":1,"%s":[]}\n' "$2"
+                  elif test -f "$root/recovered"; then
                     printf '[{"id":"abc-bad","status":"open"}]\n'
                   else
                     printf '[{"id":"abc-bad","status":"in_progress"}]\n'

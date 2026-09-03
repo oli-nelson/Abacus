@@ -191,11 +191,33 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
                 return null;
             }
 
-            var selected = await SelectPreferredCandidateAsync(
-                workspace,
-                agentName,
-                candidates,
-                cancellationToken);
+            var remainingCandidates = candidates.ToList();
+            ReadyCandidate? selected = null;
+            while (remainingCandidates.Count > 0)
+            {
+                var preferred = await SelectPreferredCandidateAsync(
+                    workspace,
+                    agentName,
+                    remainingCandidates,
+                    cancellationToken);
+                if (!await HasUnclosedChildrenAsync(
+                        workspace,
+                        agentName,
+                        preferred.Issue.Id,
+                        cancellationToken))
+                {
+                    selected = preferred;
+                    break;
+                }
+
+                remainingCandidates.Remove(preferred);
+            }
+
+            if (selected is null)
+            {
+                return null;
+            }
+
             if (selected.Issue.Status is not IssueStatus.Open)
             {
                 throw new BeadsException($"ready issue '{selected.Issue.Id}' was not open");
@@ -224,6 +246,21 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             // atomic claim honors both Beads priority and the comment tie-break.
             await DelayClaimRetryAsync(attempt, cancellationToken);
         }
+    }
+
+    private async Task<bool> HasUnclosedChildrenAsync(
+        string workspace,
+        string agentName,
+        string issueId,
+        CancellationToken cancellationToken)
+    {
+        var childrenResult = await RunWithActorAsync(
+            workspace,
+            agentName,
+            ["show", issueId, "--children", "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(childrenResult, $"read children of ready issue '{issueId}'");
+        return ParseHasUnclosedChildren(childrenResult.StandardOutput, issueId);
     }
 
     private async Task<ReadyCandidate> SelectPreferredCandidateAsync(
@@ -666,6 +703,44 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
         {
             throw new BeadsException($"Beads returned invalid {context} JSON: {exception.Message}");
+        }
+    }
+
+    internal static bool ParseHasUnclosedChildren(string json, string issueId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind is not JsonValueKind.Object)
+            {
+                throw new JsonException("expected an object");
+            }
+
+            if (!document.RootElement.TryGetProperty(issueId, out var children)
+                || children.ValueKind is not JsonValueKind.Array)
+            {
+                throw new JsonException($"children are missing for issue '{issueId}'");
+            }
+
+            foreach (var child in children.EnumerateArray())
+            {
+                var status = child.GetProperty("status").GetString();
+                if (string.IsNullOrWhiteSpace(status))
+                {
+                    throw new JsonException($"child status is missing for issue '{issueId}'");
+                }
+
+                if (!string.Equals(status, "closed", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            throw new BeadsException($"Beads returned invalid child issue JSON: {exception.Message}");
         }
     }
 

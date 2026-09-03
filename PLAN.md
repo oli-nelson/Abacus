@@ -13,7 +13,7 @@ Abacus should own only the orchestration state machine. It should not reimplemen
 - Support exactly four agent modes: interactive OpenCode, interactive Codex, interactive Claude Code, and OpenCode Server attachment. Do not call agent server APIs.
 - Accept `--remote` only for Claude Code. Keep Claude interactive and enable Remote Control with an explicit `<issue-id> • <issue-title>` session name. Do not implement the remote-control protocol in Abacus.
 - Require one `--model <model>` value per Abacus invocation. Accept one provider-specific `--effort <effort>` value, default it to `high`, and translate model and effort into the selected CLI's native arguments where supported. Preserve OpenCode's `provider/model` validation while allowing native Codex and Claude model identifiers. Interactive OpenCode 1.18.20 has no TUI variant option, so keep its model ID unchanged and let OpenCode use its configured or session-selected variant.
-- Parse only the small amount of JSON/JSONL emitted by `bd` that Abacus needs: issue ID, issue title and status, Dolt identity, remote presence, and the comment fields and labels needed by the dashboard. Query Beads by label rather than importing its issue model when the dashboard needs attention alerts; use read-only `bd export` for the latest-comment snapshot so embedded and server-backed modes share one path.
+- Parse only the small amount of JSON/JSONL emitted by `bd` that Abacus needs: issue ID, issue title and status, direct-child status, Dolt identity, remote presence, and the comment fields and labels needed by the dashboard. Query Beads by label rather than importing its issue model when the dashboard needs attention alerts; use read-only `bd export` for the latest-comment snapshot so embedded and server-backed modes share one path.
 - Pass ordinary command arguments through `ProcessStartInfo.ArgumentList`, not interpolated shell strings. Use a generated shell wrapper only where tmux needs a pane command and process-exit marker.
 - Keep state in memory. A temporary per-run directory may contain prompt files, pane wrapper scripts, and exit markers; there is no Abacus database.
 - Run one asynchronous loop per configured agent. Do not introduce a scheduler, message bus, dependency-injection container, plugin model, web UI, or daemon.
@@ -61,7 +61,7 @@ final summary; do not create a checkpoint commit or persistent Abacus state.
 
 1. Clean the workspace with `git reset --hard HEAD` and `git clean -fd` before looking for work.
 2. In single-agent mode, pull Beads before looking for work when a Dolt remote exists.
-3. List matching work with `bd ready --unassigned --exclude-label gt:slot --limit 0 --json`, preserve Beads priority, use the newest comment to break a highest-priority tie, and atomically claim the selected issue with `bd update <id> --claim --json`, all with `BEADS_ACTOR=<agent name>`.
+3. List matching work with `bd ready --unassigned --exclude-label gt:slot --limit 0 --json`, preserve Beads priority, use the newest comment to break a highest-priority tie, skip each selected candidate when `bd show <id> --children --json` reports any unclosed direct child, and atomically claim the eligible issue with `bd update <id> --claim --json`, all with `BEADS_ACTOR=<agent name>`.
 4. If no issue is ready, sleep for a small fixed interval and try again.
 5. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
 6. Verify that the workspace is clean before the agent CLI starts.
@@ -232,10 +232,11 @@ All checks happen before any ticket is claimed or agent run is created.
   ```sh
   BEADS_ACTOR=<agent_name> bd ready --unassigned --exclude-label gt:slot --limit 0 --json
   BEADS_ACTOR=<agent_name> bd show <commented-highest-priority-ids...> --include-comments --json
+  BEADS_ACTOR=<agent_name> bd show <selected-id> --children --json
   BEADS_ACTOR=<agent_name> bd update <selected-id> --claim --json
   ```
 
-- Append configured `--label`, `--exclude-label`, `--type`, and `--priority` values literally to both the unassigned ready lookup and the same-agent assigned-ready fallback. Keep the built-in `gt:slot` exclusion. Respect the priority ordering returned by Beads, then use the newest comment only to break a tie within the highest-priority group. If none of the tied issues has comments, select the first result. Claim the selected ID atomically and refresh selection after a lost claim race or Dolt serialization conflict.
+- Append configured `--label`, `--exclude-label`, `--type`, and `--priority` values literally to both the unassigned ready lookup and the same-agent assigned-ready fallback. Keep the built-in `gt:slot` exclusion. Respect the priority ordering returned by Beads, then use the newest comment only to break a tie within the highest-priority group. If none of the tied issues has comments, select the first result. Before claiming, inspect that candidate's direct children and skip it when any child status is not `closed`; failed or malformed child data must not permit a claim. Claim an eligible selected ID atomically and refresh selection after a lost claim race or Dolt serialization conflict.
 
 - In single-agent mode only, run `bd dolt pull` immediately before each claim attempt when a remote exists. A pull failure should log and delay the next attempt rather than claim against stale data.
 - Check workspace cleanliness before every claim. If a workspace is dirty, warn, discard tracked changes with `git reset --hard HEAD`, remove untracked non-ignored files and directories with `git clean -fd`, and verify the result is clean before claiming.
@@ -252,6 +253,7 @@ All checks happen before any ticket is claimed or agent run is created.
 ### Exit criteria
 
 - Parallel fake-agent tests prove each atomic claim is handled by only one loop.
+- A ready parent with an unclosed direct child is skipped without any claim attempt, while parents with no children or only closed children remain eligible.
 - Existing and new issue branches both work.
 - Dirty or unusable workspaces never start an agent CLI and do not leave the issue claimed.
 

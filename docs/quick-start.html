@@ -1184,7 +1184,7 @@ abacus --health</code></pre>
           <section class="card">
             <p class="kicker">Claim</p>
             <h3>Atomic</h3>
-            <p class="small">Each loop lists unassigned ready work, keeps the highest Beads priority, and uses the newest comment to break a tie. The selected issue is claimed atomically with its own <code>BEADS_ACTOR</code>; lost races retry with bounded backoff and jitter.</p>
+            <p class="small">Each loop lists unassigned ready work, keeps the highest Beads priority, and uses the newest comment to break a tie. Before the atomic claim, Abacus skips a selected issue if <code>bd show --children</code> reports any unclosed direct child. Eligible issues are claimed with their own <code>BEADS_ACTOR</code>; lost races retry with bounded backoff and jitter.</p>
           </section>
           <section class="card">
             <p class="kicker">Workspace</p>
@@ -1388,6 +1388,7 @@ abacus --latest-comments 12 \
             <pre>14:22:01 [abacus] INFO       Preflight complete; starting Claude Code agent loops
 14:22:01 [alice] WAITING    Looking for a ready ticket
 14:22:01 [alice] DEBUG      bd ready --unassigned --exclude-label gt:slot --limit 0 --json
+14:22:01 [alice] DEBUG      bd show ab-a31 --children --json
 14:22:01 [alice] DEBUG      bd update ab-a31 --claim --json
 14:22:02 [alice] PREPARING  ab-a31 • preparing workspace and branch
 14:22:03 [alice] WORKING    ab-a31 • agent CLI in pane %3
@@ -1506,7 +1507,7 @@ bd update &lt;issue-id&gt; --status blocked --json</code></pre>
 
         <div class="callout success">
           <span class="icon">✓</span>
-          <p><strong>Beads still decides readiness.</strong> Dependencies and ticket status continue to govern <code>bd ready</code>. Abacus always adds <code>--exclude-label gt:slot</code>, so the merge coordination bead can never become coding work.</p>
+          <p><strong>Beads still decides readiness.</strong> Dependencies and ticket status continue to govern <code>bd ready</code>. Abacus additionally skips candidates with unclosed direct children and always adds <code>--exclude-label gt:slot</code>, so neither unfinished parents nor the merge coordination bead become coding work.</p>
         </div>
 
         <p class="muted small">Filter values must be nonempty and contain no whitespace. <code>--type</code> and <code>--priority</code> may each appear only once. There are no per-agent filter sets in one invocation.</p>

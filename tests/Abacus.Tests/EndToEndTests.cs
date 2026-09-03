@@ -474,8 +474,12 @@ public sealed class EndToEndTests
             elif test "$1" = list; then
               printf '[]\n'
             elif test "$1" = show; then
-              status=$(cat "$root/status")
-              printf '[{"id":"abc-1","title":"Implement remote control","status":"%s"}]\n' "$status"
+              if test "$3" = --children; then
+                printf '{"schema_version":1,"abc-1":[]}\n'
+              else
+                status=$(cat "$root/status")
+                printf '[{"id":"abc-1","title":"Implement remote control","status":"%s"}]\n' "$status"
+              fi
             elif test "$1" = update; then
               if test "$3" = --claim; then
                 touch "$root/claimed"; printf 'in_progress' > "$root/status"

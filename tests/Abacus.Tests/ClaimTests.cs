@@ -24,6 +24,10 @@ public sealed class ClaimTests
                   printf '[{"id":"abc-retried","status":"open","priority":1,"comment_count":0}]\n'
                   exit 0
                 fi
+                if test "$1" = show && test "$3" = --children; then
+                  printf '{"schema_version":1,"abc-retried":[]}\n'
+                  exit 0
+                fi
                 count=$(cat {{Q(attempts)}})
                 count=$((count + 1))
                 printf '%s' "$count" > {{Q(attempts)}}
@@ -109,6 +113,10 @@ public sealed class ClaimTests
                   fi
                   exit 0
                 fi
+                if test "$1" = show && test "$3" = --children; then
+                  printf '{"schema_version":1,"%s":[]}\n' "$2"
+                  exit 0
+                fi
                 if test "$1" != update; then exit 2; fi
                 while ! mkdir "$root/lock" 2>/dev/null; do sleep 0.01; done
                 trap 'rmdir "$root/lock"' EXIT
@@ -182,6 +190,8 @@ public sealed class ClaimTests
                   printf '[]\n'
                 elif test "$1" = ready && test "$2" = --assignee; then
                   printf '[{"id":"abc-retry","status":"open","assignee":"alice","priority":1,"comment_count":0}]\n'
+                elif test "$1" = show && test "$3" = --children; then
+                  printf '{"schema_version":1,"abc-retry":[]}\n'
                 elif test "$1" = update && test "$2" = abc-retry && test "$3" = --claim; then
                   printf '[{"id":"abc-retry","status":"in_progress","assignee":"alice"}]\n'
                 else
@@ -201,6 +211,7 @@ public sealed class ClaimTests
                 [
                     "ready --unassigned --exclude-label gt:slot --limit 0 --json actor=alice",
                     "ready --assignee alice --exclude-label gt:slot --limit 0 --json actor=alice",
+                    "show abc-retry --children --json actor=alice",
                     "update abc-retry --claim --json actor=alice",
                 ],
                 invocations);
@@ -275,6 +286,8 @@ public sealed class ClaimTests
                     {"id":"abc-newest","status":"open","priority":1,"comment_count":2},
                     {"id":"abc-lower-priority","status":"open","priority":2,"comment_count":1}
                   ]'
+                elif test "$1" = show && test "$3" = --children; then
+                  printf '{"schema_version":1,"abc-newest":[]}\n'
                 elif test "$1" = show; then
                   printf '%s\n' '[
                     {"id":"abc-first","comments":[
@@ -304,6 +317,7 @@ public sealed class ClaimTests
                 [
                     "ready --unassigned --exclude-label gt:slot --limit 0 --json",
                     "show abc-first abc-newest --include-comments --json",
+                    "show abc-newest --children --json",
                     "update abc-newest --claim --json",
                 ],
                 await File.ReadAllLinesAsync(calls));
@@ -336,6 +350,8 @@ public sealed class ClaimTests
                     {"id":"abc-second","status":"open","priority":1,"comment_count":0},
                     {"id":"abc-lower-priority","status":"open","priority":2,"comment_count":3}
                   ]'
+                elif test "$1" = show && test "$3" = --children; then
+                  printf '{"schema_version":1,"abc-first":[]}\n'
                 elif test "$1" = update && test "$2" = abc-first; then
                   printf '[{"id":"abc-first","status":"in_progress"}]\n'
                 else
@@ -354,6 +370,7 @@ public sealed class ClaimTests
             Assert.Equal(
                 [
                     "ready --unassigned --exclude-label gt:slot --limit 0 --json",
+                    "show abc-first --children --json",
                     "update abc-first --claim --json",
                 ],
                 await File.ReadAllLinesAsync(calls));
@@ -362,6 +379,117 @@ public sealed class ClaimTests
         {
             root.Delete(recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task SkipsAReadyParentWithAnUnclosedChildAndClaimsTheNextCandidate()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-open-child-");
+        try
+        {
+            var calls = Path.Combine(root.FullName, "calls");
+            var script = Path.Combine(root.FullName, "bd");
+            await File.WriteAllTextAsync(script, $$"""
+                #!/bin/sh
+                printf '%s\n' "$*" >> {{Q(calls)}}
+                if test "$1" = ready && test "$2" = --unassigned; then
+                  printf '%s\n' '[
+                    {"id":"abc-parent","status":"open","priority":1,"comment_count":0},
+                    {"id":"abc-leaf","status":"open","priority":1,"comment_count":0}
+                  ]'
+                elif test "$1" = show && test "$2" = abc-parent && test "$3" = --children; then
+                  printf '%s\n' '{"schema_version":1,"abc-parent":[
+                    {"id":"abc-child","status":"in_progress"}
+                  ]}'
+                elif test "$1" = show && test "$2" = abc-leaf && test "$3" = --children; then
+                  printf '{"schema_version":1,"abc-leaf":[]}\n'
+                elif test "$1" = update && test "$2" = abc-leaf && test "$3" = --claim; then
+                  printf '[{"id":"abc-leaf","status":"in_progress"}]\n'
+                else
+                  exit 2
+                fi
+                """);
+            File.SetUnixFileMode(
+                script,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var result = await new Beads(new CommandRunner(TextWriter.Null), script)
+                .TryClaimReadyAsync(root.FullName, "alice", CancellationToken.None);
+
+            Assert.NotNull(result);
+            Assert.Equal("abc-leaf", result.Id);
+            Assert.Equal(
+                [
+                    "ready --unassigned --exclude-label gt:slot --limit 0 --json",
+                    "show abc-parent --children --json",
+                    "show abc-leaf --children --json",
+                    "update abc-leaf --claim --json",
+                ],
+                await File.ReadAllLinesAsync(calls));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InvalidChildDataFailsBeforeClaiming()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-invalid-child-");
+        try
+        {
+            var calls = Path.Combine(root.FullName, "calls");
+            var script = Path.Combine(root.FullName, "bd");
+            await File.WriteAllTextAsync(script, $$"""
+                #!/bin/sh
+                printf '%s\n' "$*" >> {{Q(calls)}}
+                if test "$1" = ready; then
+                  printf '[{"id":"abc-parent","status":"open","priority":1,"comment_count":0}]\n'
+                elif test "$1" = show; then
+                  printf '{"schema_version":1}\n'
+                else
+                  printf 'claim must not run\n' >&2
+                  exit 2
+                fi
+                """);
+            File.SetUnixFileMode(
+                script,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var exception = await Assert.ThrowsAsync<BeadsException>(() =>
+                new Beads(new CommandRunner(TextWriter.Null), script)
+                    .TryClaimReadyAsync(root.FullName, "alice", CancellationToken.None));
+
+            Assert.Contains("children are missing", exception.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                await File.ReadAllLinesAsync(calls),
+                static call => call.StartsWith("update ", StringComparison.Ordinal));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ClosedChildrenDoNotPreventAClaim()
+    {
+        Assert.False(Beads.ParseHasUnclosedChildren(
+            """
+            {"schema_version":1,"abc-parent":[{"id":"abc-child","status":"closed"}]}
+            """,
+            "abc-parent"));
     }
 
     [Fact]

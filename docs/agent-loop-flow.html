@@ -300,7 +300,7 @@
     <section class="chart-shell" aria-label="Flowchart of a single Abacus agent loop">
       <svg id="flowchart" viewBox="0 0 1480 2850" role="img" aria-labelledby="chart-title chart-desc">
         <title id="chart-title">Flowchart of a single Abacus agent loop</title>
-        <desc id="chart-desc">The loop checks and cleans a workspace, optionally pulls Beads data, claims a ticket, prepares a branch, starts an agent, supervises ticket status and process state, recovers failures, cleans up, pushes Beads data, and either repeats or stops.</desc>
+        <desc id="chart-desc">The loop checks and cleans a workspace, optionally pulls Beads data, selects a ready ticket without unclosed children, claims it, prepares a branch, starts an agent, supervises ticket status and process state, recovers failures, cleans up, pushes Beads data, and either repeats or stops.</desc>
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/>
@@ -421,9 +421,9 @@
 
         <g class="node action flow-item" data-path="happy idle crash shutdown">
           <rect class="body" x="520" y="610" width="440" height="94" rx="12"/>
-          <text class="node-kicker" x="544" y="636">ATOMIC CLAIM</text>
-          <text class="node-code" x="544" y="662">bd ready --claim --exclude-label gt:slot --json</text>
-          <text class="node-copy" x="544" y="684">Append configured label / type / priority filters.</text>
+          <text class="node-kicker" x="544" y="636">SELECT + ATOMIC CLAIM</text>
+          <text class="node-code" x="544" y="662">bd ready … · bd show &lt;id&gt; --children</text>
+          <text class="node-copy" x="544" y="684">Skip unclosed children · bd update &lt;id&gt; --claim</text>
           <text class="node-copy" x="544" y="700">Serialization conflicts retry internally with capped backoff + jitter.</text>
         </g>
 
@@ -767,6 +767,7 @@
         <h2>Safety invariants</h2>
         <ul>
           <li>No ticket is claimed until the assigned Git workspace is present and clean. Cleanup intentionally discards tracked and untracked non-ignored changes.</li>
+          <li>A ready candidate is never claimed while any direct child is unclosed; failed or malformed child data also prevents the claim.</li>
           <li>Any failure after a successful claim attempts to return the ticket to <code>open</code>, clears its assignee, verifies the result, and pushes when configured.</li>
           <li>Host cleanup is idempotent and targets only the tmux pane or direct child created by Abacus.</li>
           <li>A failed recovery, unverified cleanup, or exhausted push retries prevents this loop from claiming more work.</li>
