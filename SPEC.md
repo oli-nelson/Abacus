@@ -36,16 +36,17 @@ Before running Abacus:
 2. For OpenCode, Codex, or Claude mode, start a tmux session and, optionally, the window where agent panes should run.
 3. For OpenCode Server mode, start an OpenCode server. A tmux session is optional in this mode.
 
-Install Abacus's bundled planning, issue-quality, and attention-reporting skills from anywhere inside
-the target Git repository:
+Install Abacus's bundled planning, issue-quality, attention-reporting, and
+Git-instruction-audit skills from anywhere inside the target Git repository:
 
 ```sh
 abacus --install-skills
 ```
 
 This installs `.agents/skills/abacus-beads-planner`,
-`.agents/skills/abacus-beads-doctor`, and
-`.agents/skills/abacus-beads-attention` at the repository root. If any bundled
+`.agents/skills/abacus-beads-doctor`,
+`.agents/skills/abacus-beads-attention`, and
+`.agents/skills/abacus-git-check` at the repository root. If any bundled
 skill directory already exists, installation must name the affected skills and
 require user confirmation before replacing their complete directories. A
 declined or unavailable confirmation leaves every skill unchanged. Unrelated

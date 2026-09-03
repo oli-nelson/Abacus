@@ -117,7 +117,7 @@ public sealed record Options(
           for OpenCode, Codex, and Claude modes.
 
           --install-skills installs the bundled abacus-beads-planner,
-          abacus-beads-doctor, and abacus-beads-attention skills under
+          abacus-beads-doctor, abacus-beads-attention, and abacus-git-check skills under
           .agents/skills at the Git root. Existing skills require confirmation
           before their directories are replaced.
 

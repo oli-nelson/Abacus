@@ -17,6 +17,7 @@ public sealed class SkillInstaller(
         "abacus-beads-planner",
         "abacus-beads-doctor",
         "abacus-beads-attention",
+        "abacus-git-check",
     ];
 
     private sealed record BundledSkill(
@@ -39,6 +40,11 @@ public sealed class SkillInstaller(
         [
             ("Abacus.Skills.abacus-beads-attention.SKILL.md", "SKILL.md"),
             ("Abacus.Skills.abacus-beads-attention.agents.openai.yaml", "agents/openai.yaml"),
+        ]),
+        new(InstallableSkillNames[3],
+        [
+            ("Abacus.Skills.abacus-git-check.SKILL.md", "SKILL.md"),
+            ("Abacus.Skills.abacus-git-check.agents.openai.yaml", "agents/openai.yaml"),
         ]),
     ];
 

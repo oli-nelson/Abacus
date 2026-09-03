@@ -106,9 +106,10 @@ Before building the loop, capture the exact behavior of the locally supported co
 
 - Create a .NET 10 console project with nullable reference types enabled and no production NuGet dependencies.
 - Bundle the `abacus-beads-planner`, `abacus-beads-doctor`, and
-  `abacus-beads-attention` skills as executable resources. A standalone
+  `abacus-beads-attention` skills, plus the `abacus-git-check` agent-instruction
+  audit, as executable resources. A standalone
   `abacus --install-skills` resolves the current Git root with the Git CLI and installs all
-  three skills under `.agents/skills` without entering agent preflight or
+  four skills under `.agents/skills` without entering agent preflight or
   requiring normal run options. Stage the bundled contents before installation;
   if any bundled skill already exists, require one user confirmation before
   replacing those complete directories. Cancellation leaves all skills unchanged
@@ -354,7 +355,7 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ## Definition of done
 
-- `abacus --install-skills` installs all three bundled skills at the current Git repository
+- `abacus --install-skills` installs all four bundled skills at the current Git repository
   root without starting preflight or agent loops, and requires confirmation before
   it replaces existing bundled skill directories.
 - `abacus --health` reports project readiness without mutating it and fails when

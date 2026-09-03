@@ -1,0 +1,4 @@
+interface:
+  display_name: "Abacus Git Check"
+  short_description: "Audit agent instructions for incorrect Git restrictions"
+  default_prompt: "Use $abacus-git-check to check this repository for agent instructions that incorrectly restrict Git operations."

@@ -98,13 +98,14 @@ From anywhere inside a target Git repository, run:
 abacus --install-skills
 ```
 
-This installs three skills under `.agents/skills` at the repository root:
+This installs four skills under `.agents/skills` at the repository root:
 
 | Skill | Purpose |
 | --- | --- |
 | `abacus-beads-planner` | Turns a concept into a user-reviewed, execution-ready Beads epic and issue graph. |
 | `abacus-beads-doctor` | Audits issue content, fields, labels, metadata, and dependencies, then works with the user on approved repairs. |
 | `abacus-beads-attention` | Finds every issue carrying `abacus:needs-user-attention`, including closed issues, and produces a prioritized high-level action report. |
+| `abacus-git-check` | Audits active agent instructions for misleading restrictions on local Git operations while accepting push restrictions. |
 
 The installed skills include their `SKILL.md` instructions and
 `agents/openai.yaml` discovery metadata. Installing them does not invoke a skill
@@ -128,6 +129,7 @@ example:
 Use $abacus-beads-planner to turn this concept into a Beads issue graph: ...
 Use $abacus-beads-doctor to audit the issues under epic bd-123.
 Use $abacus-beads-attention to tell me what needs my attention.
+Use $abacus-git-check to check this repository's agent instructions for incorrect Git restrictions.
 ```
 
 Note: These skills are optional and their installation is not required in order for abacus to function.
@@ -154,7 +156,7 @@ The report checks:
   harnesses are optional, but at least one supported harness is required;
 - the minimum tmux version and which pane-hosted modes it enables;
 - all worktrees referenced by the root repository;
-- all three bundled skill directories, including `SKILL.md` and
+- all four bundled skill directories, including `SKILL.md` and
   `agents/openai.yaml`; and
 - the resulting runnable agent modes and single-/multi-agent readiness.
 

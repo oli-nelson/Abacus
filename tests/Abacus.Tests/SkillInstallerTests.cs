@@ -36,19 +36,27 @@ public sealed class SkillInstallerTests
             Assert.False(installed.Cancelled);
             Assert.Equal(0, confirmationCalls);
             Assert.Equal(
-                ["abacus-beads-planner", "abacus-beads-doctor", "abacus-beads-attention"],
+                [
+                    "abacus-beads-planner",
+                    "abacus-beads-doctor",
+                    "abacus-beads-attention",
+                    "abacus-git-check",
+                ],
                 installed.InstalledSkills);
             var installedRoot = installed.SkillsRoot;
             Assert.Equal(Path.Combine(root.FullName, ".agents", "skills"), installedRoot);
             var planner = Path.Combine(installedRoot, "abacus-beads-planner", "SKILL.md");
             var doctor = Path.Combine(installedRoot, "abacus-beads-doctor", "SKILL.md");
             var attention = Path.Combine(installedRoot, "abacus-beads-attention", "SKILL.md");
+            var gitCheck = Path.Combine(installedRoot, "abacus-git-check", "SKILL.md");
             Assert.Contains("name: abacus-beads-planner", await File.ReadAllTextAsync(planner));
             Assert.Contains("name: abacus-beads-doctor", await File.ReadAllTextAsync(doctor));
             Assert.Contains("name: abacus-beads-attention", await File.ReadAllTextAsync(attention));
+            Assert.Contains("name: abacus-git-check", await File.ReadAllTextAsync(gitCheck));
             Assert.True(File.Exists(Path.Combine(installedRoot, "abacus-beads-planner", "agents", "openai.yaml")));
             Assert.True(File.Exists(Path.Combine(installedRoot, "abacus-beads-doctor", "agents", "openai.yaml")));
             Assert.True(File.Exists(Path.Combine(installedRoot, "abacus-beads-attention", "agents", "openai.yaml")));
+            Assert.True(File.Exists(Path.Combine(installedRoot, "abacus-git-check", "agents", "openai.yaml")));
 
             await File.WriteAllTextAsync(planner, "stale");
             var obsolete = Path.Combine(installedRoot, "abacus-beads-planner", "obsolete.txt");
@@ -75,7 +83,12 @@ public sealed class SkillInstallerTests
 
             Assert.False(replaced.Cancelled);
             Assert.Equal(
-                ["abacus-beads-planner", "abacus-beads-doctor", "abacus-beads-attention"],
+                [
+                    "abacus-beads-planner",
+                    "abacus-beads-doctor",
+                    "abacus-beads-attention",
+                    "abacus-git-check",
+                ],
                 requestedSkills);
             Assert.Contains("name: abacus-beads-planner", await File.ReadAllTextAsync(planner));
             Assert.False(File.Exists(obsolete));

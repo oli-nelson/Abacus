@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="../../skills/abacus-git-check/SKILL.md"
+                      LogicalName="Abacus.Skills.abacus-git-check.SKILL.md" />
+    <EmbeddedResource Include="../../skills/abacus-git-check/agents/openai.yaml"
+                      LogicalName="Abacus.Skills.abacus-git-check.agents.openai.yaml" />
     <EmbeddedResource Include="../../skills/abacus-beads-attention/SKILL.md"
                       LogicalName="Abacus.Skills.abacus-beads-attention.SKILL.md" />
     <EmbeddedResource Include="../../skills/abacus-beads-attention/agents/openai.yaml"
