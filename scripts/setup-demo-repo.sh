@@ -234,6 +234,6 @@ printf '\nOne demo ticket instructs its agent to finish and validate its work be
 printf 'After the agent reports that the branch is ready, a human user must add the exact comment "acknowledged".\n'
 printf 'The agent is explicitly forbidden from adding that acknowledgement itself.\n'
 printf 'After the agent flags it, find the ticket with: bd -C "%s" list --label abacus:needs-user-attention\n' "$repo"
-printf 'From the main repository, acknowledge and reopen it with: abacus --resolve-attention <issue-id> "acknowledged" --reopen\n'
+printf 'From the main repository, acknowledge and reopen it with: abacus --resolve <issue-id> "acknowledged" --reopen\n'
 printf 'The first agent to observe that acknowledgement records the branch state before it merges and closes the ticket.\n'
 printf 'From the demo root, run the Abacus launcher script supplied with Abacus.\n'

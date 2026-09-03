@@ -79,6 +79,8 @@ public sealed class OutputTests
 
         var text = writer.ToString();
         Assert.Contains("ABACUS", text, StringComparison.Ordinal);
+        Assert.Contains("CLAIMS ON", text, StringComparison.Ordinal);
+        Assert.Contains("Shift-Tab toggle", text, StringComparison.Ordinal);
         Assert.Contains("alice", text, StringComparison.Ordinal);
         Assert.Contains("WORKING", text, StringComparison.Ordinal);
         Assert.Contains("bob", text, StringComparison.Ordinal);
@@ -98,6 +100,50 @@ public sealed class OutputTests
         Assert.Contains("Managed agent update", text, StringComparison.Ordinal);
         Assert.Contains("Unknown author update", text, StringComparison.Ordinal);
         Assert.Contains("\u001b[?25h", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShiftTabCyclesWhetherNewClaimsAreAllowed()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: false,
+            interactive: true,
+            color: false);
+        var claimGate = new ClaimGate();
+
+        Assert.True(claimGate.IsEnabled);
+        Assert.False(output.HandleDashboardKey(
+            new ConsoleKeyInfo('\t', ConsoleKey.Tab, shift: false, alt: false, control: false),
+            claimGate));
+        Assert.True(claimGate.IsEnabled);
+
+        Assert.True(output.HandleDashboardKey(
+            new ConsoleKeyInfo('\t', ConsoleKey.Tab, shift: true, alt: false, control: false),
+            claimGate));
+        Assert.False(claimGate.IsEnabled);
+        Assert.Contains("CLAIMS PAUSED", writer.ToString(), StringComparison.Ordinal);
+        Assert.Contains("active tickets continue", writer.ToString(), StringComparison.Ordinal);
+
+        Assert.True(output.HandleDashboardKey(
+            new ConsoleKeyInfo('\t', ConsoleKey.Tab, shift: true, alt: false, control: false),
+            claimGate));
+        Assert.True(claimGate.IsEnabled);
+        Assert.Contains("New ticket claims enabled", writer.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClaimToggleRequiresShiftTabWithoutAdditionalModifiers()
+    {
+        Assert.True(ConsoleOutput.IsClaimToggle(
+            new ConsoleKeyInfo('\t', ConsoleKey.Tab, shift: true, alt: false, control: false)));
+        Assert.False(ConsoleOutput.IsClaimToggle(
+            new ConsoleKeyInfo('\t', ConsoleKey.Tab, shift: false, alt: false, control: false)));
+        Assert.False(ConsoleOutput.IsClaimToggle(
+            new ConsoleKeyInfo('\t', ConsoleKey.Tab, shift: true, alt: false, control: true)));
     }
 
     [Fact]

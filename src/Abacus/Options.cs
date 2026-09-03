@@ -70,7 +70,7 @@ public sealed record Options(
         "Usage: abacus --init-new-multi-agent-repo <project-name> <agent-count> | " +
         "abacus --install-skills | abacus --health | abacus --models | " +
         "abacus --prune-closed-branches | abacus --list-user-attention | " +
-        "abacus --resolve-attention <issue-id> [<message>] [--reopen] | " +
+        "abacus --resolve <issue-id> [<message>] [--reopen] | " +
         "abacus [--mode <opencode|codex|claude|opencode-server>] " +
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <model> [--effort <effort>] [--remote] " +
@@ -91,7 +91,8 @@ public sealed record Options(
           abacus --models
           abacus --prune-closed-branches
           abacus --list-user-attention
-          abacus --resolve-attention <issue-id> [<message>] [--reopen]
+          abacus --resolve <issue-id> [<message>] [--reopen]
+          abacus -r <issue-id> [<message>] [--reopen]
 
           abacus [--mode <opencode|codex|claude|opencode-server>] \
             [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
@@ -139,7 +140,7 @@ public sealed record Options(
           abacus:needs-user-attention label, one per line.
 
         Resolve user attention:
-          --resolve-attention removes the abacus:needs-user-attention label from
+          --resolve (or -r) removes the abacus:needs-user-attention label from
           one Beads issue. If a quoted message is supplied, Abacus first adds a
           Beads comment containing that exact message. --reopen also sets the
           issue status to open and clears its assignee.
@@ -298,19 +299,19 @@ public sealed record Options(
             return OptionsParseResult.ListUserAttentionOnly;
         }
 
-        if (arguments.Contains("--resolve-attention", StringComparer.Ordinal))
+        if (arguments.Any(static argument => argument is "--resolve" or "-r"))
         {
             if (arguments.Count is < 2 or > 4
-                || !string.Equals(arguments[0], "--resolve-attention", StringComparison.Ordinal))
+                || arguments[0] is not ("--resolve" or "-r"))
             {
                 throw new OptionsException(
-                    "--resolve-attention must be used alone as --resolve-attention <issue-id> [<message>] [--reopen]");
+                    "--resolve (-r) must be used alone as --resolve <issue-id> [<message>] [--reopen]");
             }
 
             var issueId = arguments[1];
             if (string.IsNullOrWhiteSpace(issueId) || issueId.Any(char.IsWhiteSpace))
             {
-                throw new OptionsException("--resolve-attention requires a nonempty issue ID without whitespace");
+                throw new OptionsException("--resolve requires a nonempty issue ID without whitespace");
             }
 
             var trailingArguments = arguments.Skip(2).ToArray();
@@ -326,13 +327,13 @@ public sealed record Options(
             if (messageArguments.Length > 1)
             {
                 throw new OptionsException(
-                    "--resolve-attention must be used alone as --resolve-attention <issue-id> [<message>] [--reopen]");
+                    "--resolve (-r) must be used alone as --resolve <issue-id> [<message>] [--reopen]");
             }
 
             var message = messageArguments.SingleOrDefault();
             if (message is not null && string.IsNullOrWhiteSpace(message))
             {
-                throw new OptionsException("--resolve-attention message cannot be empty");
+                throw new OptionsException("--resolve message cannot be empty");
             }
 
             return OptionsParseResult.ResolveAttentionOnly(issueId, message, reopenCount == 1);

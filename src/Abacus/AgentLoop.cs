@@ -10,9 +10,11 @@ public sealed class ClaimCoordinator(
     TimeSpan? pollingInterval = null,
     RunSummary? summary = null,
     DispatchFilters? dispatchFilters = null,
-    DesktopNotifier? notifier = null)
+    DesktopNotifier? notifier = null,
+    ClaimGate? claimGate = null)
 {
     private readonly DispatchFilters filters = dispatchFilters ?? DispatchFilters.Empty;
+    private readonly ClaimGate claimsAllowed = claimGate ?? new ClaimGate();
     public TimeSpan PollingInterval { get; } = pollingInterval ?? TimeSpan.FromSeconds(5);
 
     public async Task<PreparedClaim> WaitForPreparedClaimAsync(
@@ -36,6 +38,7 @@ public sealed class ClaimCoordinator(
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            await WaitForClaimPermissionAsync(agent.Name, cancellationToken);
             await log.SetAgentAsync(agent.Name, AgentActivity.Waiting, "Looking for a ready ticket");
             if (!Directory.Exists(agent.WorkspacePath))
             {
@@ -81,6 +84,7 @@ public sealed class ClaimCoordinator(
             BeadsIssue? issue;
             try
             {
+                await WaitForClaimPermissionAsync(agent.Name, cancellationToken);
                 issue = await beads.TryClaimReadyAsync(
                     agent.WorkspacePath,
                     agent.Name,
@@ -155,6 +159,21 @@ public sealed class ClaimCoordinator(
                 await log.ClearTicketAsync(agent.Name);
             }
         }
+    }
+
+    private async Task WaitForClaimPermissionAsync(
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        if (!claimsAllowed.IsEnabled)
+        {
+            await log.SetAgentAsync(
+                agentName,
+                AgentActivity.Paused,
+                "New ticket claims paused; press Shift-Tab to resume");
+        }
+
+        await claimsAllowed.WaitUntilEnabledAsync(cancellationToken);
     }
 
     private Task WarnAsync(string agentName, string message) =>

@@ -121,7 +121,8 @@ Before building the loop, capture the exact behavior of the locally supported co
   abacus --models
   abacus --prune-closed-branches
   abacus --list-user-attention
-  abacus --resolve-attention <issue-id> [<message>] [--reopen]
+  abacus --resolve <issue-id> [<message>] [--reopen]
+  abacus -r <issue-id> [<message>] [--reopen]
 
   abacus [--mode <opencode|codex|claude|opencode-server>] \
     [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
@@ -178,7 +179,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   results by harness, and isolate missing-tool or command failures. Report that
   Claude Code requires its interactive `/model` picker because its CLI exposes
   no non-interactive catalog command. Require no repository or agent options.
-- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed latest-comments log at the bottom, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a header line, then the truncated comment on an indented line beneath it, colored red for attention-labelled issues, green for configured-agent authors, and cyan for unrecognized authors. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print the initial full Beads Dolt commit plus a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
+- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Start with new claims enabled and let Shift-Tab pause or resume new ticket claims across all agents without interrupting active tickets; show the current claim state in the header and a paused state for agents waiting at the claim boundary. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed latest-comments log at the bottom, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a header line, then the truncated comment on an indented line beneath it, colored red for attention-labelled issues, green for configured-agent authors, and cyan for unrecognized authors. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print the initial full Beads Dolt commit plus a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 - Keep desktop notifications dependency-free and owned by the orchestrator. `--notify attention` reports new user-attention issues, blocked tickets, and persistent recovery failures; `--notify all` also reports all ticket outcomes and the final run summary. Use `osascript` on macOS and optional `notify-send` on Linux through `ProcessStartInfo.ArgumentList`. When sound is enabled, distinguish successful outcomes from attention or unsuccessful outcomes with positive and negative platform sounds. Treat delivery as best effort, deduplicate polled attention issues, and use a terminal bell fallback only when `--notify-sound` was requested.
 
 ### Exit criteria
@@ -365,7 +366,7 @@ All checks happen before any ticket is claimed or agent run is created.
   closed tickets while preserving non-Abacus, remote, and checked-out branches.
 - `abacus --list-user-attention` prints the IDs of all attention-labelled
   tickets without starting orchestration.
-- `abacus --resolve-attention` removes the attention label from one issue,
+- `abacus --resolve` (or `abacus -r`) removes the attention label from one issue,
   optionally records the user's response, and can reopen and unassign the issue
   with `--reopen`, without starting agent orchestration.
 - The CLI and prompt match SPEC.md.

@@ -5,6 +5,7 @@ namespace Abacus;
 public enum AgentActivity
 {
     Starting,
+    Paused,
     Waiting,
     Idle,
     Syncing,
@@ -116,6 +117,7 @@ internal static class OutputExtensions
     public static string ActivityName(AgentActivity activity) => activity switch
     {
         AgentActivity.Starting => "STARTING",
+        AgentActivity.Paused => "PAUSED",
         AgentActivity.Waiting => "WAITING",
         AgentActivity.Idle => "IDLE",
         AgentActivity.Syncing => "SYNCING",
@@ -175,6 +177,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private IReadOnlyList<BeadsComment> latestComments = [];
     private readonly Timer? refreshTimer;
     private string systemStatus = "Running preflight checks";
+    private bool claimingEnabled = true;
     private bool rendered;
     private bool dashboardFrozen;
     private bool disposed;
@@ -216,6 +219,62 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     public override Encoding Encoding => writer.Encoding;
 
     internal bool IsInteractiveDashboard => interactive;
+
+    internal async Task MonitorClaimToggleAsync(
+        ClaimGate claimGate,
+        CancellationToken cancellationToken)
+    {
+        if (!interactive || Console.IsInputRedirected)
+        {
+            return;
+        }
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                if (Console.KeyAvailable)
+                {
+                    HandleDashboardKey(Console.ReadKey(intercept: true), claimGate);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+            catch (IOException)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
+        }
+    }
+
+    internal bool HandleDashboardKey(ConsoleKeyInfo key, ClaimGate claimGate)
+    {
+        if (!IsClaimToggle(key))
+        {
+            return false;
+        }
+
+        var enabled = claimGate.Toggle();
+        lock (gate)
+        {
+            claimingEnabled = enabled;
+            systemStatus = enabled
+                ? "New ticket claims enabled"
+                : "New ticket claims paused; active tickets continue";
+            RenderDashboard();
+        }
+
+        return true;
+    }
+
+    internal static bool IsClaimToggle(ConsoleKeyInfo key) =>
+        key.Key is ConsoleKey.Tab
+        && key.Modifiers is ConsoleModifiers.Shift;
 
     public Task SetAgentAsync(string agentName, AgentActivity activity, string detail)
     {
@@ -517,7 +576,9 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         var builder = new StringBuilder();
         builder.Append(rendered ? "\u001b[H" : "\u001b[2J\u001b[H");
         builder.Append(Color(Bold + Cyan, " ABACUS"));
-        builder.Append(Color(Dim, $"  {agents.Count} agent{(agents.Count == 1 ? string.Empty : "s")}  •  {model}  •  Ctrl-C to stop"));
+        builder.Append(Color(Dim, $"  {agents.Count} agent{(agents.Count == 1 ? string.Empty : "s")}  •  {model}  •  "));
+        builder.Append(Color(claimingEnabled ? Green : Yellow, claimingEnabled ? "CLAIMS ON" : "CLAIMS PAUSED"));
+        builder.Append(Color(Dim, "  •  Shift-Tab toggle  •  Ctrl-C stop"));
         builder.Append("\u001b[K\n");
         builder.Append(Color(Dim, line)).Append("\u001b[K\n");
 
@@ -531,6 +592,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 AgentActivity.Recovering or AgentActivity.Retrying => Red,
                 AgentActivity.Cleaning or AgentActivity.Preparing or AgentActivity.Syncing or AgentActivity.Finalizing => Yellow,
                 AgentActivity.Starting => Magenta,
+                AgentActivity.Paused => Yellow,
                 _ => Cyan,
             };
             var icon = row.Activity == AgentActivity.Working ? "●" : "○";

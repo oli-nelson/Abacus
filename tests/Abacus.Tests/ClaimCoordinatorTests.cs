@@ -111,6 +111,33 @@ public sealed class ClaimCoordinatorTests
         Assert.Equal("0", await fixture.ReadAsync("ready-count"));
     }
 
+    [Fact]
+    public async Task PausedClaimsDoNotQueryBeadsUntilResumed()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await CoordinatorFixture.CreateAsync(recoverFirstClaim: false);
+        fixture.ClaimGate.SetEnabled(false);
+        var pendingClaim = fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            singleAgentMode: true,
+            CancellationToken.None);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(25));
+        Assert.False(pendingClaim.IsCompleted);
+        Assert.Equal("0", await fixture.ReadAsync("ready-count"));
+        Assert.Contains("New ticket claims paused", fixture.Log.ToString(), StringComparison.Ordinal);
+
+        fixture.ClaimGate.SetEnabled(true);
+        var claim = await pendingClaim;
+
+        Assert.Equal("abc-good", claim.Issue.Id);
+        Assert.Equal("2", await fixture.ReadAsync("ready-count"));
+    }
+
     private sealed class CoordinatorFixture : IDisposable
     {
         private readonly DirectoryInfo root;
@@ -128,15 +155,18 @@ public sealed class ClaimCoordinatorTests
             var runner = new CommandRunner(Log);
             var beads = new Beads(runner, bd);
             var recovery = new TicketRecovery(beads, Log, retryDelay: TimeSpan.Zero);
+            ClaimGate = new ClaimGate();
             Coordinator = new ClaimCoordinator(
                 beads,
                 new Git(runner, git),
                 recovery,
                 Log,
-                TimeSpan.FromMilliseconds(1));
+                TimeSpan.FromMilliseconds(1),
+                claimGate: ClaimGate);
         }
 
         public ClaimCoordinator Coordinator { get; }
+        public ClaimGate ClaimGate { get; }
         public StringWriter Log { get; }
 
         public static async Task<CoordinatorFixture> CreateAsync(

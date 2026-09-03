@@ -40,6 +40,10 @@ public sealed class AbacusApplication(
             notifier);
 
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var claimGate = new ClaimGate();
+        var inputMonitor = log is ConsoleOutput consoleOutput
+            ? consoleOutput.MonitorClaimToggleAsync(claimGate, linkedCancellation.Token)
+            : Task.CompletedTask;
         try
         {
             await log.SystemAsync("Agent loops started");
@@ -73,7 +77,8 @@ public sealed class AbacusApplication(
                     log,
                     summary: summary,
                     dispatchFilters: preflight.Options.DispatchFilters,
-                    notifier: notifier);
+                    notifier: notifier,
+                    claimGate: claimGate);
                 var supervisor = new TicketSupervisor(
                     beads,
                     agentHost,
@@ -127,6 +132,15 @@ public sealed class AbacusApplication(
         finally
         {
             linkedCancellation.Cancel();
+            try
+            {
+                await inputMonitor;
+            }
+            catch (OperationCanceledException)
+            {
+                // The input monitor shares the application lifetime.
+            }
+
             try
             {
                 Directory.Delete(temporaryRoot, recursive: false);

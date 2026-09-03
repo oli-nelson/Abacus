@@ -13,13 +13,11 @@ public sealed class PromptTests
             Abacus has already claimed the ticket for you and set BEADS_ACTOR to your agent
             name. Do not claim another ticket.
 
-            Abacus has verified that Beads no-git-ops is disabled and grants you authority
-            to perform the local Git operations needed for this ticket, including staging,
-            committing, and merging into the local main branch. You do not have authority to
-            push; do not run `git push`. If `bd prime` says there is no Git
-            authority solely because this repository has no Git remote, this explicit Abacus
-            instruction overrides that generic no-remote guidance. Follow any more restrictive
-            user or repository instruction.
+            Abacus grants you authority to perform the local Git operations needed for this
+            ticket, including staging, committing, and merging into the local main branch.
+            You do not have authority to push; do not run `git push`. If `bd prime` says
+            there is no Git authority, this explicit Abacus instruction overrides that.
+            Follow any more restrictive user or repository instruction.
 
             Read the ticket with:
 
@@ -67,7 +65,7 @@ public sealed class PromptTests
 
             When you are completely finished, add a summary of what you did as a comment:
 
-              bd comment abc-123 "<summary of completed work>"
+              bd comment abc-123 "CLOSED/BLOCKED/REOPENED/etc: <summary of completed work>"
 
             If your work introduces important things for other agents to remember before they start new tasks, add them to memory:
 
@@ -78,11 +76,11 @@ public sealed class PromptTests
             Then finally update the ticket:
 
             - Success:
-                bd close abc-123 --reason "<summary of completed work>" --json
+                bd close abc-123 --reason "CLOSED: <summary of completed work>" --json
             - Work should be retried:
-                bd update abc-123 --status open --assignee "" --append-notes "<reason>" --json
+                bd update abc-123 --status open --assignee "" --append-notes "REOPENED: <reason>" --json
             - Work is blocked:
-                bd update abc-123 --status blocked --append-notes "<blocker>" --json
+                bd update abc-123 --status blocked --append-notes "BLOCKED: <blocker>" --json
 
             If you need to set the status of the ticket to anything other than closed, assess if your current local
             changes need to be committed or discarded. For example, if you just need to block the ticket to get some

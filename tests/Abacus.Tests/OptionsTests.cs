@@ -687,10 +687,12 @@ public sealed class OptionsTests
         Assert.Throws<OptionsException>(() => Options.Parse([command, "--verbose"]));
     }
 
-    [Fact]
-    public void ResolveAttentionDoesNotRequireAgentOptions()
+    [Theory]
+    [InlineData("--resolve")]
+    [InlineData("-r")]
+    public void ResolveDoesNotRequireAgentOptions(string command)
     {
-        var result = Options.Parse(["--resolve-attention", "ab-123"]);
+        var result = Options.Parse([command, "ab-123"]);
 
         var resolution = Assert.IsType<AttentionResolutionOptions>(result.AttentionResolution);
         Assert.Equal("ab-123", resolution.IssueId);
@@ -701,10 +703,17 @@ public sealed class OptionsTests
     }
 
     [Fact]
+    public void PreviousResolveAttentionNameIsRejected()
+    {
+        Assert.Throws<OptionsException>(() =>
+            Options.Parse(["--resolve-attention", "ab-123"]));
+    }
+
+    [Fact]
     public void ResolveAttentionAcceptsAnOptionalQuotedMessage()
     {
         var result = Options.Parse([
-            "--resolve-attention",
+            "--resolve",
             "ab-123",
             "Use option A after QA",
         ]);
@@ -721,7 +730,7 @@ public sealed class OptionsTests
     public void ResolveAttentionAcceptsReopenWithOrWithoutAMessage(params string[] trailingArguments)
     {
         var result = Options.Parse([
-            "--resolve-attention",
+            "--resolve",
             "ab-123",
             .. trailingArguments,
         ]);
@@ -735,10 +744,11 @@ public sealed class OptionsTests
     }
 
     [Theory]
-    [InlineData("--resolve-attention")]
-    [InlineData("--resolve-attention", "ab-123", "message", "extra")]
-    [InlineData("--resolve-attention", "ab-123", "--reopen", "--reopen")]
-    [InlineData("--verbose", "--resolve-attention", "ab-123")]
+    [InlineData("--resolve")]
+    [InlineData("-r")]
+    [InlineData("--resolve", "ab-123", "message", "extra")]
+    [InlineData("--resolve", "ab-123", "--reopen", "--reopen")]
+    [InlineData("--verbose", "--resolve", "ab-123")]
     public void ResolveAttentionRejectsMissingOrCombinedArguments(params string[] arguments)
     {
         Assert.Throws<OptionsException>(() => Options.Parse(arguments));
@@ -750,6 +760,6 @@ public sealed class OptionsTests
     public void ResolveAttentionRejectsAnEmptyMessage(string message)
     {
         Assert.Throws<OptionsException>(() =>
-            Options.Parse(["--resolve-attention", "ab-123", message]));
+            Options.Parse(["--resolve", "ab-123", message]));
     }
 }

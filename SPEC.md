@@ -110,7 +110,8 @@ abacus --list-user-attention
 Resolve a user-attention callout from the current Beads project:
 
 ```sh
-abacus --resolve-attention <issue-id> [<message>] [--reopen]
+abacus --resolve <issue-id> [<message>] [--reopen]
+abacus -r <issue-id> [<message>] [--reopen]
 ```
 
 Start agents in an existing tmux session:
@@ -146,7 +147,7 @@ Dispatch filters are optional and apply to every fresh or same-agent resumed rea
 
 `--notify` controls Abacus-owned desktop notifications and defaults to `off`. `attention` reports newly observed `abacus:needs-user-attention` issues, blocked tickets, and persistent recovery failures. `all` additionally reports every ticket outcome and the final run summary. On macOS Abacus uses `osascript`; on Linux it uses `notify-send` when available. Notification delivery is best effort and never changes orchestration outcomes. `--notify-sound` uses a positive sound for closed tickets and runs with only closed outcomes, and a negative sound for attention, persistent failures, reopened, blocked, or interrupted outcomes and run summaries containing any of those outcomes. It permits a terminal bell fallback if desktop delivery is unavailable and requires `--notify attention` or `--notify all`.
 
-`--resolve-attention <issue-id> [<message>] [--reopen]` is a standalone operation. It runs
+`--resolve <issue-id> [<message>] [--reopen]` (short form `-r`) is a standalone operation. It runs
 `bd update` in the current directory to remove
 `abacus:needs-user-attention`. When the optional message is present, it first
 uses `bd comment` to add the exact supplied message. The label is not removed if
@@ -206,7 +207,7 @@ Without `--tmux-session`, each agent starts as a directly supervised, non-intera
 
 For backward compatibility, supplying `--opencode-server` without `--mode` implies `opencode-server`. Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`. The server option is rejected for all other explicit modes.
 
-By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
+By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, paused, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. The dashboard starts with new ticket claims enabled. Pressing Shift-Tab toggles new claims on or off for all agents; pausing does not interrupt tickets that are already active. The header shows the current claim state, and agents waiting for permission display a paused state. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
 
 Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without cleaning workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected agent executable, workspace, Beads `no-git-ops` setting, and Dolt configuration, the OpenCode server address when applicable, and any requested tmux session/window target. These three options are mutually exclusive.
 
@@ -288,13 +289,11 @@ You are <agent_name>, working on Beads ticket <issue_id> in <workspace_path>.
 Abacus has already claimed the ticket for you and set BEADS_ACTOR to your agent
 name. Do not claim another ticket.
 
-Abacus has verified that Beads no-git-ops is disabled and grants you authority
-to perform the local Git operations needed for this ticket, including staging,
-committing, and merging into the local main branch. You do not have authority to
-push; do not run `git push`. If `bd prime` says there is no Git
-authority solely because this repository has no Git remote, this explicit Abacus
-instruction overrides that generic no-remote guidance. Follow any more restrictive
-user or repository instruction.
+Abacus grants you authority to perform the local Git operations needed for this
+ticket, including staging, committing, and merging into the local main branch.
+You do not have authority to push; do not run `git push`. If `bd prime` says
+there is no Git authority, this explicit Abacus instruction overrides that.
+Follow any more restrictive user or repository instruction.
 
 Read the ticket with:
 
@@ -342,7 +341,7 @@ blocked below. If user attention is no longer needed, remove the alert with:
 
 When you are completely finished, add a summary of what you did as a comment:
 
-  bd comment <issue_id> "<summary of completed work>"
+  bd comment <issue_id> "CLOSED/BLOCKED/REOPENED/etc: <summary of completed work>"
 
 If your work introduces important things for other agents to remember before they start new tasks, add them to memory:
 
@@ -353,11 +352,11 @@ But use memory sparingly; it is not a substitute for good documentation in the r
 Then finally update the ticket:
 
 - Success:
-    bd close <issue_id> --reason "<summary of completed work>" --json
+    bd close <issue_id> --reason "CLOSED: <summary of completed work>" --json
 - Work should be retried:
-    bd update <issue_id> --status open --assignee "" --append-notes "<reason>" --json
+    bd update <issue_id> --status open --assignee "" --append-notes "REOPENED: <reason>" --json
 - Work is blocked:
-    bd update <issue_id> --status blocked --append-notes "<blocker>" --json
+    bd update <issue_id> --status blocked --append-notes "BLOCKED: <blocker>" --json
 
 If you need to set the status of the ticket to anything other than closed, assess if your current local
 changes need to be committed or discarded. For example, if you just need to block the ticket to get some

@@ -194,20 +194,21 @@ Remove the `abacus:needs-user-attention` label from one issue in the current
 Beads project:
 
 ```sh
-abacus --resolve-attention ab-123
+abacus --resolve ab-123
+# Short form: abacus -r ab-123
 ```
 
 Optionally provide a quoted response message:
 
 ```sh
-abacus --resolve-attention ab-123 "Approved option A"
+abacus --resolve ab-123 "Approved option A"
 ```
 
 Add `--reopen` to also set the ticket back to `open` and clear its assignee so
 an agent can claim it again:
 
 ```sh
-abacus --resolve-attention ab-123 "Approved option A" --reopen
+abacus --resolve ab-123 "Approved option A" --reopen
 ```
 
 Without a message, Abacus performs one `bd update` that removes the label. When
@@ -367,7 +368,7 @@ abacus \
 
 Abacus will claim ready tickets, create or reuse `abacus/<issue-id>`, and launch the full OpenCode TUI with the ticket prompt in an Abacus-owned pane. Each pane is given a stable `<agent> • <issue-id>` tmux title, and OpenCode is prevented from replacing it while that pane exists. tmux shows the active pane title in its default status line; configurations that display `#{pane_title}` in pane borders show every agent label beside its pane. OpenCode receives the pane's terminal directly so the TUI has a TTY. Abacus returns to polling after each ticket reaches `closed`, `open`, or `blocked`.
 
-The default terminal display is a live dashboard with one row per agent. It shows the current lifecycle state (`STARTING`, `WAITING`, `IDLE`, `SYNCING`, `CLEANING`, `PREPARING`, `WORKING`, `FINALIZING`, `RECOVERING`, `RETRYING`, or `STOPPED`), elapsed time in that state, the active ticket ID and title, pane or process location, retry count, last observed exit code, and recent warnings. At the bottom, a periodically refreshed log shows the latest 8 Beads comments by default. Each entry puts the issue ID, truncated issue title, and author on a header line, then uses an indented second line for the truncated comment. Attention-labelled issues are red, configured-agent authors are yellow, and unrecognized authors are cyan. Use `--latest-comments <count>` to show from 1 through 100 entries. Idle polling is distinct from error retries. For raw diagnostics, add `--verbose` (or `--debug`/`-v`):
+The default terminal display is a live dashboard with one row per agent. It shows the current lifecycle state (`STARTING`, `PAUSED`, `WAITING`, `IDLE`, `SYNCING`, `CLEANING`, `PREPARING`, `WORKING`, `FINALIZING`, `RECOVERING`, `RETRYING`, or `STOPPED`), elapsed time in that state, the active ticket ID and title, pane or process location, retry count, last observed exit code, and recent warnings. New ticket claims start enabled. Press `Shift-Tab` to pause or resume new claims for every agent; active tickets continue running, and the dashboard header shows the current claim state. At the bottom, a periodically refreshed log shows the latest 8 Beads comments by default. Each entry puts the issue ID, truncated issue title, and author on a header line, then uses an indented second line for the truncated comment. Attention-labelled issues are red, configured-agent authors are yellow, and unrecognized authors are cyan. Use `--latest-comments <count>` to show from 1 through 100 entries. Idle polling is distinct from error retries. For raw diagnostics, add `--verbose` (or `--debug`/`-v`):
 
 ```sh
 abacus --verbose \
