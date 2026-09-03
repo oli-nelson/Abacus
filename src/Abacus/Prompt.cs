@@ -16,13 +16,11 @@ public static class Prompt
         Abacus has already claimed the ticket for you and set BEADS_ACTOR to your agent
         name. Do not claim another ticket.
 
-        Abacus has verified that Beads no-git-ops is disabled and grants you authority
-        to perform the local Git operations needed for this ticket, including staging,
-        committing, and merging into the local main branch. You do not have authority to
-        push; do not run `git push`. If `bd prime` says there is no Git
-        authority solely because this repository has no Git remote, this explicit Abacus
-        instruction overrides that generic no-remote guidance. Follow any more restrictive
-        user or repository instruction.
+        Abacus grants you authority to perform the local Git operations needed for this
+        ticket, including staging, committing, and merging into the local main branch.
+        You do not have authority to push; do not run `git push`. If `bd prime` says
+        there is no Git authority, this explicit Abacus instruction overrides that.
+        Follow any more restrictive user or repository instruction.
 
         Read the ticket with:
 
