@@ -104,6 +104,8 @@ The report checks:
 - Git and Beads installation, minimum versions, and the resolved repository root;
 - whether Beads is initialized and configured for embedded single-agent use or
   reachable shared-Dolt multi-agent use;
+- whether Beads `no-git-ops` is disabled, with
+  `bd config set no-git-ops false` shown as the correction when needed;
 - whether the project has a Beads merge slot, including its current holder when
   occupied; a missing slot warns that agents may not serialize merges unless the
   repository defines another coordination mechanism;
@@ -122,10 +124,11 @@ workspaces, but `--health` intentionally does not search the filesystem for
 them. Direct OpenCode Server mode does not need tmux, and the health check does
 not attempt to find or contact an OpenCode server.
 
-`--health` exits with status 0 when at least one single-agent mode is runnable
-and all bundled skills are installed. It exits with status 1 when the repository
-needs attention. A missing merge slot is advisory and does not change the exit
-status because repositories may use another serialized merge process.
+`--health` exits with status 0 when at least one single-agent mode is runnable,
+`no-git-ops` is disabled, and all bundled skills are installed. It exits with
+status 1 when the repository needs attention. A missing merge slot is advisory
+and does not change the exit status because repositories may use another
+serialized merge process.
 
 ### List available models
 
@@ -610,7 +613,7 @@ Abacus normally waits and polls continuously. For CI and scripts, choose one mut
 
 - `--once` lets each configured agent process at most one ready ticket, then exits. If no ticket is ready for an agent, that agent exits without waiting.
 - `--drain` keeps processing tickets until each agent finishes its active work and observes no more ready tickets.
-- `--check` runs preflight validation and exits without claiming tickets, cleaning workspaces, or starting an agent CLI. It checks only the selected agent executable plus Git workspaces, Beads/Dolt identity and remote configuration, applicable server-address syntax, and requested tmux target.
+- `--check` runs preflight validation and exits without claiming tickets, cleaning workspaces, or starting an agent CLI. It checks only the selected agent executable plus Git workspaces, Beads `no-git-ops`, Dolt identity and remote configuration, applicable server-address syntax, and requested tmux target. Normal runs use the same preflight and exit with a correction command when `no-git-ops` is enabled.
 
 Finite execution modes fail fast on command or orchestration errors instead of retrying forever. Successful `--once` and `--drain` runs print the normal outcome summary; `--check` prints a preflight success message and no run summary.
 

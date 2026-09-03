@@ -62,6 +62,12 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
         foreach (var agent in resolvedAgents)
         {
             await git.VerifyWorkspaceAsync(agent.WorkspacePath, agent.Name, cancellationToken);
+            if (await beads.IsNoGitOpsEnabledAsync(agent.WorkspacePath, cancellationToken))
+            {
+                throw new PreflightException(
+                    $"Abacus cannot continue because Beads no-git-ops is enabled. Disable it with: {Beads.DisableNoGitOpsCommand}");
+            }
+
             var identity = await beads.ReadDoltIdentityAsync(agent.WorkspacePath, agent.Name, cancellationToken);
             var hasRemote = await beads.HasRemoteAsync(agent.WorkspacePath, agent.Name, cancellationToken);
             string? repositoryPrompt;

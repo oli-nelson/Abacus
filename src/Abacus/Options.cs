@@ -112,7 +112,7 @@ public sealed record Options(
           before their directories are replaced.
 
         Health:
-          --health reports Beads configuration and merge-slot availability,
+          --health reports Beads configuration, no-git-ops, and merge-slot availability,
           supported agent harness and tmux versions, referenced Git worktrees,
           bundled skill presence, and single-/multi-agent readiness.
 

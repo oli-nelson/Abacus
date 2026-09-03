@@ -789,7 +789,7 @@ abacus --help</code></pre>
 
         <div class="callout info">
           <span class="icon">i</span>
-          <p><strong>Health is the fastest diagnostic.</strong> Run <code>abacus --health</code> inside the target repository. It reports tool versions, Beads storage, server connectivity, merge-slot status, Git worktrees, installed Abacus skills, and single-/multi-agent readiness.</p>
+          <p><strong>Health is the fastest diagnostic.</strong> Run <code>abacus --health</code> inside the target repository. It reports tool versions, Beads storage, server connectivity, <code>no-git-ops</code>, merge-slot status, Git worktrees, installed Abacus skills, and single-/multi-agent readiness.</p>
         </div>
       </article>
 
@@ -825,7 +825,7 @@ git status --short</code></pre>
         <ul class="checklist">
           <li>The base branch exists and has a commit.</li>
           <li>The administrative checkout is clean.</li>
-          <li>Repository instructions define a serialized merge process.</li>
+          <li>If the built-in merge process is unsuitable, repository instructions define a custom one.</li>
           <li>Every future agent receives a distinct path.</li>
         </ul>
       </article>
@@ -1138,6 +1138,11 @@ abacus \
         <div class="callout danger">
           <span class="icon">!</span>
           <p><strong>Embedded mode will be rejected.</strong> Multi-agent preflight succeeds only when every worktree reports the same reachable server host, port, and database.</p>
+        </div>
+
+        <div class="callout danger">
+          <span class="icon">!</span>
+          <p><strong>Git operations must be enabled.</strong> Health and normal preflight check Beads <code>no-git-ops</code>. If it is enabled, Abacus exits before claiming work or starting an agent and reports <code>bd config set no-git-ops false</code> as the correction.</p>
         </div>
 
         <div class="code-block">

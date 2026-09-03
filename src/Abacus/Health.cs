@@ -45,6 +45,16 @@ public sealed record MergeSlotHealth(
     string? Holder,
     string Detail);
 
+public enum NoGitOpsHealthStatus
+{
+    NotChecked,
+    Disabled,
+    Enabled,
+    Error,
+}
+
+public sealed record NoGitOpsHealth(NoGitOpsHealthStatus Status, string Detail);
+
 public sealed record HealthReport(
     string? RepositoryRoot,
     ToolHealth Git,
@@ -55,6 +65,7 @@ public sealed record HealthReport(
     ToolHealth Tmux,
     DoltIdentity? DoltIdentity,
     string? BeadsError,
+    NoGitOpsHealth NoGitOps,
     MergeSlotHealth MergeSlot,
     IReadOnlyList<GitWorktreeHealth> Worktrees,
     string? WorktreeError,
@@ -82,6 +93,23 @@ public sealed record HealthReport(
         text.AppendLine();
         text.AppendLine("Beads");
         AppendTool(text, Beads);
+        switch (NoGitOps.Status)
+        {
+            case NoGitOpsHealthStatus.Disabled:
+                text.AppendLine("  [PASS] Git operations: no-git-ops is disabled.");
+                break;
+            case NoGitOpsHealthStatus.Enabled:
+                text.AppendLine("  [FAIL] Git operations: Beads no-git-ops is enabled, so Abacus cannot continue.");
+                text.AppendLine($"  Disable it with: {Abacus.Beads.DisableNoGitOpsCommand}");
+                break;
+            case NoGitOpsHealthStatus.Error:
+                text.AppendLine($"  [FAIL] Git operations: could not check no-git-ops: {NoGitOps.Detail}");
+                break;
+            default:
+                text.AppendLine($"  [INFO] Git operations: no-git-ops was not checked: {NoGitOps.Detail}");
+                break;
+        }
+
         if (DoltIdentity is null)
         {
             text.AppendLine($"  [FAIL] Not initialized or unavailable: {BeadsError ?? "unknown error"}");
@@ -291,6 +319,9 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
 
         DoltIdentity? identity = null;
         string? beadsError = null;
+        var noGitOps = new NoGitOpsHealth(
+            NoGitOpsHealthStatus.NotChecked,
+            "Git or Beads is unavailable");
         var mergeSlot = new MergeSlotHealth(
             MergeSlotHealthStatus.NotChecked,
             Id: null,
@@ -308,6 +339,19 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
         }
         else
         {
+            try
+            {
+                var enabled = await new Beads(runner, FindExecutable("bd")!)
+                    .IsNoGitOpsEnabledAsync(repositoryRoot, cancellationToken);
+                noGitOps = new NoGitOpsHealth(
+                    enabled ? NoGitOpsHealthStatus.Enabled : NoGitOpsHealthStatus.Disabled,
+                    enabled ? "enabled" : "disabled");
+            }
+            catch (PreflightException exception)
+            {
+                noGitOps = new NoGitOpsHealth(NoGitOpsHealthStatus.Error, exception.Message);
+            }
+
             var where = await RunAsync("bd", ["where", "--json"], repositoryRoot, cancellationToken);
             if (!where.Succeeded)
             {
@@ -334,7 +378,8 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
 
         var beadsOperational = beads.IsReady
             && identity is not null
-            && (identity.Embedded || identity.ConnectionOk);
+            && (identity.Embedded || identity.ConnectionOk)
+            && noGitOps.Status is NoGitOpsHealthStatus.Disabled;
         var modes = new List<string>();
         if (beadsOperational && openCode.IsReady)
         {
@@ -371,6 +416,7 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
             tmux,
             identity,
             beadsError,
+            noGitOps,
             mergeSlot,
             worktrees,
             worktreeError,

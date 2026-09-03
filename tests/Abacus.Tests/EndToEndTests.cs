@@ -171,6 +171,43 @@ public sealed class EndToEndTests
     }
 
     [Fact]
+    public async Task EnabledNoGitOpsExitsBeforeClaimsOrAgentStartup()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-no-git-ops-");
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+
+            var startInfo = DirectStartInfo(root.FullName, bin, workspace, "--once");
+            startInfo.Environment["ABACUS_TEST_NO_GIT_OPS"] = "1";
+            using var process = Process.Start(startInfo)!;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await process.WaitForExitAsync(timeout.Token);
+
+            Assert.Equal(1, process.ExitCode);
+            Assert.Empty(await stdout);
+            var errorText = await stderr;
+            Assert.Contains("Abacus cannot continue", errorText, StringComparison.Ordinal);
+            Assert.Contains(Beads.DisableNoGitOpsCommand, errorText, StringComparison.Ordinal);
+            Assert.False(File.Exists(Path.Combine(root.FullName, "ready-count")));
+            Assert.False(File.Exists(Path.Combine(root.FullName, "opencode-actor")));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ProgramRunsOneFakeCliTicketAndCleansUpOnCtrlC()
     {
         if (OperatingSystem.IsWindows())
@@ -413,7 +450,10 @@ public sealed class EndToEndTests
             #!/bin/sh
             root={{Q(root)}}
             printf '%s actor=%s\n' "$*" "$BEADS_ACTOR" >> "$root/bd-calls"
-            if test "$1" = dolt && test "$2" = show; then
+            if test "$1" = config && test "$2" = get && test "$3" = no-git-ops; then
+              test "$ABACUS_TEST_NO_GIT_OPS" = 1 && value=true || value=false
+              printf '{"key":"no-git-ops","location":"config.yaml","schema_version":1,"value":"%s"}\n' "$value"
+            elif test "$1" = dolt && test "$2" = show; then
               printf '{"backend":"dolt","data_dir":"/tmp/db","database":"abc","embedded":true,"schema_version":1}\n'
             elif test "$1" = dolt && test "$2" = remote; then
               test "$ABACUS_TEST_REMOTE" = 1 && printf '[{"name":"origin"}]\n' || printf '[]\n'

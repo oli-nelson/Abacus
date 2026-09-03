@@ -182,7 +182,7 @@ For backward compatibility, supplying `--opencode-server` without `--mode` impli
 
 By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
 
-Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without cleaning workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected agent executable, workspace and Dolt configuration, the OpenCode server address when applicable, and any requested tmux session/window target. These three options are mutually exclusive.
+Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without cleaning workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected agent executable, workspace, Beads `no-git-ops` setting, and Dolt configuration, the OpenCode server address when applicable, and any requested tmux session/window target. These three options are mutually exclusive.
 
 ### Repository health
 
@@ -192,6 +192,8 @@ repository it reports:
 - whether Git and Beads meet their minimum versions and Beads is initialized;
 - whether Beads uses embedded single-writer storage or a reachable shared,
   server-backed Dolt database suitable for multiple agents;
+- whether Beads `no-git-ops` is disabled; when enabled, health reports that
+  Abacus cannot run and provides `bd config set no-git-ops false` as the fix;
 - whether a Beads merge slot exists and, when occupied, who holds it; a missing
   slot warns that cross-workspace or cross-machine merge synchronization may be
   unsafe unless another serialized merge process is configured;
@@ -209,11 +211,15 @@ Beads database and more than one referenced Git worktree. Separate clones may
 also provide distinct workspaces, but health deliberately does not search for
 them. Merge-slot availability is advisory because repositories may serialize
 merges another way. The command exits zero when at least one single-agent mode is
-runnable and all bundled skills are installed; otherwise it exits one.
+runnable, `no-git-ops` is disabled, and all bundled skills are installed;
+otherwise it exits one.
 
 ## Agent workflow
 
-Before starting the agent loops, pull once when exactly one configured agent has
+Before starting the agent loops, fail preflight without claiming work or starting
+an agent when Beads `no-git-ops` is enabled, and report
+`bd config set no-git-ops false` as the correction. Otherwise, pull once when
+exactly one configured agent has
 a Dolt remote, then record the current Dolt commit. Abort before claims if
 either operation fails. For multiple agents, record the shared server's current
 commit without pulling it.

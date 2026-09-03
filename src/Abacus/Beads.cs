@@ -52,6 +52,51 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
 
     private const string MergeSlotLabel = "gt:slot";
     public const string NeedsUserAttentionLabel = "abacus:needs-user-attention";
+    public const string DisableNoGitOpsCommand = "bd config set no-git-ops false";
+
+    public async Task<bool> IsNoGitOpsEnabledAsync(
+        string workspace,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(
+            workspace,
+            agentName: null,
+            ["config", "get", "no-git-ops", "--json"],
+            cancellationToken);
+        EnsureSuccess(result, "read Beads no-git-ops configuration");
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.StandardOutput);
+            var value = document.RootElement.GetProperty("value");
+            if (value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                return value.GetBoolean();
+            }
+
+            if (value.ValueKind is not JsonValueKind.String)
+            {
+                throw new JsonException("value must be a string or boolean");
+            }
+
+            var text = value.GetString()?.Trim();
+            if (string.IsNullOrEmpty(text))
+            {
+                return false;
+            }
+
+            if (bool.TryParse(text, out var enabled))
+            {
+                return enabled;
+            }
+
+            throw new JsonException($"value '{text}' is not a boolean");
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            throw new PreflightException($"Beads returned invalid no-git-ops configuration JSON: {exception.Message}");
+        }
+    }
 
     public async Task<CommandResult> ResolveUserAttentionAsync(
         string workspace,

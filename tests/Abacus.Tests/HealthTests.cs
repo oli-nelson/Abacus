@@ -27,6 +27,7 @@ public sealed class HealthTests
 
         Assert.True(report.SingleAgentReady);
         Assert.False(report.MultiAgentReady);
+        Assert.Equal(NoGitOpsHealthStatus.Disabled, report.NoGitOps.Status);
         Assert.False(report.AreSkillsInstalled);
         Assert.False(report.IsHealthy);
         Assert.True(report.DoltIdentity!.Embedded);
@@ -43,6 +44,35 @@ public sealed class HealthTests
         Assert.Contains("abacus --install-skills", rendered, StringComparison.Ordinal);
         Assert.Equal(MergeSlotHealthStatus.Missing, report.MergeSlot.Status);
         Assert.Contains("may attempt merges concurrently", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EnabledNoGitOpsReportsCorrectionAndDisablesAgentReadiness()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var environment = await HealthEnvironment.CreateAsync(
+            embedded: true,
+            worktreeCount: 1,
+            tools: new Dictionary<string, string>
+            {
+                ["opencode"] = "1.18.20",
+            },
+            noGitOps: true);
+        await environment.InstallSkillFilesAsync();
+
+        var report = await environment.CheckAsync();
+        var rendered = report.Render();
+
+        Assert.Equal(NoGitOpsHealthStatus.Enabled, report.NoGitOps.Status);
+        Assert.False(report.SingleAgentReady);
+        Assert.False(report.IsHealthy);
+        Assert.Empty(report.AvailableModes);
+        Assert.Contains("Abacus cannot continue", rendered, StringComparison.Ordinal);
+        Assert.Contains(Beads.DisableNoGitOpsCommand, rendered, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -159,7 +189,8 @@ public sealed class HealthTests
             int worktreeCount,
             IReadOnlyDictionary<string, string> tools,
             bool mergeSlotExists = false,
-            string? mergeSlotHolder = null)
+            string? mergeSlotHolder = null,
+            bool noGitOps = false)
         {
             var root = Directory.CreateTempSubdirectory("abacus-health-");
             var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
@@ -192,6 +223,8 @@ public sealed class HealthTests
                 null => """
                     if [ "$1" = "version" ]; then
                       printf 'bd version 1.2.2\n'
+                    elif [ "$1 $2 $3" = "config get no-git-ops" ]; then
+                      printf '{"key":"no-git-ops","location":"config.yaml","schema_version":1,"value":"false"}\n'
                     elif [ "$1" = "where" ]; then
                       printf 'no active beads workspace found\n' >&2
                       exit 1
@@ -202,6 +235,8 @@ public sealed class HealthTests
                 true => $$"""
                     if [ "$1" = "version" ]; then
                       printf 'bd version 1.2.2\n'
+                    elif [ "$1 $2 $3" = "config get no-git-ops" ]; then
+                      printf '{"key":"no-git-ops","location":"config.yaml","schema_version":1,"value":"{{noGitOps.ToString().ToLowerInvariant()}}"}\n'
                     elif [ "$1" = "where" ]; then
                       printf '{"database":"abacus"}\n'
                     elif [ "$1 $2" = "dolt show" ]; then
@@ -215,6 +250,8 @@ public sealed class HealthTests
                 false => $$"""
                     if [ "$1" = "version" ]; then
                       printf 'bd version 1.2.2\n'
+                    elif [ "$1 $2 $3" = "config get no-git-ops" ]; then
+                      printf '{"key":"no-git-ops","location":"config.yaml","schema_version":1,"value":"{{noGitOps.ToString().ToLowerInvariant()}}"}\n'
                     elif [ "$1" = "where" ]; then
                       printf '{"database":"abacus"}\n'
                     elif [ "$1 $2" = "dolt show" ]; then

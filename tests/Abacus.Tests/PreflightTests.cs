@@ -38,6 +38,33 @@ public sealed class PreflightTests
     }
 
     [Fact]
+    public async Task EnabledNoGitOpsStopsPreflightWithCorrectionCommand()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await PreflightFixture.CreateAsync();
+        var workspace = await fixture.AddWorkspaceAsync(
+            "one",
+            EmbeddedIdentity,
+            "[]",
+            noGitOps: true);
+
+        var exception = await Assert.ThrowsAsync<PreflightException>(() => fixture.RunAsync(
+            new Options(
+                null,
+                "provider/model",
+                "127.0.0.1:1234",
+                [new("alice", workspace)],
+                AgentMode: AgentMode.OpenCodeServer)));
+
+        Assert.Contains("Abacus cannot continue", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(Beads.DisableNoGitOpsCommand, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AttachedServerWithoutTmuxDoesNotRequireTmuxExecutable()
     {
         if (OperatingSystem.IsWindows())
@@ -338,7 +365,10 @@ public sealed class PreflightTests
                 """);
             await fixture.WriteToolAsync("bd", """
                 #!/bin/sh
-                if test "$1" = dolt && test "$2" = show; then
+                if test "$1" = config && test "$2" = get && test "$3" = no-git-ops; then
+                  test -f .no-git-ops && value=true || value=false
+                  printf '{"key":"no-git-ops","location":"config.yaml","schema_version":1,"value":"%s"}\n' "$value"
+                elif test "$1" = dolt && test "$2" = show; then
                   cat .dolt.json
                 elif test "$1" = dolt && test "$2" = remote && test "$3" = list; then
                   cat .remotes.json
@@ -353,7 +383,8 @@ public sealed class PreflightTests
             string name,
             string doltIdentity,
             string remotes,
-            string? gitStatus = null)
+            string? gitStatus = null,
+            bool noGitOps = false)
         {
             var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, name)).FullName;
             await File.WriteAllTextAsync(Path.Combine(workspace, ".dolt.json"), doltIdentity);
@@ -361,6 +392,10 @@ public sealed class PreflightTests
             if (gitStatus is not null)
             {
                 await File.WriteAllTextAsync(Path.Combine(workspace, ".git-status"), gitStatus);
+            }
+            if (noGitOps)
+            {
+                await File.WriteAllTextAsync(Path.Combine(workspace, ".no-git-ops"), "true");
             }
 
             return workspace;

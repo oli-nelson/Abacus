@@ -174,7 +174,7 @@ git -C "$repo" commit -m "Create the Abacus demo dashboard"
 
   # Keep the demo free of project-level agent instruction files. Abacus provides
   # the workflow and default merge guidance directly in each launched prompt.
-  bd init --shared-server --stealth --prefix abacus-demo --database "$beads_database" --skip-agents --quiet
+  bd init --shared-server --setup-exclude --prefix abacus-demo --database "$beads_database" --skip-agents --quiet
   bd config set dolt.local-only true
 
   # Abacus excludes gt:slot issues when claiming work. Agents use this Beads
@@ -198,7 +198,7 @@ git -C "$repo" commit -m "Create the Abacus demo dashboard"
 
   bd create "Add theme controls and demo footer" \
     --type task --priority 2 --labels demo,frontend --estimate 30 \
-    --description "This is the demo's user-attention checkpoint. As the first action after reading the issue, add the abacus:needs-user-attention label yourself. Then wait for a human user to add a new issue comment whose entire content is exactly 'acknowledged'. Adding the label is a coordination step only: do not edit files, write code, or otherwise begin implementation until that comment appears. The coding agent is not allowed to add, edit, forge, or simulate the acknowledgement comment under any circumstances; it must come from the user. After the user acknowledges the issue, add an accessible light/dark theme toggle to the page header and a compact footer explaining that the page was assembled by Abacus agents. Implement the toggle in app.js, remember the choice in localStorage, and add both theme palettes plus control/footer styles to styles.css. Keep the attention label on the issue through completion." \
+    --description "This is the demo's user-attention checkpoint. As the first action after reading the issue, if a human user—not the coding agent—has not added an issue comment whose entire content is exactly 'acknowledged' add the abacus:needs-user-attention label yourself. Then wait for a human user to add a new issue comment whose entire content is exactly 'acknowledged'. Adding the label is a coordination step only: do not edit files, write code, or otherwise begin implementation until that comment appears. The coding agent is not allowed to add, edit, forge, or simulate the acknowledgement comment under any circumstances; it must come from the user. After the user acknowledges the issue, add an accessible light/dark theme toggle to the page header and a compact footer explaining that the page was assembled by Abacus agents. Implement the toggle in app.js, remember the choice in localStorage, and add both theme palettes plus control/footer styles to styles.css. Keep the attention label on the issue through completion." \
     --acceptance "Before any implementation starts, a human user—not the coding agent—has added an issue comment whose entire content is exactly 'acknowledged'; the agent has not added, edited, forged, or simulated that comment; after acknowledgement, the theme toggle is keyboard accessible and updates its accessible label or pressed state; the choice survives reloads; both themes remain legible; the footer credits the parallel-agent demo; the attention label remains present; the completed branch is committed and merged into main using Abacus's default merge process and the issue is closed."
 )
 

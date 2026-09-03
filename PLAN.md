@@ -167,7 +167,9 @@ Before building the loop, capture the exact behavior of the locally supported co
   require at least one supported harness. Report Beads storage/concurrency,
   merge-slot availability and holder, available agent modes, every
   root-referenced Git worktree, whether additional worktrees make multi-agent
-  workspaces possible, and whether all bundled skills are installed. Warn—but do
+  workspaces possible, whether Beads `no-git-ops` is disabled, and whether all
+  bundled skills are installed. Treat enabled `no-git-ops` as not ready and show
+  the command that disables it. Warn—but do
   not fail—when no merge slot exists because the repository may provide another
   serialized merge process. Do not search the filesystem for separate clones or
   contact an OpenCode server.
@@ -207,6 +209,8 @@ All checks happen before any ticket is claimed or agent run is created.
   - verify it is a Git worktree using `git -C <path> rev-parse`;
   - verify `git status --porcelain` is empty;
   - verify Beads can find and query its project from that directory;
+  - reject enabled Beads `no-git-ops` with a clear correction command before any
+    ticket is claimed or agent CLI is started;
   - inspect Dolt configuration and whether a remote is configured.
 - For multiple agents, compare the normalized Dolt host, port, and database identity reported from every workspace. Require all agents to use the same shared Dolt database and refuse to start if identity is missing, local-only/separate, or different.
 - For one agent, allow the normal local Beads database. Cache whether it has a remote so the loop knows whether to pull/push.
@@ -348,7 +352,8 @@ All checks happen before any ticket is claimed or agent run is created.
   root without starting preflight or agent loops, and requires confirmation before
   it replaces existing bundled skill directories.
 - `abacus --health` reports project readiness without mutating it and fails when
-  no single-agent mode is runnable or a bundled skill is missing.
+  `no-git-ops` is enabled, no single-agent mode is runnable, or a bundled skill
+  is missing.
 - `abacus --models` reports discoverable model IDs by harness without requiring
   Beads, Git, tmux, a model, or an agent configuration.
 - `abacus --prune-closed-branches` removes local Abacus issue branches for
