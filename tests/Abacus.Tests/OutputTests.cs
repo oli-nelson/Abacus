@@ -147,7 +147,7 @@ public sealed class OutputTests
     }
 
     [Fact]
-    public async Task LatestCommentsUseAttentionAgentAndUnknownAuthorColors()
+    public async Task LatestCommentHeadersUseAttentionAgentAndUnknownAuthorColorsWhileMessagesAreUncolored()
     {
         var writer = new StringWriter();
         using var output = new ConsoleOutput(
@@ -166,15 +166,18 @@ public sealed class OutputTests
 
         var text = writer.ToString();
         Assert.Contains("\u001b[31m • abc-1", text, StringComparison.Ordinal);
-        Assert.Contains("\u001b[31m   ↳ red", text, StringComparison.Ordinal);
         Assert.Contains("\u001b[32m • abc-2", text, StringComparison.Ordinal);
-        Assert.Contains("\u001b[32m   ↳ green", text, StringComparison.Ordinal);
         Assert.Contains("\u001b[36m • abc-3", text, StringComparison.Ordinal);
-        Assert.Contains("\u001b[36m   ↳ cyan", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b[31m   ↳ red", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b[32m   ↳ green", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b[36m   ↳ cyan", text, StringComparison.Ordinal);
+        Assert.Contains("   ↳ red\u001b[K\n", text, StringComparison.Ordinal);
+        Assert.Contains("   ↳ green\u001b[K\n", text, StringComparison.Ordinal);
+        Assert.Contains("   ↳ cyan\u001b[K\n", text, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void LatestCommentLinesFlattenAndTruncateHeaderAndCommentToTerminalWidth()
+    public void LatestCommentLinesFlattenAndWrapMessageAcrossTwoTerminalWidthLines()
     {
         var lines = ConsoleOutput.FormatLatestCommentLines(
             Comment(
@@ -182,17 +185,29 @@ public sealed class OutputTests
                 "abc-123",
                 "A very long issue title\nthat continues on another line",
                 "external-reviewer",
-                "A very long comment\nthat also continues and must be truncated for the dashboard"),
+                "A very long comment\nthat also continues and must be truncated for the dashboard " +
+                "because only two message lines are available and anything beyond them is omitted"),
             52);
 
         Assert.Equal(52, lines.Header.Length);
-        Assert.Equal(52, lines.Comment.Length);
         Assert.DoesNotContain('\n', lines.Header);
-        Assert.DoesNotContain('\n', lines.Comment);
         Assert.Contains('…', lines.Header);
-        Assert.Contains('…', lines.Comment);
         Assert.StartsWith(" • abc-123", lines.Header, StringComparison.Ordinal);
-        Assert.StartsWith("   ↳ ", lines.Comment, StringComparison.Ordinal);
+        Assert.Collection(
+            lines.Comments,
+            first =>
+            {
+                Assert.True(first.Length <= 52);
+                Assert.DoesNotContain('\n', first);
+                Assert.StartsWith("   ↳ ", first, StringComparison.Ordinal);
+            },
+            second =>
+            {
+                Assert.Equal(52, second.Length);
+                Assert.DoesNotContain('\n', second);
+                Assert.StartsWith("     ", second, StringComparison.Ordinal);
+                Assert.Contains('…', second);
+            });
     }
 
     [Fact]

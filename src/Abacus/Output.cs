@@ -657,8 +657,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 var lines = FormatLatestCommentLines(comment, width);
                 builder.Append(Color(commentColor, lines.Header));
                 builder.Append("\u001b[K\n");
-                builder.Append(Color(commentColor, lines.Comment));
-                builder.Append("\u001b[K\n");
+                foreach (var commentLine in lines.Comments)
+                {
+                    builder.Append(commentLine);
+                    builder.Append("\u001b[K\n");
+                }
             }
         }
 
@@ -729,11 +732,13 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         }
     }
 
-    internal static (string Header, string Comment) FormatLatestCommentLines(BeadsComment comment, int width)
+    internal static (string Header, IReadOnlyList<string> Comments) FormatLatestCommentLines(
+        BeadsComment comment,
+        int width)
     {
         if (width <= 0)
         {
-            return (string.Empty, string.Empty);
+            return (string.Empty, []);
         }
 
         var issueWidth = Math.Clamp(width / 5, 8, 18);
@@ -746,16 +751,37 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         var author = string.IsNullOrWhiteSpace(comment.Author)
             ? "(unknown)"
             : SingleLine(comment.Author);
-        const string commentPrefix = "   ↳ ";
-
         var header = $" • {Truncate(SingleLine(comment.IssueId), issueWidth).PadRight(issueWidth)}" +
             $" — {Truncate(issueTitle, titleWidth).PadRight(titleWidth)}" +
             $" • {Truncate(author, authorWidth).PadRight(authorWidth)}";
-        var commentLine = commentPrefix + Truncate(
-            SingleLine(comment.Text),
-            Math.Max(0, width - commentPrefix.Length));
 
-        return (Truncate(header, width), Truncate(commentLine, width));
+        return (Truncate(header, width), FormatCommentMessageLines(comment.Text, width));
+    }
+
+    private static IReadOnlyList<string> FormatCommentMessageLines(string value, int width)
+    {
+        const string firstPrefix = "   ↳ ";
+        const string continuationPrefix = "     ";
+        var contentWidth = Math.Max(0, width - firstPrefix.Length);
+        var text = SingleLine(value);
+        if (contentWidth == 0 || text.Length <= contentWidth)
+        {
+            return [Truncate(firstPrefix + text, width)];
+        }
+
+        var breakAt = text.LastIndexOf(' ', contentWidth);
+        if (breakAt <= 0)
+        {
+            breakAt = contentWidth;
+        }
+
+        var firstLine = text[..breakAt].TrimEnd();
+        var remainder = text[breakAt..].TrimStart();
+        return
+        [
+            Truncate(firstPrefix + firstLine, width),
+            Truncate(continuationPrefix + remainder, width),
+        ];
     }
 
     private static string SingleLine(string value) =>
