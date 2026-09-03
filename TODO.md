@@ -1,4 +1,9 @@
-# TODO
+# Engineering Backlog
+
+Small follow-up work that is not yet captured by the implementation plan. See
+the [documentation index](docs/README.md) for the rest of the project material.
+
+## Dashboard comment efficiency
 
 - [ ] Make latest-comment polling more efficient when the project uses a shared
   Dolt server. Query the latest comments directly with SQL instead of parsing a

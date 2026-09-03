@@ -1,5 +1,25 @@
 # Abacus Implementation Plan
 
+> **Document role:** Engineering plan, design constraints, and definition of
+> done. Intended product behavior is normative in [SPEC.md](SPEC.md); user-facing
+> setup and operation are organized under the [documentation index](docs/README.md).
+
+## Contents
+
+- [Goal](#goal)
+- [Simplicity rules](#simplicity-rules)
+- [Proposed shape](#proposed-shape)
+- [End-to-end state machine](#end-to-end-state-machine)
+- [Phase 1 — CLI contracts](#phase-1---lock-down-cli-contracts)
+- [Phase 2 — Console and subprocess foundation](#phase-2---console-skeleton-and-subprocess-runner)
+- [Phase 3 — Preflight](#phase-3---preflight-safety-checks)
+- [Phase 4 — Claims and workspaces](#phase-4---claiming-and-workspace-preparation)
+- [Phase 5 — Agent hosting](#phase-5---agent-processes-panes-and-prompt-delivery)
+- [Phase 6 — Supervision and recovery](#phase-6---ticket-supervision-and-recovery)
+- [Phase 7 — Verification and release](#phase-7---tests-documentation-and-release-smoke-test)
+- [Definition of done](#definition-of-done)
+- [Explicit non-goals](#explicit-non-goals-for-the-first-version)
+
 ## Goal
 
 Build the smallest useful Abacus: a Unix-oriented C# console application that coordinates Beads, Git, one of four supported agent modes, and optional tmux hosting by running existing command-line tools.

@@ -1,8 +1,19 @@
-# Release smoke test record
+# Release Smoke-Test Record
 
-Run on 2026-08-31 on macOS arm64. The command contracts had been captured with the minimum supported versions; the final smoke used the locally installed compatible OpenCode 1.18.20 and the required `opencode/big-pickle` model.
+This page records manual release evidence; it is not a setup guide. For a
+repeatable user walkthrough, see [Getting started](getting-started.md). For the
+external behaviors under test, see the [CLI contracts](contracts/cli-contracts.md).
 
-All repositories, Dolt databases/remotes, servers, and tmux sessions were disposable under `/tmp`.
+| Field | Value |
+| --- | --- |
+| Date | 2026-08-31 |
+| Platform | macOS arm64 |
+| OpenCode | 1.18.20 |
+| Model | `opencode/big-pickle` |
+
+The command contracts had already been captured with the minimum supported
+versions. All repositories, Dolt databases and remotes, servers, and tmux
+sessions used in this smoke test were disposable under `/tmp`.
 
 ## Local single-agent path
 

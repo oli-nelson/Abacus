@@ -1,4 +1,17 @@
-# Abacus
+# Abacus Product Specification
+
+> **Document role:** Normative product specification. For task-oriented user
+> documentation, start with the [README](README.md) or
+> [documentation index](docs/README.md). The phased implementation design lives
+> in [PLAN.md](PLAN.md).
+
+## Contents
+
+- [Setup](#setup)
+- [Usage and command behavior](#usage)
+- [Repository health](#repository-health)
+- [Agent workflow](#agent-workflow)
+- [Exact agent prompt](#agent-prompt-template)
 
 Abacus is a simple agent orchestrator built on top of [Beads](https://github.com/gastownhall/beads).
 

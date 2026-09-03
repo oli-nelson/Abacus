@@ -985,7 +985,7 @@ bd ready --json</code></pre>
           <span class="section-number">05</span>
           <div>
             <h2>Use the bundled agent skills</h2>
-            <p class="section-intro">Abacus can install three focused Beads skills into a repository. Installation makes them discoverable to compatible coding agents; it does not run them automatically or change the Beads database.</p>
+            <p class="section-intro">Abacus can install four focused agent skills into a repository. Installation makes them discoverable to compatible coding agents; it does not run them automatically or change the Beads database.</p>
           </div>
         </div>
 
@@ -1003,7 +1003,7 @@ find .agents/skills -maxdepth 2 -name SKILL.md -print</code></pre>
           <p><strong>Existing skill directories are protected.</strong> If a bundled skill already exists, Abacus names the affected skills and asks before replacing their complete directories. Declining leaves every skill unchanged; unrelated skills are never removed.</p>
         </div>
 
-        <div class="grid-3">
+        <div class="grid-2">
           <section class="card accent-green">
             <p class="kicker">1 · Shape the work</p>
             <h3>Beads Planner</h3>
@@ -1021,6 +1021,12 @@ find .agents/skills -maxdepth 2 -name SKILL.md -print</code></pre>
             <h3>Beads Attention</h3>
             <p class="small">Finds every <code>abacus:needs-user-attention</code> issue—including closed ones—and summarizes the decisions, access, outside actions, and failures that need a person.</p>
             <p><span class="pill">read-only report</span> <span class="pill">highest impact first</span></p>
+          </section>
+          <section class="card accent-blue">
+            <p class="kicker">4 · Check Git guidance</p>
+            <h3>Git Check</h3>
+            <p class="small">Audits active agent instructions for misleading restrictions on local Git work while preserving legitimate limits on pushes and destructive operations.</p>
+            <p><span class="pill">instruction audit</span> <span class="pill">evidence first</span></p>
           </section>
         </div>
 
@@ -1055,10 +1061,19 @@ failures, and possibly stale requests. Tell me what to look at first.</code></pr
         </div>
         <p class="muted small">The attention skill queries exactly the label used by the dashboard and reads each matching issue for context. It does not infer attention from <code>blocked</code> alone, and it does not clear labels or mutate tickets unless you explicitly ask after reviewing the report.</p>
 
+        <div class="code-block">
+          <div class="code-label"><span>Audit agent-facing Git guidance</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>Use $abacus-git-check to audit this repository's active agent instructions
+for incorrect local Git restrictions. Report the exact source and wording,
+and distinguish local commit or merge limits from legitimate push limits.</code></pre>
+        </div>
+        <p class="muted small">Git Check follows the instruction hierarchy that actually applies in each workspace. It flags guidance that would prevent agents from completing Abacus's local branch workflow, but it does not weaken user instructions or grant push authority.</p>
+
         <h3>A practical cadence</h3>
         <ol class="steps">
           <li><strong>Plan.</strong> Turn the concept into a graph, review execution waves, then approve creation.</li>
           <li><strong>Doctor.</strong> Audit the epic before agents start, approve precise repairs, and verify the resulting ready set.</li>
+          <li><strong>Check Git guidance.</strong> Confirm that active agent instructions allow the local commit and merge workflow while preserving any push restriction.</li>
           <li><strong>Execute.</strong> Start Abacus with filters that select the approved work. The coding agents claim and complete individual tickets.</li>
           <li><strong>Triage attention.</strong> Use the attention skill when the dashboard or desktop toast says a human decision or outside action is pending.</li>
         </ol>
@@ -1642,8 +1657,8 @@ tmux attach-session -t "$SESSION"</code></pre>
 
         <h3>Source notes</h3>
         <ul class="source-list">
-          <li><a href="../SPEC.md">Abacus product specification</a> and <a href="../README.md">repository README</a></li>
-          <li>Bundled skill definitions: <a href="../skills/abacus-beads-planner/SKILL.md">planner</a>, <a href="../skills/abacus-beads-doctor/SKILL.md">doctor</a>, and <a href="../skills/abacus-beads-attention/SKILL.md">attention</a></li>
+          <li><a href="README.md">Documentation index</a>, <a href="../SPEC.md">product specification</a>, and <a href="../README.md">repository README</a></li>
+          <li>Bundled skill definitions: <a href="../skills/abacus-beads-planner/SKILL.md">planner</a>, <a href="../skills/abacus-beads-doctor/SKILL.md">doctor</a>, <a href="../skills/abacus-beads-attention/SKILL.md">attention</a>, and <a href="../skills/abacus-git-check/SKILL.md">Git Check</a></li>
           <li><a href="https://github.com/gastownhall/beads/blob/main/docs/DOLT.md">Beads: Dolt backend and storage modes</a></li>
           <li><a href="https://github.com/gastownhall/beads/blob/main/docs/reference/faq.md">Beads FAQ: worktrees, embedded mode, and server mode</a></li>
           <li><a href="https://code.claude.com/docs/en/remote-control">Claude Code: Remote Control</a></li>

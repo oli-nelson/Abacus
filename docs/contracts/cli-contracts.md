@@ -1,6 +1,23 @@
 # External CLI contracts
 
-Captured through 2026-09-03 with the minimum versions listed in `README.md`. Tests use the sanitized JSON in `tests/Abacus.Tests/Fixtures/Beads`; timestamps, generated IDs, repository paths, and clone identities are intentionally stable fixture values rather than the disposable repository's values.
+This is the developer-facing record of subprocess behavior that Abacus relies
+on. It complements the [product specification](../../SPEC.md); users looking for
+commands and options should start with the [CLI reference](../cli-reference.md).
+
+Captured through 2026-09-03 with the minimum versions listed in the
+[repository README](../../README.md). Tests use the sanitized JSON in
+`tests/Abacus.Tests/Fixtures/Beads`; timestamps, generated IDs, repository paths,
+and clone identities are intentionally stable fixture values rather than the
+disposable repository's values.
+
+## Contents
+
+- [Beads 1.2.2](#beads-122)
+- [OpenCode 1.18.20](#opencode-11820)
+- [Codex CLI 0.151.0](#codex-cli-01510)
+- [Claude Code 2.1.212](#claude-code-21212)
+- [tmux 3.6a](#tmux-36a)
+- [Git 2.55.0](#git-2550)
 
 ## Beads 1.2.2
 
