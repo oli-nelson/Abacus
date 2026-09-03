@@ -36,6 +36,7 @@ public sealed class EndToEndTests
             Assert.Empty(await stdout);
             var errorText = await stderr;
             Assert.Contains("ABACUS RUN SUMMARY", errorText, StringComparison.Ordinal);
+            Assert.Contains("Initial Beads Dolt commit  pjmrvjigiph28prpf6ir4uv0tuv88vnn", errorText, StringComparison.Ordinal);
             Assert.Contains("closed 1", errorText, StringComparison.Ordinal);
         }
         finally
@@ -69,6 +70,10 @@ public sealed class EndToEndTests
 
             Assert.Equal(1, process.ExitCode);
             Assert.Contains("ATTENTION", await stderr, StringComparison.Ordinal);
+            var calls = await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls"));
+            Assert.True(
+                calls.IndexOf("dolt pull", StringComparison.Ordinal)
+                < calls.IndexOf("--readonly vc status --json", StringComparison.Ordinal));
         }
         finally
         {
@@ -412,6 +417,8 @@ public sealed class EndToEndTests
               printf '{"backend":"dolt","data_dir":"/tmp/db","database":"abc","embedded":true,"schema_version":1}\n'
             elif test "$1" = dolt && test "$2" = remote; then
               test "$ABACUS_TEST_REMOTE" = 1 && printf '[{"name":"origin"}]\n' || printf '[]\n'
+            elif test "$1" = --readonly && test "$2" = vc && test "$3" = status; then
+              printf '{"branch":"main","commit":"pjmrvjigiph28prpf6ir4uv0tuv88vnn","schema_version":1}\n'
             elif test "$1" = ready; then
               if test "$2" = --unassigned; then
                 count=0

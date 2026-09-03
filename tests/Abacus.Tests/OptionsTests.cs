@@ -621,6 +621,27 @@ public sealed class OptionsTests
         Assert.Throws<OptionsException>(() => Options.Parse(["--health", "--verbose"]));
     }
 
+    [Theory]
+    [InlineData("--prune-closed-branches")]
+    [InlineData("--list-user-attention")]
+    public void RepositoryCommandsDoNotRequireAgentOptions(string command)
+    {
+        var result = Options.Parse([command]);
+
+        Assert.Equal(command == "--prune-closed-branches", result.PruneClosedBranches);
+        Assert.Equal(command == "--list-user-attention", result.ListUserAttention);
+        Assert.False(result.ShowHelp);
+        Assert.Null(result.Value);
+    }
+
+    [Theory]
+    [InlineData("--prune-closed-branches")]
+    [InlineData("--list-user-attention")]
+    public void RepositoryCommandsCannotBeCombinedWithOtherOptions(string command)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([command, "--verbose"]));
+    }
+
     [Fact]
     public void ResolveAttentionDoesNotRequireAgentOptions()
     {

@@ -20,6 +20,7 @@ public sealed record AgentRunSummary(
 
 public sealed record RunSummarySnapshot(
     TimeSpan Elapsed,
+    string InitialDoltCommit,
     IReadOnlyList<AgentRunSummary> Agents)
 {
     public int Total => Agents.Sum(static agent => agent.Total);
@@ -30,10 +31,16 @@ public sealed class RunSummary
     private readonly object gate = new();
     private readonly DateTimeOffset startedAt = DateTimeOffset.UtcNow;
     private readonly Dictionary<string, MutableAgentSummary> agents;
+    private readonly string initialDoltCommit;
     private readonly DesktopNotifier? notifier;
 
-    public RunSummary(IEnumerable<string> agentNames, DesktopNotifier? notifier = null)
+    public RunSummary(
+        IEnumerable<string> agentNames,
+        string initialDoltCommit,
+        DesktopNotifier? notifier = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(initialDoltCommit);
+        this.initialDoltCommit = initialDoltCommit;
         this.notifier = notifier;
         agents = agentNames.ToDictionary(
             static name => name,
@@ -81,6 +88,7 @@ public sealed class RunSummary
         {
             return new RunSummarySnapshot(
                 DateTimeOffset.UtcNow - startedAt,
+                initialDoltCommit,
                 agents.Select(static pair => new AgentRunSummary(
                     pair.Key,
                     pair.Value.Closed,

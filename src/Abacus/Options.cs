@@ -66,6 +66,7 @@ public sealed record Options(
 
     public const string ShortUsage =
         "Usage: abacus --install-skills | abacus --health | " +
+        "abacus --prune-closed-branches | abacus --list-user-attention | " +
         "abacus --resolve-attention <issue-id> [<message>] [--reopen] | " +
         "abacus [--mode <opencode|codex|claude|opencode-server>] " +
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
@@ -83,6 +84,8 @@ public sealed record Options(
         Usage:
           abacus --install-skills
           abacus --health
+          abacus --prune-closed-branches
+          abacus --list-user-attention
           abacus --resolve-attention <issue-id> [<message>] [--reopen]
 
           abacus [--mode <opencode|codex|claude|opencode-server>] \
@@ -111,6 +114,14 @@ public sealed record Options(
           --health reports Beads configuration and merge-slot availability,
           supported agent harness and tmux versions, referenced Git worktrees,
           bundled skill presence, and single-/multi-agent readiness.
+
+        Repository maintenance:
+          --prune-closed-branches deletes local abacus/<issue-id> branches for
+          closed Beads tickets. Branches checked out in a worktree are skipped.
+
+        List user attention:
+          --list-user-attention prints the ID of every issue carrying the
+          abacus:needs-user-attention label, one per line.
 
         Resolve user attention:
           --resolve-attention removes the abacus:needs-user-attention label from
@@ -216,6 +227,26 @@ public sealed record Options(
             }
 
             return OptionsParseResult.Health;
+        }
+
+        if (arguments.Contains("--prune-closed-branches", StringComparer.Ordinal))
+        {
+            if (arguments.Count != 1)
+            {
+                throw new OptionsException("--prune-closed-branches cannot be combined with other options");
+            }
+
+            return OptionsParseResult.PruneClosedBranchesOnly;
+        }
+
+        if (arguments.Contains("--list-user-attention", StringComparer.Ordinal))
+        {
+            if (arguments.Count != 1)
+            {
+                throw new OptionsException("--list-user-attention cannot be combined with other options");
+            }
+
+            return OptionsParseResult.ListUserAttentionOnly;
         }
 
         if (arguments.Contains("--resolve-attention", StringComparer.Ordinal))
@@ -667,11 +698,17 @@ public sealed record OptionsParseResult(
     bool ShowHelp,
     bool InstallSkills = false,
     bool ShowHealth = false,
+    bool PruneClosedBranches = false,
+    bool ListUserAttention = false,
     AttentionResolutionOptions? AttentionResolution = null)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);
     public static OptionsParseResult Health { get; } = new(null, ShowHelp: false, ShowHealth: true);
+    public static OptionsParseResult PruneClosedBranchesOnly { get; } =
+        new(null, ShowHelp: false, PruneClosedBranches: true);
+    public static OptionsParseResult ListUserAttentionOnly { get; } =
+        new(null, ShowHelp: false, ListUserAttention: true);
     public static OptionsParseResult ResolveAttentionOnly(string issueId, string? message, bool reopen) =>
         new(
             null,

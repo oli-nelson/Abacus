@@ -127,6 +127,48 @@ public sealed class GitTests
         Assert.True(await git.IsWorkspaceCleanAsync(repository.Path, "alice", CancellationToken.None));
     }
 
+    [Fact]
+    public async Task PrunesOnlyClosedTicketBranchesAndSkipsCheckedOutWorktrees()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var repository = await TemporaryGitRepository.CreateAsync();
+        var checkedOutWorkspace = System.IO.Path.Combine(
+            Directory.GetParent(repository.Path)!.FullName,
+            $"abacus-prune-checked-out-{Guid.NewGuid():N}");
+        try
+        {
+            await repository.RunAsync("branch", "abacus/closed-ticket");
+            await repository.RunAsync("branch", "abacus/open-ticket");
+            await repository.RunAsync("branch", "abacus/checked-out-ticket");
+            await repository.RunAsync(
+                "worktree",
+                "add",
+                checkedOutWorkspace,
+                "abacus/checked-out-ticket");
+
+            var result = await new Git(new CommandRunner(TextWriter.Null), repository.GitExecutable)
+                .PruneClosedIssueBranchesAsync(
+                    repository.Path,
+                    ["closed-ticket", "checked-out-ticket", "missing-ticket"],
+                    CancellationToken.None);
+
+            Assert.Equal(["abacus/closed-ticket"], result.DeletedBranches);
+            Assert.Equal(["abacus/checked-out-ticket"], result.SkippedCheckedOutBranches);
+            var remainingBranches = await repository.RunAsync("branch", "--format=%(refname:short)");
+            Assert.DoesNotContain("abacus/closed-ticket", remainingBranches, StringComparison.Ordinal);
+            Assert.Contains("abacus/open-ticket", remainingBranches, StringComparison.Ordinal);
+            Assert.Contains("abacus/checked-out-ticket", remainingBranches, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await repository.RunAsync("worktree", "remove", "--force", checkedOutWorkspace);
+        }
+    }
+
     private sealed class TemporaryGitRepository : IDisposable
     {
         private TemporaryGitRepository(string path, string gitExecutable, string initialBranch)

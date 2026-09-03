@@ -63,6 +63,18 @@ Inspect whether the current repository is ready for Abacus:
 abacus --health
 ```
 
+Delete local Abacus branches whose corresponding tickets are closed:
+
+```sh
+abacus --prune-closed-branches
+```
+
+List ticket IDs that need user attention:
+
+```sh
+abacus --list-user-attention
+```
+
 Resolve a user-attention callout from the current Beads project:
 
 ```sh
@@ -112,6 +124,18 @@ claimed again. On success it prints a concise confirmation instead of the
 raw Beads JSON. It does not run agent preflight or require normal run options.
 The command fails if Beads cannot perform any requested operation.
 
+`--list-user-attention` is a standalone, read-only operation. It queries every
+issue carrying `abacus:needs-user-attention`, including closed issues, and
+prints only issue IDs, one per line. It does not run agent preflight or require
+normal run options.
+
+`--prune-closed-branches` is a standalone repository-maintenance operation. It
+queries all closed Beads tickets and force-deletes matching local
+`abacus/<issue-id>` branches from the current Git repository. It does not touch
+non-Abacus branches or remote refs. A matching branch checked out in any
+worktree is skipped and reported rather than causing the rest of the prune to
+fail. It does not run agent preflight or require normal run options.
+
 Each local agent runs interactively in its own tmux pane using its assigned Git workspace and requested model:
 
 - OpenCode: `opencode --prompt <prompt> --model <provider/model>`
@@ -141,7 +165,7 @@ Without `--tmux-session`, each agent starts as a directly supervised, non-intera
 
 For backward compatibility, supplying `--opencode-server` without `--mode` implies `opencode-server`. Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`. The server option is rejected for all other explicit modes.
 
-By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. On shutdown, Abacus prints a final per-agent run summary with elapsed time and counts for closed, reopened, blocked, and interrupted tickets.
+By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, waiting, idle, syncing, cleaning or preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
 
 Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without cleaning workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected agent executable, workspace and Dolt configuration, the OpenCode server address when applicable, and any requested tmux session/window target. These three options are mutually exclusive.
 
@@ -173,6 +197,11 @@ merges another way. The command exits zero when at least one single-agent mode i
 runnable and all bundled skills are installed; otherwise it exits one.
 
 ## Agent workflow
+
+Before starting the agent loops, pull once when exactly one configured agent has
+a Dolt remote, then record the current Dolt commit. Abort before claims if
+either operation fails. For multiple agents, record the shared server's current
+commit without pulling it.
 
 Each Abacus agent follows this loop:
 
@@ -219,6 +248,11 @@ Work on the branch abacus/<issue_id> and satisfy the ticket's definition of done
 Commit your changes, then use the repository's serialized merge process to merge
 the branch into the latest main branch.
 
+You might not be the first agent to work on this ticket, there might be commits
+in this branch that are already contributing to the ticket. Make sure you
+understand the current state of the branch before you make changes. If you think
+the original commits are incorrect, you can fix/remove them.
+
 If the issue needs user awareness, a decision, or outside action, bring it to the
 user's attention with:
 
@@ -249,6 +283,11 @@ Then finally update the ticket:
     bd update <issue_id> --status open --assignee "" --append-notes "<reason>" --json
 - Work is blocked:
     bd update <issue_id> --status blocked --append-notes "<blocker>" --json
+
+If you need to set the status of the ticket to anything other than closed, assess if your current local
+changes need to be committed or discarded. For example, if you just need to block the ticket to get some
+user attention, you can commit your changes and then block the ticket. Eventually an agent will come back
+to the ticket and continue working on it.
 
 Changing the ticket from in_progress tells Abacus to end this session. Make the
 status change one of your final actions, after all code, commits, merges, and

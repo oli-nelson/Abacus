@@ -20,6 +20,11 @@ public sealed class PromptTests
             Commit your changes, then use the repository's serialized merge process to merge
             the branch into the latest main branch.
 
+            You might not be the first agent to work on this ticket, there might be commits
+            in this branch that are already contributing to the ticket. Make sure you
+            understand the current state of the branch before you make changes. If you think
+            the original commits are incorrect, you can fix/remove them.
+
             If the issue needs user awareness, a decision, or outside action, bring it to the
             user's attention with:
 
@@ -50,6 +55,11 @@ public sealed class PromptTests
                 bd update abc-123 --status open --assignee "" --append-notes "<reason>" --json
             - Work is blocked:
                 bd update abc-123 --status blocked --append-notes "<blocker>" --json
+
+            If you need to set the status of the ticket to anything other than closed, assess if your current local
+            changes need to be committed or discarded. For example, if you just need to block the ticket to get some
+            user attention, you can commit your changes and then block the ticket. Eventually an agent will come back
+            to the ticket and continue working on it.
 
             Changing the ticket from in_progress tells Abacus to end this session. Make the
             status change one of your final actions, after all code, commits, merges, and

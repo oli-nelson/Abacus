@@ -53,6 +53,12 @@ Waiting -> Claimed -> PreparingWorkspace -> RunningAgent -> Finalizing -> Waitin
                                       \-> ReopenOnFailure -------^
 ```
 
+Before starting any loop, pull once when a single configured agent has a Dolt
+remote, then record the current commit with read-only `bd vc status`. For a
+multi-agent shared server, record its live commit without pulling. A failure
+aborts before any ticket is claimed. Keep the full commit in memory for the
+final summary; do not create a checkpoint commit or persistent Abacus state.
+
 1. Clean the workspace with `git reset --hard HEAD` and `git clean -fd` before looking for work.
 2. In single-agent mode, pull Beads before looking for work when a Dolt remote exists.
 3. List matching work with `bd ready --unassigned --exclude-label gt:slot --limit 0 --json`, preserve Beads priority, use the newest comment to break a highest-priority tie, and atomically claim the selected issue with `bd update <id> --claim --json`, all with `BEADS_ACTOR=<agent name>`.
@@ -112,6 +118,8 @@ Before building the loop, capture the exact behavior of the locally supported co
   ```text
   abacus --install-skills
   abacus --health
+  abacus --prune-closed-branches
+  abacus --list-user-attention
   abacus --resolve-attention <issue-id> [<message>] [--reopen]
 
   abacus [--mode <opencode|codex|claude|opencode-server>] \
@@ -137,6 +145,12 @@ Before building the loop, capture the exact behavior of the locally supported co
   its assignee so it can be claimed again. Do not run normal
   preflight or require agent options for this operation.
 
+- Support standalone repository helpers. `--list-user-attention` prints only
+  the IDs returned by an unbounded Beads label query. `--prune-closed-branches`
+  queries all closed tickets and deletes only matching local
+  `abacus/<issue-id>` branches, skipping branches checked out in worktrees.
+  Neither command runs normal preflight or requires agent options.
+
 - Reject a missing or malformed `--model` value, a malformed `--effort` value, `--remote` outside Claude mode, malformed or duplicate singular dispatch filters, malformed ticket timeouts, invalid mode/server/tmux combinations, other missing values, unknown options, duplicate agent names, duplicate canonical workspace paths, and zero agents. OpenCode model IDs use `provider/model`; Codex and Claude IDs must be nonempty and whitespace-free. Effort defaults to `high`; model and effort availability remain the selected CLI's responsibility. Dispatch labels are repeatable, priority is 0 through 4, and ticket timeouts are positive integer seconds, minutes, or hours.
 - Implement `CommandRunner` around `ProcessStartInfo` with:
   - executable plus argument list;
@@ -156,7 +170,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   not fail—when no merge slot exists because the repository may provide another
   serialized merge process. Do not search the filesystem for separate clones or
   contact an OpenCode server.
-- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed latest-comments log at the bottom, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a header line, then the truncated comment on an indented line beneath it, colored red for attention-labelled issues, green for configured-agent authors, and cyan for unrecognized authors. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
+- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed latest-comments log at the bottom, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a header line, then the truncated comment on an indented line beneath it, colored red for attention-labelled issues, green for configured-agent authors, and cyan for unrecognized authors. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print the initial full Beads Dolt commit plus a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 - Keep desktop notifications dependency-free and owned by the orchestrator. `--notify attention` reports new user-attention issues, blocked tickets, and persistent recovery failures; `--notify all` also reports all ticket outcomes and the final run summary. Use `osascript` on macOS and optional `notify-send` on Linux through `ProcessStartInfo.ArgumentList`. When sound is enabled, distinguish successful outcomes from attention or unsuccessful outcomes with positive and negative platform sounds. Treat delivery as best effort, deduplicate polled attention issues, and use a terminal bell fallback only when `--notify-sound` was requested.
 
 ### Exit criteria
@@ -328,6 +342,10 @@ All checks happen before any ticket is claimed or agent run is created.
   it replaces existing bundled skill directories.
 - `abacus --health` reports project readiness without mutating it and fails when
   no single-agent mode is runnable or a bundled skill is missing.
+- `abacus --prune-closed-branches` removes local Abacus issue branches for
+  closed tickets while preserving non-Abacus, remote, and checked-out branches.
+- `abacus --list-user-attention` prints the IDs of all attention-labelled
+  tickets without starting orchestration.
 - `abacus --resolve-attention` removes the attention label from one issue,
   optionally records the user's response, and can reopen and unassign the issue
   with `--reopen`, without starting agent orchestration.

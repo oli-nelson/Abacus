@@ -129,7 +129,7 @@ public sealed class DesktopNotifierTests
         notifier.NotifyTicketOutcome("alice", TicketOutcome.Blocked, "abc-1");
         notifier.UserAttentionChanged([new BeadsIssue("abc-2", IssueStatus.Blocked)]);
         notifier.PersistentAlert("alice", "failure");
-        notifier.RunCompleted(new RunSummarySnapshot(TimeSpan.Zero, []));
+        notifier.RunCompleted(new RunSummarySnapshot(TimeSpan.Zero, "baseline-commit", []));
         await notifier.DisposeAsync();
 
         Assert.Empty(commands);
@@ -147,6 +147,7 @@ public sealed class DesktopNotifierTests
 
         notifier.RunCompleted(new RunSummarySnapshot(
             TimeSpan.FromMinutes(1),
+            "baseline-commit",
             [new AgentRunSummary("alice", 2, 1, 1, 0)]));
         await notifier.DisposeAsync();
 
@@ -171,6 +172,7 @@ public sealed class DesktopNotifierTests
 
         notifier.RunCompleted(new RunSummarySnapshot(
             TimeSpan.FromMinutes(1),
+            "baseline-commit",
             [new AgentRunSummary("alice", 2, 0, 0, 0)]));
         await notifier.DisposeAsync();
 

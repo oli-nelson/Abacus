@@ -165,6 +165,31 @@ This is a standalone operation. It does not require a model, agent workspace,
 tmux session, or agent harness. Multi-word messages must be passed as one quoted
 argument.
 
+### List tickets needing user attention
+
+Print every ticket ID carrying the `abacus:needs-user-attention` label, including
+closed tickets:
+
+```sh
+abacus --list-user-attention
+```
+
+The output is script-friendly: one ID per line with no heading. This standalone,
+read-only command does not run preflight or require agent options.
+
+### Prune branches for closed tickets
+
+Delete local `abacus/<issue-id>` branches whose matching Beads tickets are
+closed:
+
+```sh
+abacus --prune-closed-branches
+```
+
+The command never deletes non-Abacus branches or remote refs. It skips and
+reports matching branches that are checked out in any worktree, and reports the
+branches it deleted. It is standalone and does not require normal run options.
+
 ## Agent modes
 
 Abacus supports exactly four modes:
@@ -587,6 +612,18 @@ abacus --drain --model "$MODEL" --opencode-server 127.0.0.1:4096 \
 Run `abacus --help` for the short prerequisite list and examples.
 
 ## Agent and branch behavior
+
+Before starting any agent loop, Abacus establishes and records a Beads baseline.
+With exactly one configured agent and a Dolt remote, it first runs `bd dolt pull`;
+with multiple agents on a shared server, no pull is needed because every agent
+already sees the live database. It then reads the full current Dolt commit with
+`bd --readonly vc status --json`. The final run summary prints this commit in
+both interactive and redirected output.
+
+This identifies the Dolt `HEAD` from before Abacus claimed or updated any
+tickets; it does not create a new checkpoint commit. Resetting a shared database
+to that commit can also remove other writers' later changes and must be
+coordinated separately.
 
 Each agent has one asynchronous loop:
 

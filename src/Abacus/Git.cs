@@ -1,5 +1,9 @@
 namespace Abacus;
 
+public sealed record BranchPruneResult(
+    IReadOnlyList<string> DeletedBranches,
+    IReadOnlyList<string> SkippedCheckedOutBranches);
+
 public sealed class Git(CommandRunner runner, string executable = "git")
 {
     public async Task<string> ResolveWorkspaceRootAsync(
@@ -94,6 +98,70 @@ public sealed class Git(CommandRunner runner, string executable = "git")
 
         await EnsureCleanAsync(workspace, agentName, cancellationToken);
         return branch;
+    }
+
+    public async Task<BranchPruneResult> PruneClosedIssueBranchesAsync(
+        string workspace,
+        IEnumerable<string> closedIssueIds,
+        CancellationToken cancellationToken)
+    {
+        var closedIds = closedIssueIds
+            .Where(IsValidIssueId)
+            .ToHashSet(StringComparer.Ordinal);
+        if (closedIds.Count == 0)
+        {
+            return new BranchPruneResult([], []);
+        }
+
+        var branches = await RunAsync(
+            workspace,
+            agentName: "abacus",
+            ["-C", workspace, "for-each-ref", "--format=%(refname:short)%00%(worktreepath)", "refs/heads/abacus/"],
+            cancellationToken);
+        if (!branches.Succeeded)
+        {
+            throw new WorkspacePreparationException(
+                $"could not list Abacus branches: {FailureDetail(branches)}");
+        }
+
+        var deletable = new List<string>();
+        var skipped = new List<string>();
+        foreach (var line in branches.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.TrimEnd('\r').Split('\0', 2);
+            var branch = parts[0];
+            const string prefix = "abacus/";
+            if (!branch.StartsWith(prefix, StringComparison.Ordinal)
+                || !closedIds.Contains(branch[prefix.Length..]))
+            {
+                continue;
+            }
+
+            if (parts.Length == 2 && !string.IsNullOrEmpty(parts[1]))
+            {
+                skipped.Add(branch);
+            }
+            else
+            {
+                deletable.Add(branch);
+            }
+        }
+
+        deletable.Sort(StringComparer.Ordinal);
+        skipped.Sort(StringComparer.Ordinal);
+        if (deletable.Count > 0)
+        {
+            var deleteArguments = new List<string> { "-C", workspace, "branch", "-D", "--" };
+            deleteArguments.AddRange(deletable);
+            var delete = await RunAsync(workspace, "abacus", deleteArguments, cancellationToken);
+            if (!delete.Succeeded)
+            {
+                throw new WorkspacePreparationException(
+                    $"could not delete closed ticket branches: {FailureDetail(delete)}");
+            }
+        }
+
+        return new BranchPruneResult(deletable, skipped);
     }
 
     public async Task<bool> IsWorkspaceCleanAsync(

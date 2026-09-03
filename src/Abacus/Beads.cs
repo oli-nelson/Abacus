@@ -364,6 +364,32 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         return ParseIssues(result.StandardOutput, "user-attention issue result");
     }
 
+    public async Task<IReadOnlyList<BeadsIssue>> GetIssuesNeedingUserAttentionAsync(
+        string workspace,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(
+            workspace,
+            agentName: null,
+            ["list", "--label", NeedsUserAttentionLabel, "--all", "--limit", "0", "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(result, "list issues needing user attention");
+        return ParseIssues(result.StandardOutput, "user-attention issue result");
+    }
+
+    public async Task<IReadOnlyList<BeadsIssue>> GetClosedIssuesAsync(
+        string workspace,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(
+            workspace,
+            agentName: null,
+            ["list", "--status", "closed", "--all", "--limit", "0", "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(result, "list closed issues");
+        return ParseIssues(result.StandardOutput, "closed issue result");
+    }
+
     public async Task<IReadOnlyList<BeadsComment>> GetLatestCommentsAsync(
         string workspace,
         string agentName,
@@ -395,6 +421,35 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         string agentName,
         CancellationToken cancellationToken) =>
         RunWithActorAsync(workspace, agentName, ["dolt", "push"], cancellationToken);
+
+    public async Task<string> ReadCurrentDoltCommitAsync(
+        string workspace,
+        string? agentName,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(
+            workspace,
+            agentName,
+            ["--readonly", "vc", "status", "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(result, "read the current Beads Dolt commit");
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.StandardOutput);
+            var commit = document.RootElement.GetProperty("commit").GetString();
+            if (string.IsNullOrWhiteSpace(commit))
+            {
+                throw new JsonException("commit is missing");
+            }
+
+            return commit;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            throw new BeadsException($"Beads returned invalid version-control status JSON: {exception.Message}");
+        }
+    }
 
     public async Task<CommandResult> ReopenAsync(
         string workspace,

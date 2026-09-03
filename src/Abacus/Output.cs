@@ -132,6 +132,7 @@ internal static class OutputExtensions
     private static async Task WritePlainSummaryAsync(TextWriter output, RunSummarySnapshot summary)
     {
         await output.WriteLineAsync($"[abacus] run summary • {FormatDuration(summary.Elapsed)} • {summary.Total} outcomes");
+        await output.WriteLineAsync($"[abacus] initial Beads Dolt commit • {summary.InitialDoltCommit}");
         foreach (var agent in summary.Agents)
         {
             await output.WriteLineAsync(
@@ -428,6 +429,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             }
 
             writer.WriteLine($"ABACUS RUN SUMMARY  •  {OutputExtensions.FormatDuration(summary.Elapsed)}  •  {summary.Total} outcomes");
+            writer.WriteLine($"Initial Beads Dolt commit  {summary.InitialDoltCommit}");
             writer.WriteLine(new string('─', 72));
             foreach (var agent in summary.Agents)
             {

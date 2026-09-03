@@ -190,6 +190,7 @@ public sealed class OutputTests
         await output.SetPersistentAlertAsync("alice", "Could not verify recovery");
         await output.SummaryAsync(new RunSummarySnapshot(
             TimeSpan.FromMinutes(2) + TimeSpan.FromSeconds(3),
+            "pjmrvjigiph28prpf6ir4uv0tuv88vnn",
             [
                 new AgentRunSummary("alice", 2, 1, 0, 0),
                 new AgentRunSummary("bob", 0, 0, 1, 1),
@@ -199,6 +200,7 @@ public sealed class OutputTests
         Assert.Contains("ABACUS RUN SUMMARY", text, StringComparison.Ordinal);
         Assert.Contains("2m 3s", text, StringComparison.Ordinal);
         Assert.Contains("5 outcomes", text, StringComparison.Ordinal);
+        Assert.Contains("Initial Beads Dolt commit  pjmrvjigiph28prpf6ir4uv0tuv88vnn", text, StringComparison.Ordinal);
         Assert.Contains("alice", text, StringComparison.Ordinal);
         Assert.Contains("closed 2", text, StringComparison.Ordinal);
         Assert.Contains("bob", text, StringComparison.Ordinal);

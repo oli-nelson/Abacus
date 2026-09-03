@@ -7,19 +7,42 @@ public sealed class AbacusApplication(
 {
     public async Task RunAsync(PreflightResult preflight, CancellationToken cancellationToken)
     {
+        var beads = new Beads(runner, preflight.Tools.Bd);
+        var baselineAgent = preflight.Agents[0];
+        if (preflight.Agents.Count == 1 && baselineAgent.HasRemote)
+        {
+            await log.SetAgentAsync(
+                baselineAgent.Name,
+                AgentActivity.Syncing,
+                "Pulling Beads before recording the run baseline");
+            var pull = await beads.PullAsync(
+                baselineAgent.WorkspacePath,
+                baselineAgent.Name,
+                cancellationToken);
+            if (!pull.Succeeded)
+            {
+                throw new BeadsException(
+                    $"failed to pull Beads before recording the run baseline: {Beads.FailureDetail(pull)}");
+            }
+        }
+
+        var initialDoltCommit = await beads.ReadCurrentDoltCommitAsync(
+            baselineAgent.WorkspacePath,
+            baselineAgent.Name,
+            cancellationToken);
         var temporaryRoot = Path.Combine(
             Path.GetTempPath(),
             $"abacus-{Environment.ProcessId}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(temporaryRoot);
         var summary = new RunSummary(
             preflight.Agents.Select(static agent => agent.Name),
+            initialDoltCommit,
             notifier);
 
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
             await log.SystemAsync("Agent loops started");
-            var beads = new Beads(runner, preflight.Tools.Bd);
             var git = new Git(runner, preflight.Tools.Git);
             var dashboardMonitor = MonitorDashboardAsync(
                 beads,

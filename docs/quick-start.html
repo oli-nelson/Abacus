@@ -1413,6 +1413,12 @@ abacus --resolve-attention &lt;issue-id&gt;
 <span class="comment"># Resolve, reopen, and unassign the ticket so an agent can claim it again.</span>
 abacus --resolve-attention &lt;issue-id&gt; "Approved: use public-api" --reopen
 
+<span class="comment"># List every ticket still carrying the attention label.</span>
+abacus --list-user-attention
+
+<span class="comment"># Delete local abacus/* branches for closed tickets.</span>
+abacus --prune-closed-branches
+
 <span class="comment"># If no work can continue, also mark the ticket blocked.</span>
 bd comment &lt;issue-id&gt; "Waiting for the API name decision."
 bd update &lt;issue-id&gt; --status blocked --json</code></pre>

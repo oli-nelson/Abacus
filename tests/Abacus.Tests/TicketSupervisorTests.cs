@@ -250,7 +250,7 @@ public sealed class TicketSupervisorTests
         public string TmuxCalls { get; }
         public string PushCount { get; }
         public StringWriter Log { get; } = new();
-        public RunSummary Summary { get; } = new(["alice"]);
+        public RunSummary Summary { get; } = new(["alice"], "baseline-commit");
 
         public static async Task<SupervisorFixture> CreateAsync(
             IReadOnlyList<string> statuses,

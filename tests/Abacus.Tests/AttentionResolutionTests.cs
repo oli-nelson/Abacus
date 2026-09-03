@@ -179,6 +179,32 @@ public sealed class AttentionResolutionTests
             await File.ReadAllLinesAsync(fixture.CallsPath));
     }
 
+    [Theory]
+    [InlineData(true, "list", "--label", "abacus:needs-user-attention", "--all", "--limit", "0", "--json")]
+    [InlineData(false, "list", "--status", "closed", "--all", "--limit", "0", "--json")]
+    public async Task StandaloneListsUseUnboundedJsonQueries(
+        bool userAttention,
+        params string[] expectedArguments)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await AttentionFixture.CreateAsync();
+
+        var issues = userAttention
+            ? await fixture.Beads.GetIssuesNeedingUserAttentionAsync(
+                fixture.Root,
+                CancellationToken.None)
+            : await fixture.Beads.GetClosedIssuesAsync(
+                fixture.Root,
+                CancellationToken.None);
+
+        Assert.Equal("ab-123", Assert.Single(issues).Id);
+        Assert.Equal(expectedArguments, await File.ReadAllLinesAsync(fixture.CallsPath));
+    }
+
     private sealed class AttentionFixture : IDisposable
     {
         private readonly DirectoryInfo root;

@@ -39,6 +39,44 @@ public static class Program
                 return health.IsHealthy ? 0 : 1;
             }
 
+            if (parsed.ListUserAttention)
+            {
+                var issues = await new Beads(new CommandRunner(TextWriter.Null))
+                    .GetIssuesNeedingUserAttentionAsync(
+                        Environment.CurrentDirectory,
+                        CancellationToken.None);
+                foreach (var issueId in issues
+                    .Select(static issue => issue.Id)
+                    .Order(StringComparer.Ordinal))
+                {
+                    Console.Out.WriteLine(issueId);
+                }
+
+                return 0;
+            }
+
+            if (parsed.PruneClosedBranches)
+            {
+                var runner = new CommandRunner(TextWriter.Null);
+                var closedIssues = await new Beads(runner)
+                    .GetClosedIssuesAsync(Environment.CurrentDirectory, CancellationToken.None);
+                var result = await new Git(runner)
+                    .PruneClosedIssueBranchesAsync(
+                        Environment.CurrentDirectory,
+                        closedIssues.Select(static issue => issue.Id),
+                        CancellationToken.None);
+                Console.Out.WriteLine(result.DeletedBranches.Count == 0
+                    ? "No closed ticket branches to prune."
+                    : $"Deleted {result.DeletedBranches.Count} closed ticket branch{(result.DeletedBranches.Count == 1 ? string.Empty : "es")}: {string.Join(", ", result.DeletedBranches)}");
+                if (result.SkippedCheckedOutBranches.Count > 0)
+                {
+                    Console.Out.WriteLine(
+                        $"Skipped checked-out branch{(result.SkippedCheckedOutBranches.Count == 1 ? string.Empty : "es")}: {string.Join(", ", result.SkippedCheckedOutBranches)}");
+                }
+
+                return 0;
+            }
+
             if (parsed.AttentionResolution is { } attentionResolution)
             {
                 await new Beads(new CommandRunner(TextWriter.Null))

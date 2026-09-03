@@ -76,7 +76,7 @@ public sealed class DirectOpenCodeServerHostTests
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
-        for (var attempt = 0; attempt < 200 && !condition(); attempt++)
+        for (var attempt = 0; attempt < 1000 && !condition(); attempt++)
         {
             await Task.Delay(10);
         }

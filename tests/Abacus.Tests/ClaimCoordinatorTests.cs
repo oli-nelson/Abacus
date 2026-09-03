@@ -177,17 +177,21 @@ public sealed class ClaimCoordinatorTests
                     count=$(cat "$root/ready-count"); count=$((count + 1)); printf '%s' "$count" > "$root/ready-count"
                   if test {{(recoverFirstClaim ? "1" : "0")}} -eq 1; then
                     test "$count" -eq 1 && id=abc-bad || id=abc-good
-                    printf '[{"id":"%s","status":"in_progress"}]\n' "$id"
+                    printf '[{"id":"%s","status":"open"}]\n' "$id"
                   elif test "$count" -eq 1; then
                     printf '[]\n'
                   else
-                    printf '[{"id":"abc-good","status":"in_progress"}]\n'
+                    printf '[{"id":"abc-good","status":"open"}]\n'
                   fi
                   fi
                 elif test "$1" = update; then
-                  printf '%s\n' "$*" >> "$root/updates"
-                  touch "$root/recovered"
-                  printf '[{"id":"abc-bad","status":"open"}]\n'
+                  if test "$3" = --claim; then
+                    printf '[{"id":"%s","status":"in_progress"}]\n' "$2"
+                  else
+                    printf '%s\n' "$*" >> "$root/updates"
+                    touch "$root/recovered"
+                    printf '[{"id":"abc-bad","status":"open"}]\n'
+                  fi
                 elif test "$1" = show; then
                   if test -f "$root/recovered"; then
                     printf '[{"id":"abc-bad","status":"open"}]\n'

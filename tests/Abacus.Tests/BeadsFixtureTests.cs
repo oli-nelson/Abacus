@@ -102,4 +102,39 @@ public sealed class BeadsFixtureTests
             root.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public async Task CurrentDoltCommitUsesReadOnlyVersionControlStatus()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-dolt-head-");
+        try
+        {
+            var script = Path.Combine(root.FullName, "bd");
+            await File.WriteAllTextAsync(script, """
+                #!/bin/sh
+                printf '%s\n' "$*" > "$PWD/calls"
+                printf '%s\n' '{"branch":"main","commit":"pjmrvjigiph28prpf6ir4uv0tuv88vnn","schema_version":1}'
+                """);
+            File.SetUnixFileMode(
+                script,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var commit = await new Beads(new CommandRunner(TextWriter.Null), script)
+                .ReadCurrentDoltCommitAsync(root.FullName, "alice", CancellationToken.None);
+
+            Assert.Equal("pjmrvjigiph28prpf6ir4uv0tuv88vnn", commit);
+            Assert.Equal(
+                "--readonly vc status --json",
+                (await File.ReadAllTextAsync(Path.Combine(root.FullName, "calls"))).Trim());
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
 }
