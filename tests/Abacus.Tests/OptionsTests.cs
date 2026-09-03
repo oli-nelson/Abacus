@@ -621,6 +621,22 @@ public sealed class OptionsTests
         Assert.Throws<OptionsException>(() => Options.Parse(["--health", "--verbose"]));
     }
 
+    [Fact]
+    public void ModelsDoesNotRequireAgentOptions()
+    {
+        var result = Options.Parse(["--models"]);
+
+        Assert.True(result.ShowModels);
+        Assert.False(result.ShowHelp);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public void ModelsCannotBeCombinedWithOtherOptions()
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse(["--models", "--verbose"]));
+    }
+
     [Theory]
     [InlineData("--prune-closed-branches")]
     [InlineData("--list-user-attention")]

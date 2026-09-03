@@ -63,6 +63,12 @@ Inspect whether the current repository is ready for Abacus:
 abacus --health
 ```
 
+List model IDs exposed by the installed agent harnesses:
+
+```sh
+abacus --models
+```
+
 Delete local Abacus branches whose corresponding tickets are closed:
 
 ```sh
@@ -135,6 +141,15 @@ queries all closed Beads tickets and force-deletes matching local
 non-Abacus branches or remote refs. A matching branch checked out in any
 worktree is skipped and reported rather than causing the rest of the prune to
 fail. It does not run agent preflight or require normal run options.
+
+`--models` is a standalone, read-only operation. It invokes `opencode models`
+and `codex debug models` when those harnesses are installed, then prints their
+available model IDs in separate groups. A missing harness or failed catalog is
+reported within its group without suppressing successful groups. Claude Code
+does not expose non-interactive model discovery, so an installed Claude CLI is
+reported with guidance to use its interactive `/model` picker. The command
+exits zero when at least one model ID was discovered and one otherwise. It does
+not require a Git repository, Beads project, model, agent, or tmux session.
 
 Each local agent runs interactively in its own tmux pane using its assigned Git workspace and requested model:
 
@@ -245,8 +260,27 @@ Read the ticket with:
   bd show <issue_id> --json
 
 Work on the branch abacus/<issue_id> and satisfy the ticket's definition of done.
-Commit your changes, then use the repository's serialized merge process to merge
-the branch into the latest main branch.
+Commit your changes, then merge the branch into the latest local main branch.
+
+Follow any repository-specific merge instructions when they define a merge process.
+Otherwise, use this basic merge strategy:
+
+1. Check for a Beads merge slot with `bd merge-slot check --json`. If the response
+   reports that no merge slot exists, continue without one; do not create one. If a
+   slot exists, acquire it before merging, waiting and retrying while another agent
+   holds it:
+
+     until bd merge-slot acquire --holder "$BEADS_ACTOR"; do sleep 2; done
+
+2. While holding the merge slot when one is configured, merge the latest local
+   `main` into the issue branch. Resolve any conflicts and commit the result.
+3. Locate the worktree where `main` is checked out with
+   `git worktree list --porcelain`, then fast-forward it to the issue branch with
+   `git -C <main-worktree> merge --ff-only <issue-branch>`. If `main` is not checked
+   out elsewhere, switch this workspace to `main` and fast-forward it there.
+4. If you acquired a merge slot, release it with
+   `bd merge-slot release --holder "$BEADS_ACTOR"`. Always release it, including
+   when the merge fails. Only close the ticket after the merge and release succeed.
 
 You might not be the first agent to work on this ticket, there might be commits
 in this branch that are already contributing to the ticket. Make sure you

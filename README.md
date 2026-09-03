@@ -127,6 +127,23 @@ and all bundled skills are installed. It exits with status 1 when the repository
 needs attention. A missing merge slot is advisory and does not change the exit
 status because repositories may use another serialized merge process.
 
+### List available models
+
+Run the standalone model catalog from any directory:
+
+```sh
+abacus --models
+```
+
+Abacus invokes `opencode models` and `codex debug models`, then prints the
+available IDs under separate OpenCode and Codex headings. Missing harnesses and
+catalog failures are shown within their group, so one failure does not hide
+models returned by another harness. Claude Code currently exposes its model
+picker only through the interactive `/model` command; the Claude Code group
+explains that limitation instead of presenting aliases as account-specific
+availability. The command exits zero if at least one model ID is discovered and
+one otherwise. It does not require Git, Beads, tmux, a model, or agent options.
+
 ### Resolve a user-attention callout
 
 Remove the `abacus:needs-user-attention` label from one issue in the current
@@ -643,10 +660,12 @@ Reopen and Dolt-push retries return explicit success or failure outcomes. Exhaus
 Every agent session receives the prompt defined in
 [`src/Abacus/Prompt.cs`](src/Abacus/Prompt.cs), with the agent name, issue ID,
 and canonical workspace path substituted at runtime. The source contract is in
-[`SPEC.md`](SPEC.md#agent-prompt-template). Repository-specific agent
-instructions must define the serialized merge process named in the prompt. The
-optional command-line and repository prompt additions described above are
-appended after this built-in prompt in that order.
+[`SPEC.md`](SPEC.md#agent-prompt-template). The built-in prompt supplies a basic
+merge process that uses a Beads merge slot when the project has one and proceeds
+without it when it does not. Repository-specific instructions can replace that
+default with a custom merge process. The optional command-line and repository
+prompt additions described above are appended after this built-in prompt in
+that order.
 
 In default mode, agent states and recent warnings are shown without subprocess noise. In verbose mode, every external command is logged concisely to stderr with a timestamp and agent prefix. Pane-hosted prompt, wrapper, and marker files live under a per-process directory in the system temporary directory and are removed after a run. Agent CLI output is displayed directly in tmux for pane-hosted runs; direct attached-process output is drained to preserve the dashboard.
 

@@ -39,6 +39,14 @@ public static class Program
                 return health.IsHealthy ? 0 : 1;
             }
 
+            if (parsed.ShowModels)
+            {
+                var catalog = await new ModelCatalog(new CommandRunner(TextWriter.Null))
+                    .CollectAsync(Environment.CurrentDirectory, CancellationToken.None);
+                Console.Out.Write(catalog.Render());
+                return catalog.HasModels ? 0 : 1;
+            }
+
             if (parsed.ListUserAttention)
             {
                 var issues = await new Beads(new CommandRunner(TextWriter.Null))

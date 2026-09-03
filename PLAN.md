@@ -118,6 +118,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   ```text
   abacus --install-skills
   abacus --health
+  abacus --models
   abacus --prune-closed-branches
   abacus --list-user-attention
   abacus --resolve-attention <issue-id> [<message>] [--reopen]
@@ -170,6 +171,11 @@ Before building the loop, capture the exact behavior of the locally supported co
   not fail—when no merge slot exists because the repository may provide another
   serialized merge process. Do not search the filesystem for separate clones or
   contact an OpenCode server.
+- Add a standalone, read-only `--models` report. Discover OpenCode IDs with
+  `opencode models` and visible Codex IDs with `codex debug models`, group the
+  results by harness, and isolate missing-tool or command failures. Report that
+  Claude Code requires its interactive `/model` picker because its CLI exposes
+  no non-interactive catalog command. Require no repository or agent options.
 - Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed latest-comments log at the bottom, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a header line, then the truncated comment on an indented line beneath it, colored red for attention-labelled issues, green for configured-agent authors, and cyan for unrecognized authors. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print the initial full Beads Dolt commit plus a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 - Keep desktop notifications dependency-free and owned by the orchestrator. `--notify attention` reports new user-attention issues, blocked tickets, and persistent recovery failures; `--notify all` also reports all ticket outcomes and the final run summary. Use `osascript` on macOS and optional `notify-send` on Linux through `ProcessStartInfo.ArgumentList`. When sound is enabled, distinguish successful outcomes from attention or unsuccessful outcomes with positive and negative platform sounds. Treat delivery as best effort, deduplicate polled attention issues, and use a terminal bell fallback only when `--notify-sound` was requested.
 
@@ -319,7 +325,8 @@ All checks happen before any ticket is claimed or agent run is created.
 
 - Add a README containing installation (`dotnet publish`), prerequisites, both usage examples from SPEC.md, how shared Dolt is validated, branch behavior, logs, and shutdown behavior.
 - State explicitly that Abacus does not create worktrees, configure Beads/Dolt, start tmux, start OpenCode servers, merge branches, or decide ticket outcomes.
-- Document the exact shared agent prompt and the requirement that repository-specific instructions define the serialized merge process.
+- Document the exact shared agent prompt, its basic default merge process, optional
+  merge-slot behavior, and how repository-specific instructions can replace it.
 
 ### Manual smoke test
 
@@ -342,6 +349,8 @@ All checks happen before any ticket is claimed or agent run is created.
   it replaces existing bundled skill directories.
 - `abacus --health` reports project readiness without mutating it and fails when
   no single-agent mode is runnable or a bundled skill is missing.
+- `abacus --models` reports discoverable model IDs by harness without requiring
+  Beads, Git, tmux, a model, or an agent configuration.
 - `abacus --prune-closed-branches` removes local Abacus issue branches for
   closed tickets while preserving non-Abacus, remote, and checked-out branches.
 - `abacus --list-user-attention` prints the IDs of all attention-labelled

@@ -17,8 +17,27 @@ public sealed class PromptTests
               bd show abc-123 --json
 
             Work on the branch abacus/abc-123 and satisfy the ticket's definition of done.
-            Commit your changes, then use the repository's serialized merge process to merge
-            the branch into the latest main branch.
+            Commit your changes, then merge the branch into the latest local main branch.
+
+            Follow any repository-specific merge instructions when they define a merge process.
+            Otherwise, use this basic merge strategy:
+
+            1. Check for a Beads merge slot with `bd merge-slot check --json`. If the response
+               reports that no merge slot exists, continue without one; do not create one. If a
+               slot exists, acquire it before merging, waiting and retrying while another agent
+               holds it:
+
+                 until bd merge-slot acquire --holder "$BEADS_ACTOR"; do sleep 2; done
+
+            2. While holding the merge slot when one is configured, merge the latest local
+               `main` into the issue branch. Resolve any conflicts and commit the result.
+            3. Locate the worktree where `main` is checked out with
+               `git worktree list --porcelain`, then fast-forward it to the issue branch with
+               `git -C <main-worktree> merge --ff-only <issue-branch>`. If `main` is not checked
+               out elsewhere, switch this workspace to `main` and fast-forward it there.
+            4. If you acquired a merge slot, release it with
+               `bd merge-slot release --holder "$BEADS_ACTOR"`. Always release it, including
+               when the merge fails. Only close the ticket after the merge and release succeed.
 
             You might not be the first agent to work on this ticket, there might be commits
             in this branch that are already contributing to the ticket. Make sure you

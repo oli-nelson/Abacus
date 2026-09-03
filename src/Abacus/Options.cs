@@ -65,7 +65,7 @@ public sealed record Options(
     };
 
     public const string ShortUsage =
-        "Usage: abacus --install-skills | abacus --health | " +
+        "Usage: abacus --install-skills | abacus --health | abacus --models | " +
         "abacus --prune-closed-branches | abacus --list-user-attention | " +
         "abacus --resolve-attention <issue-id> [<message>] [--reopen] | " +
         "abacus [--mode <opencode|codex|claude|opencode-server>] " +
@@ -84,6 +84,7 @@ public sealed record Options(
         Usage:
           abacus --install-skills
           abacus --health
+          abacus --models
           abacus --prune-closed-branches
           abacus --list-user-attention
           abacus --resolve-attention <issue-id> [<message>] [--reopen]
@@ -114,6 +115,11 @@ public sealed record Options(
           --health reports Beads configuration and merge-slot availability,
           supported agent harness and tmux versions, referenced Git worktrees,
           bundled skill presence, and single-/multi-agent readiness.
+
+        Models:
+          --models lists available model IDs grouped by installed agent harness.
+          OpenCode and Codex provide scriptable catalogs. Claude Code is reported
+          with guidance to use its interactive /model picker.
 
         Repository maintenance:
           --prune-closed-branches deletes local abacus/<issue-id> branches for
@@ -227,6 +233,16 @@ public sealed record Options(
             }
 
             return OptionsParseResult.Health;
+        }
+
+        if (arguments.Contains("--models", StringComparer.Ordinal))
+        {
+            if (arguments.Count != 1)
+            {
+                throw new OptionsException("--models cannot be combined with other options");
+            }
+
+            return OptionsParseResult.Models;
         }
 
         if (arguments.Contains("--prune-closed-branches", StringComparer.Ordinal))
@@ -698,6 +714,7 @@ public sealed record OptionsParseResult(
     bool ShowHelp,
     bool InstallSkills = false,
     bool ShowHealth = false,
+    bool ShowModels = false,
     bool PruneClosedBranches = false,
     bool ListUserAttention = false,
     AttentionResolutionOptions? AttentionResolution = null)
@@ -705,6 +722,7 @@ public sealed record OptionsParseResult(
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);
     public static OptionsParseResult Health { get; } = new(null, ShowHelp: false, ShowHealth: true);
+    public static OptionsParseResult Models { get; } = new(null, ShowHelp: false, ShowModels: true);
     public static OptionsParseResult PruneClosedBranchesOnly { get; } =
         new(null, ShowHelp: false, PruneClosedBranches: true);
     public static OptionsParseResult ListUserAttentionOnly { get; } =

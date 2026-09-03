@@ -1076,6 +1076,11 @@ failures, and possibly stale requests. Tell me what to look at first.</code></pr
           <li><strong>Start Abacus.</strong> The model is required; effort defaults to <code>high</code>.</li>
         </ol>
 
+        <div class="callout info">
+          <span class="icon">i</span>
+          <p><strong>Find model IDs with <code>abacus --models</code>.</strong> It groups IDs discovered from installed OpenCode and Codex CLIs. Claude Code exposes its available-model picker interactively through <code>/model</code>, so Abacus reports that guidance in the Claude Code group.</p>
+        </div>
+
         <div class="code-block">
           <div class="code-label"><span>Single Claude agent</span><button class="copy-button" type="button">Copy</button></div>
           <pre><code>export SESSION=abacus-work
