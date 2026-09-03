@@ -1550,18 +1550,18 @@ abacus --notify all --notify-sound ...</code></pre>
           <section class="card">
             <p class="kicker">macOS</p>
             <h3><code>osascript</code></h3>
-            <p class="small">Abacus invokes <code>/usr/bin/osascript</code>. Notification text is supplied through environment variables rather than interpolated into AppleScript.</p>
+            <p class="small">Abacus invokes <code>/usr/bin/osascript</code> and uses <code>Hero</code> and <code>Basso</code> as its positive and negative sounds. Notification text is supplied through environment variables rather than interpolated into AppleScript.</p>
           </section>
           <section class="card">
             <p class="kicker">Linux</p>
             <h3><code>notify-send</code></h3>
-            <p class="small">Install <code>notify-send</code> and run within a graphical notification session. Abacus passes title/body as separate process arguments.</p>
+            <p class="small">Install <code>notify-send</code> and run within a graphical notification session. Abacus passes title/body as separate process arguments and requests the standard <code>complete</code> and <code>dialog-warning</code> sounds; support depends on the active notification daemon and sound theme.</p>
           </section>
         </div>
 
         <div class="callout info">
           <span class="icon">i</span>
-          <p><strong>Sound is opt-in.</strong> <code>--notify-sound</code> requires <code>attention</code> or <code>all</code>. It requests the platform sound; when desktop delivery fails, Abacus may emit a terminal bell. Delivery is best effort, appears only in verbose diagnostics when unavailable, and never changes orchestration outcomes.</p>
+          <p><strong>Sound is opt-in.</strong> <code>--notify-sound</code> requires <code>attention</code> or <code>all</code>. Closed tickets and fully successful runs use a positive sound. Attention, persistent failures, reopened, blocked, or interrupted outcomes and run summaries containing any of those outcomes use a negative sound. When desktop delivery fails, Abacus may emit a terminal bell. Delivery is best effort, appears only in verbose diagnostics when unavailable, and never changes orchestration outcomes.</p>
         </div>
 
         <p class="muted small">Notification text can expose issue titles and operational errors on the desktop. Persistent errors may contain an issue ID, path, pane/process location, or exception message. Notes, prompts, source code, and command output are not intentionally included.</p>

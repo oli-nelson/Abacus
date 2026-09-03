@@ -9,7 +9,17 @@ internal enum DesktopPlatform
     Unsupported,
 }
 
-internal sealed record DesktopNotification(string Title, string Body, bool Attention);
+internal enum NotificationTone
+{
+    Positive,
+    Negative,
+}
+
+internal sealed record DesktopNotification(
+    string Title,
+    string Body,
+    bool Attention,
+    NotificationTone Tone);
 
 public sealed class DesktopNotifier : IAsyncDisposable
 {
@@ -80,7 +90,8 @@ public sealed class DesktopNotifier : IAsyncDisposable
                 Enqueue(new DesktopNotification(
                     "Abacus needs your attention",
                     OutputExtensions.FormatIssue(issue),
-                    Attention: true));
+                    Attention: true,
+                    Tone: NotificationTone.Negative));
             }
 
             attentionIssueIds.Clear();
@@ -95,7 +106,8 @@ public sealed class DesktopNotifier : IAsyncDisposable
             Enqueue(new DesktopNotification(
                 $"Abacus: {source} needs attention",
                 message,
-                Attention: true));
+                Attention: true,
+                Tone: NotificationTone.Negative));
         }
     }
 
@@ -118,7 +130,10 @@ public sealed class DesktopNotifier : IAsyncDisposable
         Enqueue(new DesktopNotification(
             $"Abacus: {agentName} {outcomeName}",
             $"{ticket} was {outcomeName}.",
-            Attention: outcome is TicketOutcome.Blocked));
+            Attention: outcome is TicketOutcome.Blocked,
+            Tone: outcome is TicketOutcome.Closed
+                ? NotificationTone.Positive
+                : NotificationTone.Negative));
     }
 
     public void RunCompleted(RunSummarySnapshot summary)
@@ -132,10 +147,14 @@ public sealed class DesktopNotifier : IAsyncDisposable
         var reopened = summary.Agents.Sum(static agent => agent.Reopened);
         var blocked = summary.Agents.Sum(static agent => agent.Blocked);
         var interrupted = summary.Agents.Sum(static agent => agent.Interrupted);
+        var hasUnsuccessfulOutcomes = reopened > 0 || blocked > 0 || interrupted > 0;
         Enqueue(new DesktopNotification(
             "Abacus run finished",
             $"{summary.Total} outcomes: {closed} closed, {reopened} reopened, {blocked} blocked, {interrupted} interrupted.",
-            Attention: blocked > 0));
+            Attention: blocked > 0,
+            Tone: hasUnsuccessfulOutcomes
+                ? NotificationTone.Negative
+                : NotificationTone.Positive));
     }
 
     public async ValueTask DisposeAsync()
@@ -219,7 +238,7 @@ public sealed class DesktopNotifier : IAsyncDisposable
         var script = "set notificationTitle to system attribute \"ABACUS_NOTIFICATION_TITLE\"\n"
             + "set notificationBody to system attribute \"ABACUS_NOTIFICATION_BODY\"\n"
             + "display notification notificationBody with title notificationTitle"
-            + (sound ? " sound name \"Glass\"" : string.Empty);
+            + (sound ? $" sound name \"{MacOSSoundName(notification.Tone)}\"" : string.Empty);
         return new CommandSpec(
             "/usr/bin/osascript",
             ["-e", script],
@@ -240,13 +259,27 @@ public sealed class DesktopNotifier : IAsyncDisposable
         };
         if (sound)
         {
-            arguments.Add("--hint=string:sound-name:message-new-instant");
+            arguments.Add($"--hint=string:sound-name:{LinuxSoundName(notification.Tone)}");
         }
 
         arguments.Add(notification.Title);
         arguments.Add(notification.Body);
         return new CommandSpec("notify-send", arguments, Path.GetTempPath());
     }
+
+    private static string MacOSSoundName(NotificationTone tone) => tone switch
+    {
+        NotificationTone.Positive => "Hero",
+        NotificationTone.Negative => "Basso",
+        _ => throw new ArgumentOutOfRangeException(nameof(tone), tone, null),
+    };
+
+    private static string LinuxSoundName(NotificationTone tone) => tone switch
+    {
+        NotificationTone.Positive => "complete",
+        NotificationTone.Negative => "dialog-warning",
+        _ => throw new ArgumentOutOfRangeException(nameof(tone), tone, null),
+    };
 
     private static DesktopPlatform DetectPlatform()
     {

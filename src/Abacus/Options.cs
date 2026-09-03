@@ -158,7 +158,8 @@ public sealed record Options(
           --notify defaults to off. attention reports tickets labelled for user
           attention, blocked tickets, and persistent recovery failures. all also
           reports every ticket outcome and the final run summary.
-          --notify-sound requests an OS notification sound and permits a terminal
+          --notify-sound uses positive sounds for successful outcomes and negative
+          sounds for attention or unsuccessful outcomes. It permits a terminal
           bell fallback when desktop notification delivery is unavailable.
 
         Finite execution:

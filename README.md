@@ -292,9 +292,9 @@ abacus --notify attention --notify-sound \
   -a "$AGENT" "$REPO"
 ```
 
-`--notify attention` reports newly observed `abacus:needs-user-attention` issues, blocked tickets, and persistent recovery failures. `--notify all` additionally reports closed, reopened, and interrupted outcomes plus the final run summary. `--notify-sound` requests a platform sound and permits a terminal bell fallback when notification delivery fails.
+`--notify attention` reports newly observed `abacus:needs-user-attention` issues, blocked tickets, and persistent recovery failures. `--notify all` additionally reports closed, reopened, and interrupted outcomes plus the final run summary. `--notify-sound` uses a positive sound for closed tickets and fully successful runs, and a negative sound for attention, persistent failures, reopened, blocked, or interrupted outcomes and run summaries containing any of those outcomes. It permits a terminal bell fallback when notification delivery fails.
 
-On macOS, Abacus invokes `/usr/bin/osascript`. On Linux, it invokes `notify-send`, which must be installed and requires a graphical desktop notification session. Delivery is best effort: unavailable notification support is visible only in verbose diagnostics and never changes an agent or process outcome. Polled attention issues are notified once when they first appear, and can notify again after their attention label is removed and later restored.
+On macOS, Abacus invokes `/usr/bin/osascript` with `Hero` and `Basso` as the positive and negative sounds. On Linux, it invokes `notify-send` with the standard `complete` and `dialog-warning` sound hints; `notify-send` must be installed and requires a graphical desktop notification session, and the active notification daemon and sound theme determine whether those hints produce distinct sounds. Delivery is best effort: unavailable notification support is visible only in verbose diagnostics and never changes an agent or process outcome. Polled attention issues are notified once when they first appear, and can notify again after their attention label is removed and later restored.
 
 Useful commands from another terminal are:
 

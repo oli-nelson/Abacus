@@ -25,7 +25,7 @@ public sealed class DesktopNotifierTests
         var command = Assert.Single(commands);
         Assert.Equal("/usr/bin/osascript", command.FileName);
         Assert.Equal("-e", command.Arguments[0]);
-        Assert.Contains("sound name \"Glass\"", command.Arguments[1], StringComparison.Ordinal);
+        Assert.Contains("sound name \"Hero\"", command.Arguments[1], StringComparison.Ordinal);
         Assert.DoesNotContain("$(commands)", command.Arguments[1], StringComparison.Ordinal);
         Assert.Equal(
             "abc-1 — Title with \"quotes\" and $(commands) was closed.",
@@ -49,9 +49,26 @@ public sealed class DesktopNotifierTests
         Assert.Equal("notify-send", command.FileName);
         Assert.Contains("--app-name=Abacus", command.Arguments);
         Assert.Contains("--urgency=normal", command.Arguments);
-        Assert.Contains("--hint=string:sound-name:message-new-instant", command.Arguments);
+        Assert.Contains("--hint=string:sound-name:dialog-warning", command.Arguments);
         Assert.Equal("Abacus: bob reopened", command.Arguments[^2]);
         Assert.Equal("abc-2 — Retry it was reopened.", command.Arguments[^1]);
+    }
+
+    [Fact]
+    public async Task MacOSUsesNegativeSoundForBlockedOutcome()
+    {
+        var commands = new ConcurrentQueue<CommandSpec>();
+        var notifier = CreateNotifier(
+            commands,
+            NotificationMode.Attention,
+            sound: true,
+            DesktopPlatform.MacOS);
+
+        notifier.NotifyTicketOutcome("alice", TicketOutcome.Blocked, "abc-3");
+        await notifier.DisposeAsync();
+
+        var command = Assert.Single(commands);
+        Assert.Contains("sound name \"Basso\"", command.Arguments[1], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -61,7 +78,7 @@ public sealed class DesktopNotifierTests
         var notifier = CreateNotifier(
             commands,
             NotificationMode.Attention,
-            sound: false,
+            sound: true,
             DesktopPlatform.Linux);
         var issue = new BeadsIssue("abc-3", IssueStatus.Open, "Choose an API");
 
@@ -76,6 +93,9 @@ public sealed class DesktopNotifierTests
 
         Assert.Equal(4, commands.Count);
         Assert.Equal(4, commands.Count(command => command.Arguments.Contains("--urgency=critical")));
+        Assert.Equal(
+            4,
+            commands.Count(command => command.Arguments.Contains("--hint=string:sound-name:dialog-warning")));
     }
 
     [Fact]
@@ -122,7 +142,7 @@ public sealed class DesktopNotifierTests
         var notifier = CreateNotifier(
             commands,
             NotificationMode.All,
-            sound: false,
+            sound: true,
             DesktopPlatform.Linux);
 
         notifier.RunCompleted(new RunSummarySnapshot(
@@ -136,6 +156,26 @@ public sealed class DesktopNotifierTests
             "4 outcomes: 2 closed, 1 reopened, 1 blocked, 0 interrupted.",
             command.Arguments[^1]);
         Assert.Contains("--urgency=critical", command.Arguments);
+        Assert.Contains("--hint=string:sound-name:dialog-warning", command.Arguments);
+    }
+
+    [Fact]
+    public async Task SuccessfulRunSummaryUsesPositiveSound()
+    {
+        var commands = new ConcurrentQueue<CommandSpec>();
+        var notifier = CreateNotifier(
+            commands,
+            NotificationMode.All,
+            sound: true,
+            DesktopPlatform.Linux);
+
+        notifier.RunCompleted(new RunSummarySnapshot(
+            TimeSpan.FromMinutes(1),
+            [new AgentRunSummary("alice", 2, 0, 0, 0)]));
+        await notifier.DisposeAsync();
+
+        var command = Assert.Single(commands);
+        Assert.Contains("--hint=string:sound-name:complete", command.Arguments);
     }
 
     private static DesktopNotifier CreateNotifier(

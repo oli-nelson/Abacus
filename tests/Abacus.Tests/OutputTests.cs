@@ -114,15 +114,15 @@ public sealed class OutputTests
 
         await output.SetLatestCommentsAsync([
             Comment("comment-1", "abc-1", "Attention", "alice", "red", attention: true),
-            Comment("comment-2", "abc-2", "Agent", "alice", "yellow"),
+            Comment("comment-2", "abc-2", "Agent", "alice", "green"),
             Comment("comment-3", "abc-3", "Unknown", "reviewer", "cyan"),
         ]);
 
         var text = writer.ToString();
         Assert.Contains("\u001b[31m • abc-1", text, StringComparison.Ordinal);
         Assert.Contains("\u001b[31m   ↳ red", text, StringComparison.Ordinal);
-        Assert.Contains("\u001b[33m • abc-2", text, StringComparison.Ordinal);
-        Assert.Contains("\u001b[33m   ↳ yellow", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[32m • abc-2", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[32m   ↳ green", text, StringComparison.Ordinal);
         Assert.Contains("\u001b[36m • abc-3", text, StringComparison.Ordinal);
         Assert.Contains("\u001b[36m   ↳ cyan", text, StringComparison.Ordinal);
     }

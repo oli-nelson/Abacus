@@ -589,7 +589,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             {
                 var commentColor = comment.NeedsUserAttention
                     ? Red
-                    : agents.ContainsKey(comment.Author) ? Yellow : Cyan;
+                    : agents.ContainsKey(comment.Author) ? Green : Cyan;
                 var lines = FormatLatestCommentLines(comment, width);
                 builder.Append(Color(commentColor, lines.Header));
                 builder.Append("\u001b[K\n");

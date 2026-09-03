@@ -74,11 +74,11 @@ This is a static HTML/CSS/JavaScript demo. There is no build step.
 1. Run `bd prime` and read the assigned ticket with `bd show <id> --json`.
 2. Before starting any implementation, check whether the ticket requires user
    acknowledgement. If it does, first add the requested user-attention label,
-   then wait until the required acknowledgement note has been added to the Beads
+   then wait until the required acknowledgement comment has been added to the Beads
    issue by a human user. Adding the label is only a coordination step: do not
-   edit files, write code, or otherwise begin implementation before the note
+   edit files, write code, or otherwise begin implementation before the comment
    appears. The agent must never add, edit, forge, or simulate the
-   acknowledgement note itself.
+   acknowledgement comment itself.
 3. Work only on the `abacus/<issue-id>` branch prepared by Abacus.
 4. Keep changes focused on the assigned ticket.
 5. Inspect the result and perform any lightweight checks that are useful.
@@ -256,8 +256,8 @@ git -C "$repo" commit -m "Create the Abacus demo dashboard"
 
   bd create "Add theme controls and demo footer" \
     --type task --priority 2 --labels demo,frontend --estimate 30 \
-    --description "This is the demo's user-attention checkpoint. As the first action after reading the issue, add the abacus:needs-user-attention label yourself. Then wait for a human user to append a new issue note whose entire content is exactly 'acknowledged'. Adding the label is a coordination step only: do not edit files, write code, or otherwise begin implementation until that note appears. The coding agent is not allowed to add, edit, forge, or simulate the acknowledgement note under any circumstances; it must come from the user. After the user acknowledges the issue, add an accessible light/dark theme toggle to the page header and a compact footer explaining that the page was assembled by Abacus agents. Implement the toggle in app.js, remember the choice in localStorage, and add both theme palettes plus control/footer styles to styles.css. Keep the attention label on the issue through completion." \
-    --acceptance "Before any implementation starts, the coding agent has added the abacus:needs-user-attention label and a human user—not the coding agent—has added an issue note whose entire content is exactly 'acknowledged'; the agent has not added, edited, forged, or simulated that note; after acknowledgement, the theme toggle is keyboard accessible and updates its accessible label or pressed state; the choice survives reloads; both themes remain legible; the footer credits the parallel-agent demo; the attention label remains present; the completed branch is committed and merged into main using the AGENTS.md serialized merge process and the issue is closed."
+    --description "This is the demo's user-attention checkpoint. As the first action after reading the issue, add the abacus:needs-user-attention label yourself. Then wait for a human user to add a new issue comment whose entire content is exactly 'acknowledged'. Adding the label is a coordination step only: do not edit files, write code, or otherwise begin implementation until that comment appears. The coding agent is not allowed to add, edit, forge, or simulate the acknowledgement comment under any circumstances; it must come from the user. After the user acknowledges the issue, add an accessible light/dark theme toggle to the page header and a compact footer explaining that the page was assembled by Abacus agents. Implement the toggle in app.js, remember the choice in localStorage, and add both theme palettes plus control/footer styles to styles.css. Keep the attention label on the issue through completion." \
+    --acceptance "Before any implementation starts, the coding agent has added the abacus:needs-user-attention label and a human user—not the coding agent—has added an issue comment whose entire content is exactly 'acknowledged'; the agent has not added, edited, forged, or simulated that comment; after acknowledgement, the theme toggle is keyboard accessible and updates its accessible label or pressed state; the choice survives reloads; both themes remain legible; the footer credits the parallel-agent demo; the attention label remains present; the completed branch is committed and merged into main using the AGENTS.md serialized merge process and the issue is closed."
 
   git add AGENTS.md CLAUDE.md .agents .claude .codex 2>/dev/null || true
   if [[ -n "$(git status --porcelain)" ]]; then
@@ -291,8 +291,8 @@ printf '\nBeads status:\n'
 bd -C "$repo" status
 printf '\nNo Git or Dolt remote was configured.\n'
 printf '\nOne demo ticket instructs its agent to add abacus:needs-user-attention before starting work.\n'
-printf 'Before its agent may start any implementation, a human user must append the exact note "acknowledged".\n'
+printf 'Before its agent may start any implementation, a human user must add the exact comment "acknowledged".\n'
 printf 'The agent is explicitly forbidden from adding that acknowledgement itself.\n'
 printf 'After the agent flags it, find the ticket with: bd -C "%s" list --label abacus:needs-user-attention\n' "$repo"
-printf 'A human can acknowledge it with: bd -C "%s" update <issue-id> --append-notes "acknowledged" --json\n' "$repo"
+printf 'A human can acknowledge it with: bd -C "%s" comment <issue-id> "acknowledged"\n' "$repo"
 printf 'From the demo root, run the Abacus launcher script supplied with Abacus.\n'

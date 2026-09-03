@@ -2,7 +2,7 @@
 
 # Expected successful result: main in repo/ contains the combined dashboard
 # produced by all four worktrees, all four Beads tickets are closed after a user
-# adds the required "acknowledged" note to the user-attention ticket, every
+# adds the required "acknowledged" comment to the user-attention ticket, every
 # worktree is clean, and neither Git nor Dolt has a configured remote. The setup
 # script contains the detailed expected file-level outcome and acknowledgement
 # instructions.
