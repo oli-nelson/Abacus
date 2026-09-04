@@ -223,20 +223,31 @@ Multiple agents need both isolated Git workspaces and one shared, server-backed
 Dolt database. This example keeps the primary checkout for administration and
 creates four disposable agent worktrees.
 
+For existing-data migration, backup and recovery procedures, see
+[Managing Shared Dolt for Abacus](shared-dolt.md). Do not switch an embedded
+database to server mode by editing configuration alone.
+
 ### C1. Configure shared Beads storage
 
 ```sh
 export REPO=/path/to/your/repository
 export WORKTREES=/path/to/your/repository-worktrees
 export BASE=main
+export BEADS_PREFIX=myproject
+export BEADS_DATABASE=abacus_myproject_20260904
 
 cd "$REPO"
-bd init --shared-server --non-interactive
+bd init \
+  --shared-server \
+  --prefix "$BEADS_PREFIX" \
+  --database "$BEADS_DATABASE" \
+  --non-interactive
 bd config set no-git-ops false
 bd dolt start
 bd dolt show --json
 ```
 
+Choose a database name that is unique among projects using the shared server.
 Review and commit project files changed by `bd init` before assigning worktrees
 to Abacus. Do not separately run `bd init` inside each linked worktree; Beads
 discovers the shared workspace from the repository.
@@ -269,8 +280,9 @@ rejects a pool that does not share one identity.
 
 This requirement follows Beads' concurrency model: embedded mode is
 single-writer, while server mode supports multiple concurrent clients. See the
-[Beads FAQ](https://github.com/gastownhall/beads/blob/main/docs/reference/faq.md)
-and [Dolt documentation](https://github.com/gastownhall/beads/blob/main/docs/DOLT.md).
+[Beads FAQ](https://github.com/gastownhall/beads/blob/main/docs/reference/faq.md),
+[Beads Dolt documentation](https://github.com/gastownhall/beads/blob/main/docs/architecture/dolt.md),
+and the [Abacus shared Dolt operations guide](shared-dolt.md).
 
 ### C4. Start the pool
 

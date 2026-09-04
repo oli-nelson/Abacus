@@ -48,6 +48,7 @@ Choose the path that matches your repository:
 | Add Abacus to an existing repository | [Existing repository walkthrough](docs/getting-started.md#path-b-use-an-existing-repository) |
 | Understand every option | [CLI reference](docs/cli-reference.md) |
 | Run and troubleshoot agent pools | [Operations guide](docs/operations.md) |
+| Manage or recover shared Beads storage | [Shared Dolt operations](docs/shared-dolt.md) |
 | Understand the safety model | [Architecture and boundaries](docs/architecture.md) |
 
 The [documentation index](docs/README.md) maps the rest of the project docs.
@@ -220,6 +221,8 @@ The exact boundary is documented in
 - [Getting started](docs/getting-started.md) — build, initialize, and launch
 - [CLI reference](docs/cli-reference.md) — commands, modes, filters, and options
 - [Operations guide](docs/operations.md) — dashboard, attention, recovery, and shutdown
+- [Shared Dolt operations](docs/shared-dolt.md) — creation, migration, backup,
+  troubleshooting, and rollback
 - [Architecture and boundaries](docs/architecture.md) — design and safety model
 - [Product specification](SPEC.md) — normative behavior and exact agent prompt
 - [Implementation plan](PLAN.md) — phased design constraints and definition of done

@@ -208,6 +208,10 @@ closed, reopened, blocked, and interrupted counts for each agent. The initial
 commit is a diagnostic baseline, not a checkpoint created by Abacus; resetting a
 shared database to it could discard other writers' later changes.
 
+If a database-wide rollback is genuinely required, follow the quiesce, backup,
+safety-tag, reset, and verification procedure in
+[Managing Shared Dolt for Abacus](shared-dolt.md#roll-back-to-the-commit-reported-by-abacus).
+
 ## Routine operator commands
 
 ```sh
