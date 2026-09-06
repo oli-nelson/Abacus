@@ -166,10 +166,12 @@ public sealed record Options(
           --remote enables Claude Code Remote Control while keeping the session
           interactive and naming it after the Beads issue.
 
-        Additional agent prompt:
+        Agent prompt customization:
           --append-agent-prompt appends a nonempty prompt fragment to every agent
           prompt. If <workspace>/.abacus/append-prompt.md exists, its contents are
           appended after the command-line fragment.
+          If <workspace>/.abacus/merge-instructions.md exists, its contents replace
+          the built-in merge instructions. An empty file suppresses them.
 
         Dispatch filters:
           --label and --exclude-label are repeatable. --type accepts the literal

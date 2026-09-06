@@ -111,6 +111,37 @@ public sealed class PromptTests
     }
 
     [Fact]
+    public void RepositoryMergeInstructionsReplaceTheDefaultMergeInstructions()
+    {
+        var prompt = Prompt.Render(
+            "alice",
+            "abc-123",
+            "/work/repo",
+            mergeInstructionsOverride: "  Submit the issue branch through the repository merge queue.  ");
+
+        Assert.Contains(
+            "Submit the issue branch through the repository merge queue.",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Commit your changes, then merge", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("bd merge-slot check", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("basic merge strategy", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EmptyRepositoryMergeInstructionsSuppressTheDefaultMergeInstructions()
+    {
+        var prompt = Prompt.Render(
+            "alice",
+            "abc-123",
+            "/work/repo",
+            mergeInstructionsOverride: string.Empty);
+
+        Assert.DoesNotContain("Commit your changes, then merge", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("bd merge-slot check", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ReadsAppendPromptFromRepositoryRoot()
     {
         var root = Directory.CreateTempSubdirectory("abacus-prompt-");
@@ -124,6 +155,35 @@ public sealed class PromptTests
             var prompt = await Prompt.ReadRepositoryAppendAsync(root.FullName, CancellationToken.None);
 
             Assert.Equal("Use the repository-specific verification workflow.", prompt);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ReadsMergeInstructionsFromRepositoryRootAndPreservesEmptyOverride()
+    {
+        var root = Directory.CreateTempSubdirectory("abacus-merge-instructions-");
+        try
+        {
+            Assert.Null(
+                await Prompt.ReadRepositoryMergeInstructionsAsync(root.FullName, CancellationToken.None));
+
+            var promptDirectory = Directory.CreateDirectory(Path.Combine(root.FullName, ".abacus"));
+            var path = Path.Combine(promptDirectory.FullName, "merge-instructions.md");
+            await File.WriteAllTextAsync(path, "\nUse the repository merge queue.\n");
+
+            Assert.Equal(
+                "Use the repository merge queue.",
+                await Prompt.ReadRepositoryMergeInstructionsAsync(root.FullName, CancellationToken.None));
+
+            await File.WriteAllTextAsync(path, " \n");
+
+            Assert.Equal(
+                string.Empty,
+                await Prompt.ReadRepositoryMergeInstructionsAsync(root.FullName, CancellationToken.None));
         }
         finally
         {

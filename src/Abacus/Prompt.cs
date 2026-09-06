@@ -3,13 +3,41 @@ namespace Abacus;
 public static class Prompt
 {
     public static readonly string RepositoryAppendPromptPath = Path.Combine(".abacus", "append-prompt.md");
+    public static readonly string RepositoryMergeInstructionsPath = Path.Combine(".abacus", "merge-instructions.md");
 
     public static string Render(
         string agentName,
         string issueId,
         string workspacePath,
-        string? appendedPrompt = null)
+        string? appendedPrompt = null,
+        string? mergeInstructionsOverride = null)
     {
+        var effectiveMergeInstructions = mergeInstructionsOverride is null
+            ? """
+              Commit your changes, then merge the branch into the latest local main branch.
+
+              Follow any repository-specific merge instructions when they define a merge process.
+              Otherwise, use this basic merge strategy:
+
+              1. Check for a Beads merge slot with `bd merge-slot check --json`. If the response
+                 reports that no merge slot exists, continue without one; do not create one. If a
+                 slot exists, acquire it before merging, waiting and retrying while another agent
+                 holds it:
+
+                   until bd merge-slot acquire --holder "$BEADS_ACTOR"; do sleep 2; done
+
+              2. While holding the merge slot when one is configured, merge the latest local
+                 `main` into the issue branch. Resolve any conflicts and commit the result.
+              3. Locate the worktree where `main` is checked out with
+                 `git worktree list --porcelain`, then fast-forward it to the issue branch with
+                 `git -C <main-worktree> merge --ff-only <issue-branch>`. If `main` is not checked
+                 out elsewhere, switch this workspace to `main` and fast-forward it there.
+              4. If you acquired a merge slot, release it with
+                 `bd merge-slot release --holder "$BEADS_ACTOR"`. Always release it, including
+                 when the merge fails. Only close the ticket after the merge and release succeed.
+              """
+            : mergeInstructionsOverride.Trim();
+
         var prompt = $$"""
         You are {{agentName}}, working on Beads ticket {{issueId}} in {{workspacePath}}.
 
@@ -27,27 +55,7 @@ public static class Prompt
           bd show {{issueId}} --json
 
         Work on the branch abacus/{{issueId}} and satisfy the ticket's definition of done.
-        Commit your changes, then merge the branch into the latest local main branch.
-
-        Follow any repository-specific merge instructions when they define a merge process.
-        Otherwise, use this basic merge strategy:
-
-        1. Check for a Beads merge slot with `bd merge-slot check --json`. If the response
-           reports that no merge slot exists, continue without one; do not create one. If a
-           slot exists, acquire it before merging, waiting and retrying while another agent
-           holds it:
-
-             until bd merge-slot acquire --holder "$BEADS_ACTOR"; do sleep 2; done
-
-        2. While holding the merge slot when one is configured, merge the latest local
-           `main` into the issue branch. Resolve any conflicts and commit the result.
-        3. Locate the worktree where `main` is checked out with
-           `git worktree list --porcelain`, then fast-forward it to the issue branch with
-           `git -C <main-worktree> merge --ff-only <issue-branch>`. If `main` is not checked
-           out elsewhere, switch this workspace to `main` and fast-forward it there.
-        4. If you acquired a merge slot, release it with
-           `bd merge-slot release --holder "$BEADS_ACTOR"`. Always release it, including
-           when the merge fails. Only close the ticket after the merge and release succeed.
+        {{effectiveMergeInstructions}}
 
         You might not be the first agent to work on this ticket. The branch can contain
         commits or uncommitted changes preserved from an interrupted run. Inspect the
@@ -112,6 +120,19 @@ public static class Prompt
 
         var contents = await File.ReadAllTextAsync(path, cancellationToken);
         return string.IsNullOrWhiteSpace(contents) ? null : contents.Trim();
+    }
+
+    public static async Task<string?> ReadRepositoryMergeInstructionsAsync(
+        string workspaceRoot,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(workspaceRoot, RepositoryMergeInstructionsPath);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        return (await File.ReadAllTextAsync(path, cancellationToken)).Trim();
     }
 
     public static string? CombineAppends(string? commandLinePrompt, string? repositoryPrompt)

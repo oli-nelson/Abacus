@@ -184,7 +184,7 @@ with the newest comment wins; if none has comments, Abacus preserves Beads'
 first result. A candidate with an unclosed direct child is skipped. Claims remain
 atomic, and Abacus refreshes selection after a lost race.
 
-### Prompt additions
+### Prompt customization
 
 | Input | Scope | Order |
 | --- | --- | --- |
@@ -195,8 +195,22 @@ The final prompt is the built-in Abacus prompt, the command-line addition, then
 the repository file, separated by blank lines. Empty repository files are
 ignored; an empty command-line value is rejected.
 
-Use repository instructions to replace the built-in basic merge process or add
-project-specific verification:
+Use the dedicated repository file to replace the built-in merge instructions:
+
+```sh
+mkdir -p .abacus
+cat > .abacus/merge-instructions.md <<'MERGE'
+Submit the issue branch through the repository merge queue, then close the ticket
+only after the queue reports success.
+MERGE
+```
+
+When `<workspace>/.abacus/merge-instructions.md` exists, its trimmed contents
+replace the complete built-in merge section for agents using that workspace.
+The default merge instructions are not included elsewhere in the prompt. An
+empty file intentionally suppresses the default section without replacing it.
+
+Use the append file for other project-specific guidance:
 
 ```sh
 mkdir -p .abacus

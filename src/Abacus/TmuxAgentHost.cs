@@ -85,7 +85,12 @@ public sealed class TmuxAgentHost(
         {
             await File.WriteAllTextAsync(
                 promptPath,
-                Prompt.Render(agent.Name, issue.Id, agent.WorkspacePath, agent.AppendedPrompt),
+                Prompt.Render(
+                    agent.Name,
+                    issue.Id,
+                    agent.WorkspacePath,
+                    agent.AppendedPrompt,
+                    agent.MergeInstructionsOverride),
                 cancellationToken);
             await File.WriteAllTextAsync(
                 wrapperPath,

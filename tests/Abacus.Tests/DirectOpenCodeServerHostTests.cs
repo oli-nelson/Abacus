@@ -17,6 +17,7 @@ public sealed class DirectOpenCodeServerHostTests
         var agent = fixture.Agent with
         {
             AppendedPrompt = "Command-line prompt\n\nRepository prompt",
+            MergeInstructionsOverride = "Use the repository merge queue.",
         };
         var run = await host.StartAgentAsync(
             agent,
@@ -40,7 +41,8 @@ public sealed class DirectOpenCodeServerHostTests
                 "alice",
                 "abc-1",
                 fixture.Workspace,
-                "Command-line prompt\n\nRepository prompt"),
+                "Command-line prompt\n\nRepository prompt",
+                "Use the repository merge queue."),
             await fixture.ReadAsync("prompt"));
         Assert.Equal(
             ["--model", "provider/exact-model", "--variant", "xhigh", "--attach", "http://127.0.0.1:4096", "--dir", fixture.Workspace],

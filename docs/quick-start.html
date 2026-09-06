@@ -825,7 +825,7 @@ git status --short</code></pre>
         <ul class="checklist">
           <li>The base branch exists and has a commit.</li>
           <li>The administrative checkout is clean.</li>
-          <li>If the built-in merge process is unsuitable, repository instructions define a custom one.</li>
+          <li>If the built-in merge process is unsuitable, <code>.abacus/merge-instructions.md</code> defines a custom one.</li>
           <li>Every future agent receives a distinct path.</li>
         </ul>
       </article>
@@ -1218,8 +1218,8 @@ abacus --health</code></pre>
         <div class="section-heading">
           <span class="section-number">08</span>
           <div>
-            <h2>Append repository-specific agent instructions</h2>
-            <p class="section-intro">Keep Abacus’s built-in ticket workflow intact while adding instructions that apply to one repository or one invocation.</p>
+            <h2>Customize repository-specific agent instructions</h2>
+            <p class="section-intro">Replace the built-in merge process or append other instructions for one repository or invocation.</p>
           </div>
         </div>
 
@@ -1234,6 +1234,11 @@ abacus --health</code></pre>
             <h3><code>--append-agent-prompt</code></h3>
             <p class="small">Pass one quoted, nonempty prompt fragment to apply it globally to every agent started by the invocation.</p>
           </section>
+          <section class="card accent-yellow">
+            <p class="kicker">Merge override</p>
+            <h3><code>.abacus/merge-instructions.md</code></h3>
+            <p class="small">When this file exists, its trimmed contents replace the complete built-in merge section. An empty file suppresses that section.</p>
+          </section>
         </div>
 
         <div class="code-block">
@@ -1241,6 +1246,11 @@ abacus --health</code></pre>
           <pre><code>mkdir -p "$REPO/.abacus"
 cat &gt; "$REPO/.abacus/append-prompt.md" &lt;&lt;'EOF'
 Run the repository smoke-test checklist before completing the ticket.
+EOF
+
+cat &gt; "$REPO/.abacus/merge-instructions.md" &lt;&lt;'EOF'
+Submit the issue branch through the repository merge queue and close the ticket
+only after the queue reports success.
 EOF
 
 abacus --mode claude \
@@ -1252,7 +1262,7 @@ abacus --mode claude \
 
         <div class="callout info">
           <span class="icon">i</span>
-          <p><strong>Ordering is deterministic.</strong> The final prompt contains the built-in Abacus prompt first, the <code>--append-agent-prompt</code> value second, and <code>.abacus/append-prompt.md</code> last, separated by blank lines. Empty repository files are ignored; an empty command-line value is rejected.</p>
+          <p><strong>Composition is deterministic.</strong> <code>.abacus/merge-instructions.md</code> replaces the built-in merge section, while the <code>--append-agent-prompt</code> value and <code>.abacus/append-prompt.md</code> remain additions at the end. The merge override applies by presence, even when empty.</p>
         </div>
       </article>
 

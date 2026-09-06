@@ -85,7 +85,7 @@ final summary; do not create a checkpoint commit or persistent Abacus state.
 4. If no issue is ready, sleep for a small fixed interval and try again.
 5. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
 6. Verify that a normal newly selected workspace is clean before the agent CLI starts. Preserve existing changes when resuming an interrupted issue workspace.
-7. Render the SPEC.md prompt and launch the selected mode. OpenCode, Codex, and Claude use a new interactive pane in the requested tmux target. OpenCode Server uses `opencode run` and is directly supervised unless tmux was explicitly supplied.
+7. Render the SPEC.md prompt, replacing its default merge section with `.abacus/merge-instructions.md` when that file exists, and launch the selected mode. OpenCode, Codex, and Claude use a new interactive pane in the requested tmux target. OpenCode Server uses `opencode run` and is directly supervised unless tmux was explicitly supplied.
 8. Poll `bd show <issue_id> --json` while also watching the hosted agent run for exit.
 9. When the ticket leaves `in_progress`, interrupt the agent CLI if it is still running and clean up its pane or direct process.
 10. When the agent CLI exits while the ticket is still `in_progress`, warn, reopen the issue with a useful note, and clean up its hosted run.
@@ -284,7 +284,7 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Work
 
-- Render the prompt in SPEC.md verbatim apart from substituting agent name, issue ID, and canonical workspace path.
+- Render the prompt in SPEC.md verbatim apart from substituting agent name, issue ID, and canonical workspace path. During preflight, read each workspace's optional `.abacus/merge-instructions.md`; when present, replace the complete default merge section with its trimmed contents. Treat even an empty file as an override so no default merge instructions reach that agent.
 - Write the prompt and a small POSIX wrapper to the run's temporary directory. The wrapper should:
   - `cd` to the workspace;
   - export `BEADS_ACTOR`;
@@ -362,7 +362,7 @@ All checks happen before any ticket is claimed or agent run is created.
   setup exception. Abacus still does not start tmux, start OpenCode servers,
   merge branches, or decide ticket outcomes.
 - Document the exact shared agent prompt, its basic default merge process, optional
-  merge-slot behavior, and how repository-specific instructions can replace it.
+  merge-slot behavior, and how `.abacus/merge-instructions.md` replaces it.
 
 ### Manual smoke test
 

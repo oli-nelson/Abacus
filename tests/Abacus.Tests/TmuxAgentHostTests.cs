@@ -18,6 +18,7 @@ public sealed class TmuxAgentHostTests
         var agent = Agent("alice", workspace) with
         {
             AppendedPrompt = "Command-line prompt\n\nRepository prompt",
+            MergeInstructionsOverride = "Use the repository merge queue.",
         };
         var tmux = fixture.CreateTmux(mode: AgentMode.OpenCodeServer);
 
@@ -44,7 +45,8 @@ public sealed class TmuxAgentHostTests
                 "alice",
                 "abc-123",
                 workspace,
-                "Command-line prompt\n\nRepository prompt"),
+                "Command-line prompt\n\nRepository prompt",
+                "Use the repository merge queue."),
             await File.ReadAllTextAsync(Path.Combine(workspace, "received-prompt")));
         Assert.Equal("alice", await File.ReadAllTextAsync(Path.Combine(workspace, "received-actor")));
         Assert.Equal(workspace, await File.ReadAllTextAsync(Path.Combine(workspace, "received-directory")));

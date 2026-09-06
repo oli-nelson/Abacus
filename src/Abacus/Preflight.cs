@@ -7,7 +7,8 @@ public sealed record ValidatedAgent(
     string WorkspacePath,
     DoltIdentity DoltIdentity,
     bool HasRemote,
-    string? AppendedPrompt = null);
+    string? AppendedPrompt = null,
+    string? MergeInstructionsOverride = null);
 
 public sealed record PreflightResult(
     Options Options,
@@ -71,16 +72,20 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
             var identity = await beads.ReadDoltIdentityAsync(agent.WorkspacePath, agent.Name, cancellationToken);
             var hasRemote = await beads.HasRemoteAsync(agent.WorkspacePath, agent.Name, cancellationToken);
             string? repositoryPrompt;
+            string? mergeInstructionsOverride;
             try
             {
                 repositoryPrompt = await Prompt.ReadRepositoryAppendAsync(
+                    agent.WorkspacePath,
+                    cancellationToken);
+                mergeInstructionsOverride = await Prompt.ReadRepositoryMergeInstructionsAsync(
                     agent.WorkspacePath,
                     cancellationToken);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 throw new PreflightException(
-                    $"could not read '{Path.Combine(agent.WorkspacePath, Prompt.RepositoryAppendPromptPath)}': {exception.Message}");
+                    $"could not read repository prompt instructions in '{agent.WorkspacePath}': {exception.Message}");
             }
 
             validated.Add(new ValidatedAgent(
@@ -88,7 +93,8 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
                 agent.WorkspacePath,
                 identity,
                 hasRemote,
-                Prompt.CombineAppends(options.AppendAgentPrompt, repositoryPrompt)));
+                Prompt.CombineAppends(options.AppendAgentPrompt, repositoryPrompt),
+                mergeInstructionsOverride));
         }
 
         ValidateDoltSafety(validated);

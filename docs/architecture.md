@@ -96,9 +96,11 @@ workspace. It:
 - defines the user-attention label protocol; and
 - makes the agent responsible for choosing `closed`, `open`, or `blocked`.
 
-Repository-specific instructions may replace the default merge process or be
-appended from the CLI and `.abacus/append-prompt.md`. More restrictive user or
-repository instructions still win.
+When `.abacus/merge-instructions.md` exists in an agent workspace, its trimmed
+contents replace the complete default merge section; an empty file suppresses
+the section. Other repository-specific instructions may be appended from the
+CLI and `.abacus/append-prompt.md`. More restrictive user or repository
+instructions still win.
 
 The exact prompt is maintained once, in
 [`SPEC.md`](../SPEC.md#agent-prompt-template), and rendered by

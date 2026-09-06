@@ -81,7 +81,12 @@ public sealed class DirectOpenCodeServerHost(
             serverUrl,
             $"{agent.Name} • {issue.Id}",
             effort);
-        var prompt = Prompt.Render(agent.Name, issue.Id, agent.WorkspacePath, agent.AppendedPrompt);
+        var prompt = Prompt.Render(
+            agent.Name,
+            issue.Id,
+            agent.WorkspacePath,
+            agent.AppendedPrompt,
+            agent.MergeInstructionsOverride);
 
         var startInfo = new ProcessStartInfo
         {

@@ -291,7 +291,7 @@ Each Abacus agent follows this loop:
 
 4. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
 5. Make sure a normal newly selected workspace has no local changes before starting the agent CLI. An interrupted issue workspace intentionally retains its existing changes.
-6. Start the selected local agent CLI interactively in tmux, or start an attached OpenCode Server client either directly or in tmux. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the requested model and a prompt describing the issue and its ticket-state responsibilities. Pass the requested effort where the selected CLI exposes it; interactive OpenCode uses its configured or session-selected variant because its TUI has no variant CLI option.
+6. Start the selected local agent CLI interactively in tmux, or start an attached OpenCode Server client either directly or in tmux. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the requested model and a prompt describing the issue and its ticket-state responsibilities. When `<workspace>/.abacus/merge-instructions.md` exists, replace the complete default merge-instruction section with that file's trimmed contents; file presence overrides the default even when the file is empty. Pass the requested effort where the selected CLI exposes it; interactive OpenCode uses its configured or session-selected variant because its TUI has no variant CLI option.
 7. While the agent CLI is running, Abacus monitors the ticket status through Beads and enforces the optional ticket runtime limit.
 8. The coding agent does the work and changes the ticket status when it is finished:
 
@@ -308,6 +308,12 @@ If Abacus sees that the ticket is still `in_progress` after the agent exits, it 
 The ticket-timeout path uses the same verified reopen and push behavior after stopping the hosted agent run.
 
 ## Agent prompt template
+
+The template below is the default. If `.abacus/merge-instructions.md` exists at
+the agent workspace root, Abacus replaces the section beginning `Commit your
+changes` and ending `merge and release succeed.` with the file's trimmed
+contents. The default section must not remain anywhere in that agent's prompt.
+An empty file intentionally removes the section without adding a replacement.
 
 ```text
 You are <agent_name>, working on Beads ticket <issue_id> in <workspace_path>.

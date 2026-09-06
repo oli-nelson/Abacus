@@ -189,6 +189,9 @@ public sealed class PreflightTests
         await File.WriteAllTextAsync(
             Path.Combine(promptDirectory.FullName, "append-prompt.md"),
             "Repository prompt");
+        await File.WriteAllTextAsync(
+            Path.Combine(promptDirectory.FullName, "merge-instructions.md"),
+            "Use the repository merge queue.");
 
         var result = await fixture.RunAsync(new Options(
             "workers",
@@ -200,6 +203,9 @@ public sealed class PreflightTests
         Assert.Equal(
             "Command-line prompt\n\nRepository prompt",
             Assert.Single(result.Agents).AppendedPrompt);
+        Assert.Equal(
+            "Use the repository merge queue.",
+            Assert.Single(result.Agents).MergeInstructionsOverride);
     }
 
     [Theory]
