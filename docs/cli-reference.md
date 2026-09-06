@@ -327,6 +327,10 @@ The exact built-in prompt is normative in
 | `--latest-comments <1-100>` | `8` | Number of recent Beads comments in the live dashboard. |
 | `--notify <off\|attention\|all>` | `off` | Selects desktop notification coverage. |
 | `--notify-sound` | off | Adds positive/negative sounds; requires notifications. |
+| `--stdio` | off | Run only: JSONL events on stdout, JSONL control commands on stdin, no TUI or intro. |
+| `--event-log <path>` | none | Run only: append and flush structured JSONL activity to a file, with or without the TUI. |
+| `--start-paused` | off | Run only: pause claims initially; resume with Shift-Tab in the TUI or the stdio resume command. Rejects verbose or non-interactive output without stdio. |
+| `--no-intro` | off | Run only: skip the interactive ASCII entrance. |
 | `--verbose`, `-v` | off | Replaces the dashboard with timestamped transitions and subprocess diagnostics. |
 
 `attention` reports newly observed attention labels, blocked tickets, and
@@ -380,7 +384,11 @@ pass `--variant` directly.
 
 ## Exit and output behavior
 
-- Interactive terminals receive the live ANSI dashboard by default.
+- Interactive terminals receive a skippable ASCII entrance, then the live ANSI dashboard.
+- `--stdio` outputs only JSONL events and accepts JSONL commands; it rejects verbose
+  output and desktop notifications. See [events and stdio](events-and-stdio.md).
+- Redirected stdin/stdout/stderr, verbose mode, preflight, and `TERM=dumb` never
+  show the intro; `--no-intro` also disables it explicitly.
 - Redirected standard error receives compact state-transition lines instead of
   terminal control sequences.
 - `NO_COLOR=1` disables colors while retaining the live layout.

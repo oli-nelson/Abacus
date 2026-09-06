@@ -11,6 +11,7 @@ complete rather than reading every page in order.
 | [Getting started](getting-started.md) | Copyable setup paths for new and existing repositories |
 | [Ticket targets](targets.md) | Configuring release tracks, auditing metadata, and recovering bound branches |
 | [CLI reference](cli-reference.md) | Looking up commands, modes, and option behavior |
+| [Events and stdio control](events-and-stdio.md) | Recording JSONL activity and controlling Abacus from another agent |
 | [Operations guide](operations.md) | Running, observing, pausing, recovering, and stopping agents |
 | [Shared Dolt operations](shared-dolt.md) | Creating, migrating, troubleshooting, backing up, and rolling back shared Beads storage |
 | [Architecture and boundaries](architecture.md) | Understanding how Abacus stays safe and what it deliberately leaves to other tools |

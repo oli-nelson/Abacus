@@ -103,6 +103,29 @@ public sealed class OutputTests
     }
 
     [Fact]
+    public async Task StartPausedRendersPausedImmediatelyAndShiftTabResumesClaims()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "provider/model",
+            verbose: false, interactive: true, color: false, startPaused: true);
+        var claims = new ClaimGate();
+        claims.SetEnabled(false);
+        var waiting = claims.WaitUntilEnabledAsync(CancellationToken.None);
+
+        Assert.Contains("CLAIMS PAUSED", writer.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("CLAIMS ON", writer.ToString(), StringComparison.Ordinal);
+        Assert.False(waiting.IsCompleted);
+
+        writer.GetStringBuilder().Clear();
+        Assert.True(output.HandleDashboardKey(
+            new ConsoleKeyInfo('\t', ConsoleKey.Tab, shift: true, alt: false, control: false), claims));
+        await waiting.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.True(claims.IsEnabled);
+        Assert.Contains("CLAIMS ON", writer.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ShiftTabCyclesWhetherNewClaimsAreAllowed()
     {
         var writer = new StringWriter();

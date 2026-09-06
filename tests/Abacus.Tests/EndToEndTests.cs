@@ -3,7 +3,7 @@ using Abacus;
 
 namespace Abacus.Tests;
 
-public sealed class EndToEndTests
+public sealed partial class EndToEndTests
 {
     [Theory]
     [InlineData("--once", "1")]

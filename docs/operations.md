@@ -27,7 +27,19 @@ or print a run summary.
 ready?”; `preflight` answers “would this exact agent configuration pass
 preflight?”
 
+## Event logs and agent control
+
+Add `--event-log <path>` to record structured JSONL activity alongside the TUI.
+Use `--stdio` for event-only stdout and JSONL commands on stdin; optionally add
+`--start-paused` to wait for a controller before fresh claims. See the
+[event and stdio protocol](events-and-stdio.md) for commands and examples.
+
 ## The live dashboard
+
+Interactive runs begin with a short animated ASCII entrance. Press any key to
+skip it or pass `--no-intro`. No animation or TUI is shown for redirected
+stdin/stdout/stderr, `TERM=dumb`, verbose, preflight, or stdio modes.
+
 
 An interactive terminal shows one row per configured agent. Rows move through:
 
@@ -47,8 +59,9 @@ Active rows include the issue ID and title, time in the current state, pane or
 process location, retry count, and most recently observed exit code. Warnings
 remain visible, while idle polling is visually distinct from failure retries.
 
-Press **Shift-Tab** to pause or resume new claims for every agent. Active work
-continues; an agent pauses only when it next reaches the claim boundary.
+Add `--start-paused` to start with claims disabled and the header showing
+**CLAIMS PAUSED** immediately. Press **Shift-Tab** to pause or resume new claims
+for every agent. Active work continues; an agent pauses only when it next reaches the claim boundary.
 
 Use the **Up** and **Down** arrows to select a row. Press **Enter** on an agent
 to open its action panel:

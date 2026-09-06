@@ -33,15 +33,18 @@ public sealed class RunSummary
     private readonly Dictionary<string, MutableAgentSummary> agents;
     private readonly string initialDoltCommit;
     private readonly DesktopNotifier? notifier;
+    private readonly EventReporter? events;
 
     public RunSummary(
         IEnumerable<string> agentNames,
         string initialDoltCommit,
-        DesktopNotifier? notifier = null)
+        DesktopNotifier? notifier = null,
+        EventReporter? events = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(initialDoltCommit);
         this.initialDoltCommit = initialDoltCommit;
         this.notifier = notifier;
+        this.events = events;
         agents = agentNames.ToDictionary(
             static name => name,
             static _ => new MutableAgentSummary(),
@@ -79,6 +82,7 @@ public sealed class RunSummary
             }
         }
 
+        events?.Emit("ticket.outcome", new { agent = agentName, outcome, issueId, title });
         notifier?.NotifyTicketOutcome(agentName, outcome, issueId, title);
     }
 

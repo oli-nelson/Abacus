@@ -39,21 +39,19 @@ public sealed class AbacusApplication(
         var summary = new RunSummary(
             preflight.Agents.Select(static agent => agent.Name),
             initialDoltCommit,
-            notifier);
+            notifier,
+            (log as ConsoleOutput)?.Events);
 
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var claimGate = new ClaimGate();
+        claimGate.SetEnabled(!preflight.Options.StartPaused);
         var initialClaimBarrier = new InitialClaimBarrier(preflight.Agents.Count);
         var agentControls = preflight.Agents.ToDictionary(
             static agent => agent.Name,
             static _ => new AgentControl(),
             StringComparer.Ordinal);
-        var inputMonitor = log is ConsoleOutput consoleOutput
-            ? consoleOutput.MonitorDashboardInputAsync(
-                claimGate,
-                (agentName, action) => agentControls[agentName].Request(action),
-                linkedCancellation.Token)
-            : Task.CompletedTask;
+        var inputMonitor = Task.CompletedTask;
+        var controlShutdown = false;
         try
         {
             await log.SystemAsync("Agent loops started");
@@ -62,7 +60,7 @@ public sealed class AbacusApplication(
                 beads,
                 preflight.Agents[0],
                 preflight.Options.LatestCommentCount,
-                includeLatestComments: log is ConsoleOutput { IsInteractiveDashboard: true },
+                includeLatestComments: log is ConsoleOutput dashboard && (dashboard.IsInteractiveDashboard || dashboard.Events is not null),
                 linkedCancellation.Token);
             IAgentHost agentHost = preflight.Options.TmuxSession is null
                 ? new DirectOpenCodeServerHost(runner, log, preflight.Tools.AgentExecutable)
@@ -118,6 +116,28 @@ public sealed class AbacusApplication(
                     notifier).RunAsync(linkedCancellation.Token);
             }).ToArray();
 
+            if (log is ConsoleOutput consoleOutput)
+            {
+                void RequestAction(string name, AgentControlAction action)
+                {
+                    if (!agentControls.TryGetValue(name, out var control))
+                        throw new ArgumentException($"unknown agent '{name}'");
+                    var index = preflight.Agents.ToList().FindIndex(agent => agent.Name == name);
+                    if (loops[index].IsCompleted)
+                        throw new InvalidOperationException($"agent '{name}' has finished; start a new run");
+                    if (!control.TryRequest(action))
+                        throw new InvalidOperationException($"agent '{name}' already has a pending control request");
+                }
+                inputMonitor = preflight.Options.Stdio
+                    ? new StdioControl(Console.In, consoleOutput, claimGate, RequestAction, () =>
+                    {
+                        controlShutdown = true;
+                        linkedCancellation.Cancel();
+                    }).RunAsync(linkedCancellation.Token)
+                    : consoleOutput.MonitorDashboardInputAsync(claimGate,
+                        (name, action) => agentControls[name].Request(action), linkedCancellation.Token);
+            }
+
             foreach (var loop in loops)
             {
                 _ = loop.ContinueWith(
@@ -130,6 +150,10 @@ public sealed class AbacusApplication(
             try
             {
                 await Task.WhenAll(loops);
+            }
+            catch (OperationCanceledException) when (controlShutdown && !cancellationToken.IsCancellationRequested)
+            {
+                // EOF and the shutdown command request the normal recovery/cleanup path.
             }
             finally
             {

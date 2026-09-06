@@ -154,54 +154,8 @@ public static class Program
                 return 0;
             }
 
-            using var cancellation = new CancellationTokenSource();
-            ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
-            {
-                eventArgs.Cancel = true;
-                cancellation.Cancel();
-            };
+            return await RunOrchestratorAsync(parsed.Value!);
 
-            Console.CancelKeyPress += cancelHandler;
-            using var output = new ConsoleOutput(
-                Console.Error,
-                parsed.Value!.Agents.Select(static agent => agent.Name),
-                parsed.Value.Model,
-                parsed.Value.Verbose,
-                workspacePaths: parsed.Value.Agents.ToDictionary(
-                    static agent => agent.Name,
-                    static agent => agent.WorkspacePath,
-                    StringComparer.Ordinal));
-            await using var notifier = new DesktopNotifier(
-                new CommandRunner(
-                    output,
-                    commandTimeout: TimeSpan.FromSeconds(3),
-                    terminationTimeout: TimeSpan.FromSeconds(1)),
-                output,
-                Console.Error,
-                parsed.Value.NotificationMode,
-                parsed.Value.NotificationSound);
-            try
-            {
-                var runner = new CommandRunner(output);
-                var preflight = new Preflight(runner);
-                var validated = await preflight.RunAsync(parsed.Value, cancellation.Token);
-                if (parsed.Value.CheckOnly)
-                {
-                    await output.SystemAsync(
-                        $"Preflight checks passed for {validated.Agents.Count} agent{(validated.Agents.Count == 1 ? string.Empty : "s")}; no tickets claimed");
-                    return 0;
-                }
-
-                await output.SystemAsync(
-                    $"Preflight complete; starting {AgentCommandFactory.DisplayName(parsed.Value.AgentMode)} agent loops");
-                await new AbacusApplication(runner, output, notifier)
-                    .RunAsync(validated, cancellation.Token);
-                return 0;
-            }
-            finally
-            {
-                Console.CancelKeyPress -= cancelHandler;
-            }
         }
         catch (OptionsException exception)
         {
@@ -218,6 +172,78 @@ public static class Program
             Console.Error.WriteLine($"abacus: {exception.Message}");
             return 1;
         }
+    }
+
+    private static async Task<int> RunOrchestratorAsync(Options options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var events = options.Stdio || options.EventLogPath is not null
+            ? new EventReporter(options.Stdio ? Console.Out : null, options.EventLogPath, message =>
+            {
+                Console.Error.WriteLine($"abacus: {message}");
+                cancellation.Cancel();
+            }) : null;
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        var exitCode = 0;
+        events?.Emit("run.starting", new { options.Model, options.AgentMode, options.ExecutionMode, options.Agents });
+        try
+        {
+            if (AsciiIntro.ShouldPlay(options, Console.IsInputRedirected, Console.IsOutputRedirected,
+                Console.IsErrorRedirected, Environment.GetEnvironmentVariable("TERM")))
+                await AsciiIntro.PlayAsync(Console.Error, cancellation.Token);
+            using var output = new ConsoleOutput(
+                options.Stdio ? TextWriter.Null : Console.Error,
+                options.Agents.Select(static agent => agent.Name),
+                options.Model,
+                options.Verbose,
+                interactive: options.Stdio || options.CheckOnly ? false : null,
+                workspacePaths: options.Agents.ToDictionary(
+                    static agent => agent.Name, static agent => agent.WorkspacePath, StringComparer.Ordinal),
+                events: events,
+                startPaused: options.StartPaused);
+            if (options.StartPaused && !options.Stdio && !output.IsInteractiveDashboard)
+                throw new InvalidOperationException(
+                    "--start-paused requires an interactive dashboard or --stdio so claims can be resumed");
+            await using var notifier = new DesktopNotifier(
+                new CommandRunner(output, commandTimeout: TimeSpan.FromSeconds(3),
+                    terminationTimeout: TimeSpan.FromSeconds(1)),
+                output, Console.Error, options.NotificationMode, options.NotificationSound);
+            var runner = new CommandRunner(output);
+            var validated = await new Preflight(runner).RunAsync(options, cancellation.Token);
+            if (options.CheckOnly)
+            {
+                await output.SystemAsync(
+                    $"Preflight checks passed for {validated.Agents.Count} agent{(validated.Agents.Count == 1 ? string.Empty : "s")}; no tickets claimed");
+            }
+            else
+            {
+                await output.SystemAsync(
+                    $"Preflight complete; starting {AgentCommandFactory.DisplayName(options.AgentMode)} agent loops");
+                await new AbacusApplication(runner, output, notifier).RunAsync(validated, cancellation.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            exitCode = events?.HasFailed == true ? 1 : 130;
+        }
+        catch (Exception exception)
+        {
+            exitCode = 1;
+            events?.Emit("run.error", new { message = exception.Message });
+            Console.Error.WriteLine($"abacus: {exception.Message}");
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+        if (events?.HasFailed == true) exitCode = 1;
+        events?.Emit("run.exited", new { exitCode });
+        return events?.HasFailed == true ? 1 : exitCode;
     }
 
     private static bool ConfirmSkillOverwrite(IReadOnlyList<string> existingSkills)

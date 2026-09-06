@@ -2,9 +2,6 @@
 
 ![Abacus terminal dashboard showing six agents, a user attention request, and latest comments](docs/images/abacus-terminal.png)
 
-> **Ticket targets:** Configure the target allowlist and default destination.
-> Missing ticket metadata is allowed unless `enforceTargetBranch` is enabled. See [target setup, audit, and recovery](docs/targets.md).
-
 **Turn a Beads backlog into safe, observable parallel agent work.**
 
 Abacus is a small Unix-oriented orchestrator for coding agents. It finds ready
@@ -248,6 +245,7 @@ The exact boundary is documented in
 
 - [Getting started](docs/getting-started.md) — build, initialize, and launch
 - [CLI reference](docs/cli-reference.md) — commands, modes, filters, and options
+- [Events and stdio control](docs/events-and-stdio.md) — JSONL logs and agent-driven operation
 - [Operations guide](docs/operations.md) — dashboard, attention, recovery, and shutdown
 - [Shared Dolt operations](docs/shared-dolt.md) — creation, migration, backup,
   troubleshooting, and rollback

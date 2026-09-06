@@ -233,7 +233,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   results by harness, and isolate missing-tool or command failures. Report that
   Claude Code requires its interactive `/model` picker because its CLI exposes
   no non-interactive catalog command. Require no repository or agent options.
-- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Start with new claims enabled and let Shift-Tab pause or resume new ticket claims across all agents without interrupting active tickets; show the current claim state in the header and a paused state for agents waiting at the claim boundary. Let the operator select agent and latest-comment rows with the arrow keys. Enter opens an agent action panel or a complete, wrapped comment detail view with vertical scrolling. Support stopping one loop while retaining its active ticket reservation, restarting that loop and ticket, and explicitly confirmed cleanup with `git reset --hard` plus `git clean -fd`. Cleaning must safely reopen an active ticket first and leave the agent stopped. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed latest-comments log at the bottom, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a colored header line, then wrap the uncolored, truncated comment across at most two indented lines beneath it. Color attention-labelled issue headers red, configured-agent headers green, and unrecognized-author headers cyan. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print the initial full Beads Dolt commit plus a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
+- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Start with new claims enabled unless `--start-paused` is set, and let Shift-Tab pause or resume new ticket claims across all agents without interrupting active tickets; show the current claim state in the header and a paused state for agents waiting at the claim boundary. Let the operator select agent and latest-comment rows with the arrow keys. Enter opens an agent action panel or a complete, wrapped comment detail view with vertical scrolling. Support stopping one loop while retaining its active ticket reservation, restarting that loop and ticket, and explicitly confirmed cleanup with `git reset --hard` plus `git clean -fd`. Cleaning must safely reopen an active ticket first and leave the agent stopped. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed latest-comments log at the bottom, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a colored header line, then wrap the uncolored, truncated comment across at most two indented lines beneath it. Color attention-labelled issue headers red, configured-agent headers green, and unrecognized-author headers cyan. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print the initial full Beads Dolt commit plus a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 - Keep desktop notifications dependency-free and owned by the orchestrator. `--notify attention` reports new user-attention issues, blocked tickets, and persistent recovery failures; `--notify all` also reports all ticket outcomes and the final run summary. Use `osascript` on macOS and optional `notify-send` on Linux through `ProcessStartInfo.ArgumentList`. When sound is enabled, distinguish successful outcomes from attention or unsuccessful outcomes with positive and negative platform sounds. Treat delivery as best effort, deduplicate polled attention issues, and use a terminal bell fallback only when `--notify-sound` was requested.
 
 ### Exit criteria
@@ -508,3 +508,22 @@ All checks happen before any ticket is claimed or agent run is created.
   standard-library dispatcher rather than a CLI framework.
 - Update bundled skills, generated launchers, shell demos, and all documentation
   alongside parser and process-boundary regression tests.
+
+### Structured events, stdio control, and intro
+
+- Keep the existing output/state and control boundaries. Add a small synchronized
+  JSONL reporter, not a logging framework, message bus, daemon, or external API.
+- Mirror structured events to an append-only flushed file and/or stdout. Include
+  structured state, alerts, comments, ticket outcomes, and final lifecycle events.
+- Run-only `--stdio` accepts correlated JSONL commands using ClaimGate and
+  AgentControl. Require explicit confirmation for destructive workspace cleanup,
+  reject malformed input, and use normal cleanup on EOF/shutdown/output failure.
+  Support `--start-paused` in both the TUI and stdio, initializing the header and
+  claim gate consistently; reject it when no resume control is available. Keep
+  finite exit independent of an open stdin pipe.
+- Add a short ASCII animation before interactive ConsoleOutput construction,
+  with key skip, `--no-intro`, no-color and narrow-terminal handling. Never render
+  intro/TUI for redirected or non-interactive modes.
+- Test serialization/concurrent ordering, file mirroring, parser scope, controls,
+  EOF/finite process exits, startup errors, and intro gating with fake tools.
+  Document the versioned stream and accepted-versus-completed action semantics.

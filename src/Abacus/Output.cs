@@ -169,6 +169,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private const string Red = "\u001b[31m";
 
     private readonly TextWriter writer;
+    internal EventReporter? Events { get; }
     private readonly object gate = new();
     private readonly bool verbose;
     private readonly bool interactive;
@@ -198,11 +199,16 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         bool verbose,
         bool? interactive = null,
         bool? color = null,
-        IReadOnlyDictionary<string, string>? workspacePaths = null)
+        IReadOnlyDictionary<string, string>? workspacePaths = null,
+        EventReporter? events = null,
+        bool startPaused = false)
     {
         this.writer = writer;
+        Events = events;
+        claimingEnabled = !startPaused;
         this.verbose = verbose;
-        this.interactive = !verbose && (interactive ?? !Console.IsErrorRedirected);
+        this.interactive = !verbose && (interactive ?? (!Console.IsErrorRedirected && !Console.IsInputRedirected && !Console.IsOutputRedirected
+            && Environment.GetEnvironmentVariable("TERM") != "dumb"));
         this.color = color ?? (Environment.GetEnvironmentVariable("NO_COLOR") is null);
         this.model = model;
         agents = agentNames.ToDictionary(
@@ -284,6 +290,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             lock (gate)
             {
                 claimingEnabled = enabled;
+                Events?.Emit("claims.changed", new { enabled });
                 systemStatus = enabled
                     ? "New ticket claims enabled"
                     : "New ticket claims paused; active tickets continue";
@@ -308,6 +315,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         if (selectedAgent is not null && requestedAction is not null)
         {
             requestAgentAction?.Invoke(selectedAgent, requestedAction.Value);
+            Events?.Emit("control.requested", new { agent = selectedAgent, action = requestedAction.Value });
         }
 
         return true;
@@ -339,6 +347,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 RetryCount = retryCount,
             };
 
+            if (changed) Events?.Emit("agent.state", agents[agentName]);
             if (interactive)
             {
                 RenderDashboard();
@@ -378,6 +387,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
             var previouslyHadIssues = userAttentionIssues.Count > 0;
             userAttentionIssues = ordered;
+            Events?.Emit("attention.changed", new { issues = ordered });
             if (interactive)
             {
                 RenderDashboard();
@@ -405,6 +415,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             var changed = !persistentAlerts.TryGetValue(source, out var current)
                 || !string.Equals(current, message, StringComparison.Ordinal);
             persistentAlerts[source] = message;
+            if (changed) Events?.Emit("alert.raised", new { source, message });
             if (interactive)
             {
                 RenderDashboard();
@@ -422,9 +433,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     {
         lock (gate)
         {
-            if (persistentAlerts.Remove(source) && interactive)
+            if (persistentAlerts.Remove(source))
             {
-                RenderDashboard();
+                Events?.Emit("alert.cleared", new { source });
+                if (interactive) RenderDashboard();
             }
         }
 
@@ -442,6 +454,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             }
 
             latestComments = snapshot;
+            Events?.Emit("comments.changed", new { comments = snapshot });
             if (selectedCommentIndex >= latestComments.Count)
             {
                 selectedCommentIndex = latestComments.Count - 1;
@@ -488,6 +501,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 warnings.Dequeue();
             }
 
+            Events?.Emit("warning", new { source, message });
             warnings.Enqueue($"{source}: {message}");
             if (interactive)
             {
@@ -507,6 +521,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         lock (gate)
         {
             systemStatus = message;
+            Events?.Emit("system", new { message });
             if (interactive)
             {
                 RenderDashboard();
@@ -522,13 +537,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
     public Task DebugCommandAsync(string source, string command)
     {
-        if (!verbose)
-        {
-            return Task.CompletedTask;
-        }
-
         lock (gate)
         {
+            Events?.Emit("command", new { source, command });
+            if (!verbose) return Task.CompletedTask;
             WriteEvent(source, "DEBUG", command);
         }
 
@@ -539,6 +551,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     {
         lock (gate)
         {
+            Events?.Emit("run.summary", summary);
             dashboardFrozen = true;
             refreshTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             if (interactive)
@@ -579,6 +592,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
         lock (gate)
         {
+            Events?.Emit("system", new { message = value });
             if (interactive)
             {
                 systemStatus = value;
@@ -615,6 +629,20 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         }
 
         base.Dispose(disposing);
+    }
+
+    internal void ReportStatus(string id, bool claimsEnabled)
+    {
+        lock (gate)
+        {
+            Events?.Emit("control.result", new
+            {
+                id, command = "status", ok = true,
+                status = new { claimsEnabled, systemStatus, agents = agents.Values.ToArray(),
+                    attention = userAttentionIssues, alerts = new Dictionary<string, string>(persistentAlerts),
+                    comments = latestComments, warnings = warnings.ToArray() },
+            });
+        }
     }
 
     private void WriteEvent(string source, string level, string detail)
@@ -1015,6 +1043,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 ? current
                 : AgentRow.Create(agentName);
             agents[agentName] = update(row);
+            if (agents[agentName] != row) Events?.Emit("agent.state", agents[agentName]);
             if (interactive)
             {
                 RenderDashboard();

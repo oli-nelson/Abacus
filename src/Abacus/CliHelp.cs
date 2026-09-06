@@ -84,6 +84,14 @@ internal static class CliHelp
             dirty issue workspaces; ambiguous workspaces stop with an alert, never automatic cleaning.
               --once   Process at most one currently ready ticket per agent, then exit.
               --drain  Process ready work until each agent observes an empty queue, then exit.
+              --stdio                 JSONL events on stdout; JSONL commands on stdin, no TUI.
+              --event-log <path>      Append the same structured activity events to a JSONL file.
+              --start-paused          Pause claims initially; resume with Shift-Tab or stdio resume.
+              --no-intro              Skip the interactive ASCII startup animation.
+            Stdio commands: status, pause, resume, stop, restart, clean-workspace, shutdown.
+            Use {"id":"1","command":"status"}; agent actions require "agent".
+            clean-workspace also requires "confirm":true. EOF gracefully shuts down.
+            --stdio rejects --verbose and desktop notifications.
             --once and --drain are mutually exclusive; finite modes fail on orchestration errors.
 
             """ + Environment.NewLine + RunOptions,

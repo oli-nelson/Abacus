@@ -27,6 +27,16 @@ public sealed class AgentControl : IDisposable
         }
     }
 
+    public bool TryRequest(AgentControlAction action)
+    {
+        lock (gate)
+        {
+            if (requestedAction is not null) return false;
+            Request(action);
+            return true;
+        }
+    }
+
     public void Request(AgentControlAction action)
     {
         lock (gate)

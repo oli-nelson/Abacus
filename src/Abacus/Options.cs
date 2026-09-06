@@ -57,7 +57,11 @@ public sealed record Options(
     int LatestCommentCount = 8,
     string? AppendAgentPrompt = null,
     string? RepositoryPath = null,
-    IReadOnlyList<string>? TargetBranches = null)
+    IReadOnlyList<string>? TargetBranches = null,
+    bool Stdio = false,
+    string? EventLogPath = null,
+    bool NoIntro = false,
+    bool StartPaused = false)
 {
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -231,7 +235,8 @@ public sealed record Options(
                     or "--opencode-server" or "--target-filter" or "--append-prompt" or "--label" or "--exclude-label"
                     or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify" => 1,
                 "--remote-control" or "--notify-sound" or "--verbose" => 0,
-                "--once" or "--drain" when command == "run" => 0,
+                "--once" or "--drain" or "--stdio" or "--no-intro" or "--start-paused" when command == "run" => 0,
+                "--event-log" when command == "run" => 1,
                 _ => -1,
             };
         return (command, option) switch
@@ -253,6 +258,10 @@ public sealed record Options(
         string? server = null;
         AgentMode? requestedAgentMode = null;
         var verbose = false;
+        var stdio = false;
+        var noIntro = false;
+        var startPaused = false;
+        string? eventLogPath = null;
         var once = false;
         var drain = false;
         var remote = false;
@@ -275,6 +284,12 @@ public sealed record Options(
             var argument = arguments[index];
             switch (argument)
             {
+                case "--stdio": stdio = true; break;
+                case "--no-intro": noIntro = true; break;
+                case "--start-paused": startPaused = true; break;
+                case "--event-log":
+                    eventLogPath = CanonicalizePath(ReadValue(arguments, ref index, argument));
+                    break;
                 case "--target-filter":
                     var target = ReadValue(arguments, ref index, argument);
                     if (!Git.IsValidTargetBranch(target)) throw new OptionsException("--target-filter requires a literal local branch name");
@@ -433,6 +448,10 @@ public sealed record Options(
                 "--tmux-layout must be one of even-horizontal, even-vertical, main-horizontal, main-vertical, or tiled");
         }
 
+        if (startPaused && verbose) throw new OptionsException("--start-paused cannot be combined with --verbose; use the interactive dashboard or --stdio");
+        if (stdio && (verbose || notificationMode != NotificationMode.Off || notificationSound))
+            throw new OptionsException("--stdio cannot be combined with --verbose or desktop notifications");
+
         if (once && drain)
         {
             throw new OptionsException("--once and --drain cannot be used together");
@@ -530,7 +549,8 @@ public sealed record Options(
                 latestCommentCount,
                 appendAgentPrompt,
                 null,
-                targetBranches.AsReadOnly()),
+                targetBranches.AsReadOnly(),
+                stdio, eventLogPath, noIntro, startPaused),
             ShowHelp: false);
     }
 
