@@ -349,6 +349,10 @@ them. Merge-slot availability is advisory because repositories may serialize
 merges another way. The command exits zero when at least one single-agent mode is
 runnable, `no-git-ops` is disabled, and all bundled skills are installed;
 otherwise it exits one. Target configuration must also be valid.
+On an interactive color-capable terminal, headings and status markers are
+color-coded: green for pass/ready, yellow for warnings, red for failures/not
+ready, and cyan for informational results. Redirected output and dumb terminals
+remain plain text, and `NO_COLOR` disables color explicitly.
 
 ## Ticket targets
 

@@ -47,6 +47,52 @@ public sealed class HealthTests
     }
 
     [Fact]
+    public async Task RenderColorCodesStatusesHeadingsAndReadiness()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var environment = await HealthEnvironment.CreateAsync(
+            embedded: true,
+            worktreeCount: 1,
+            tools: new Dictionary<string, string>
+            {
+                ["opencode"] = "1.18.20",
+                ["claude"] = "2.1.100 (Claude Code)",
+            });
+
+        var report = await environment.CheckAsync();
+        var rendered = report.Render(color: true);
+
+        Assert.Contains("\u001b[1m\u001b[36mAbacus health\u001b[0m", rendered, StringComparison.Ordinal);
+        Assert.Contains("\u001b[32m[PASS]\u001b[0m", rendered, StringComparison.Ordinal);
+        Assert.Contains("\u001b[33m[WARN]\u001b[0m", rendered, StringComparison.Ordinal);
+        Assert.Contains("\u001b[31m[FAIL]\u001b[0m", rendered, StringComparison.Ordinal);
+        Assert.Contains("\u001b[36m[INFO]\u001b[0m", rendered, StringComparison.Ordinal);
+        Assert.Contains("Single-agent readiness: \u001b[32mREADY\u001b[0m", rendered, StringComparison.Ordinal);
+        Assert.Contains("Bundled skills readiness: \u001b[31mNOT READY\u001b[0m", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b", report.Render(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false, "xterm-256color", null, true)]
+    [InlineData(true, "xterm-256color", null, false)]
+    [InlineData(false, "dumb", null, false)]
+    [InlineData(false, "DUMB", null, false)]
+    [InlineData(false, "xterm-256color", "", false)]
+    [InlineData(false, "xterm-256color", "1", false)]
+    public void ColorRequiresAnInteractiveCapableTerminal(
+        bool outputRedirected,
+        string? term,
+        string? noColor,
+        bool expected)
+    {
+        Assert.Equal(expected, HealthReport.ShouldUseColor(outputRedirected, term, noColor));
+    }
+
+    [Fact]
     public async Task EnabledNoGitOpsReportsCorrectionAndDisablesAgentReadiness()
     {
         if (OperatingSystem.IsWindows())

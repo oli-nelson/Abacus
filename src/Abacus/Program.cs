@@ -83,7 +83,10 @@ public static class Program
             {
                 var health = await new HealthChecker(new CommandRunner(TextWriter.Null))
                     .RunAsync(workingDirectory, CancellationToken.None, parsed.RepositoryPath);
-                Console.Out.Write(health.Render());
+                Console.Out.Write(health.Render(HealthReport.ShouldUseColor(
+                    Console.IsOutputRedirected,
+                    Environment.GetEnvironmentVariable("TERM"),
+                    Environment.GetEnvironmentVariable("NO_COLOR"))));
                 return health.IsHealthy ? 0 : 1;
             }
 

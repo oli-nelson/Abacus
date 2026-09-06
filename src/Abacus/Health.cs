@@ -81,27 +81,35 @@ public sealed record HealthReport(
     bool MultiAgentReady,
     TargetConfigurationHealth? TargetConfiguration = null)
 {
+    private const string Reset = "\u001b[0m";
+    private const string Bold = "\u001b[1m";
+    private const string Cyan = "\u001b[36m";
+    private const string Green = "\u001b[32m";
+    private const string Yellow = "\u001b[33m";
+    private const string Red = "\u001b[31m";
+
     public bool AreSkillsInstalled => Skills.All(static skill => skill.IsInstalled);
 
     public bool IsHealthy => SingleAgentReady && AreSkillsInstalled;
 
-    public string Render()
+    public string Render(bool color = false)
     {
         var text = new StringBuilder();
-        text.AppendLine("Abacus health");
+        text.AppendLine(Color(color, Bold + Cyan, "Abacus health"));
         text.AppendLine("=============");
         text.AppendLine();
-        text.AppendLine("Project");
-        AppendTool(text, Git);
-        text.AppendLine(RepositoryRoot is null
-            ? "  [FAIL] Git repository root could not be resolved."
-            : $"  [PASS] Git root: {RepositoryRoot}");
+        AppendHeading(text, "Project", color);
+        AppendTool(text, Git, color);
+        AppendStatus(text, RepositoryRoot is null ? "FAIL" : "PASS",
+            RepositoryRoot is null
+                ? "Git repository root could not be resolved."
+                : $"Git root: {RepositoryRoot}", color);
 
         text.AppendLine();
-        text.AppendLine("Target configuration");
+        AppendHeading(text, "Target configuration", color);
         if (TargetConfiguration is { IsReady: true } targetConfig)
         {
-            text.AppendLine($"  [PASS] {targetConfig.Path}");
+            AppendStatus(text, "PASS", targetConfig.Path, color);
             text.AppendLine($"  Allowed local targets: {string.Join(", ", targetConfig.Branches)}");
             text.AppendLine(targetConfig.EnforceTargetBranch
                 ? "  Target metadata enforcement: enabled (explicit ticket targets required)"
@@ -110,92 +118,94 @@ public sealed record HealthReport(
         }
         else
         {
-            text.AppendLine($"  [FAIL] {TargetConfiguration?.Error ?? "Target configuration was not checked"}");
+            AppendStatus(text, "FAIL", TargetConfiguration?.Error ?? "Target configuration was not checked", color);
             text.AppendLine("  Create .abacus/targets.json with abacus init, or repair the existing version-1 targets allowlist explicitly.");
         }
         text.AppendLine();
-        text.AppendLine("Beads");
-        AppendTool(text, Beads);
+        AppendHeading(text, "Beads", color);
+        AppendTool(text, Beads, color);
         switch (NoGitOps.Status)
         {
             case NoGitOpsHealthStatus.Disabled:
-                text.AppendLine("  [PASS] Git operations: no-git-ops is disabled.");
+                AppendStatus(text, "PASS", "Git operations: no-git-ops is disabled.", color);
                 break;
             case NoGitOpsHealthStatus.Enabled:
-                text.AppendLine("  [FAIL] Git operations: Beads no-git-ops is enabled, so Abacus cannot continue.");
+                AppendStatus(text, "FAIL", "Git operations: Beads no-git-ops is enabled, so Abacus cannot continue.", color);
                 text.AppendLine($"  Disable it with: {Abacus.Beads.DisableNoGitOpsCommand}");
                 break;
             case NoGitOpsHealthStatus.Error:
-                text.AppendLine($"  [FAIL] Git operations: could not check no-git-ops: {NoGitOps.Detail}");
+                AppendStatus(text, "FAIL", $"Git operations: could not check no-git-ops: {NoGitOps.Detail}", color);
                 break;
             default:
-                text.AppendLine($"  [INFO] Git operations: no-git-ops was not checked: {NoGitOps.Detail}");
+                AppendStatus(text, "INFO", $"Git operations: no-git-ops was not checked: {NoGitOps.Detail}", color);
                 break;
         }
 
         if (DoltIdentity is null)
         {
-            text.AppendLine($"  [FAIL] Not initialized or unavailable: {BeadsError ?? "unknown error"}");
+            AppendStatus(text, "FAIL", $"Not initialized or unavailable: {BeadsError ?? "unknown error"}", color);
             text.AppendLine("  Agent concurrency: unavailable until Beads is initialized and healthy.");
         }
         else if (DoltIdentity.Embedded)
         {
-            text.AppendLine($"  [PASS] Initialized with embedded Dolt database '{DoltIdentity.Database}'.");
+            AppendStatus(text, "PASS", $"Initialized with embedded Dolt database '{DoltIdentity.Database}'.", color);
             text.AppendLine("  Agent concurrency: single-agent only; embedded Beads is not safe for Abacus multi-agent execution.");
         }
         else if (!DoltIdentity.ConnectionOk)
         {
-            text.AppendLine($"  [FAIL] Initialized for server-backed Dolt database '{DoltIdentity.Database}', but the server connection is unavailable.");
+            AppendStatus(text, "FAIL", $"Initialized for server-backed Dolt database '{DoltIdentity.Database}', but the server connection is unavailable.", color);
             text.AppendLine("  Agent concurrency: unavailable until the configured Dolt server is reachable.");
         }
         else
         {
-            text.AppendLine($"  [PASS] Initialized with shared Dolt database {DoltIdentity.SharedKey}.");
+            AppendStatus(text, "PASS", $"Initialized with shared Dolt database {DoltIdentity.SharedKey}.", color);
             text.AppendLine("  Agent concurrency: Beads permits single- and multi-agent execution.");
         }
 
         switch (MergeSlot.Status)
         {
             case MergeSlotHealthStatus.Available:
-                text.AppendLine($"  [PASS] Merge slot {MergeSlot.Id}: available.");
+                AppendStatus(text, "PASS", $"Merge slot {MergeSlot.Id}: available.", color);
                 break;
             case MergeSlotHealthStatus.Held:
-                text.AppendLine($"  [PASS] Merge slot {MergeSlot.Id}: held by {MergeSlot.Holder}.");
+                AppendStatus(text, "PASS", $"Merge slot {MergeSlot.Id}: held by {MergeSlot.Holder}.", color);
                 break;
             case MergeSlotHealthStatus.Missing:
-                text.AppendLine("  [WARN] Merge slot: not configured.");
+                AppendStatus(text, "WARN", "Merge slot: not configured.", color);
                 text.AppendLine("  Without a merge slot, agents on multiple workspaces or machines may attempt merges concurrently unless another serialized merge process is configured. Create one with: bd merge-slot create");
                 break;
             case MergeSlotHealthStatus.Error:
-                text.AppendLine($"  [WARN] Merge slot could not be checked: {MergeSlot.Detail}");
+                AppendStatus(text, "WARN", $"Merge slot could not be checked: {MergeSlot.Detail}", color);
                 break;
             default:
-                text.AppendLine($"  [INFO] Merge slot not checked: {MergeSlot.Detail}");
+                AppendStatus(text, "INFO", $"Merge slot not checked: {MergeSlot.Detail}", color);
                 break;
         }
 
         text.AppendLine();
-        text.AppendLine("Agent harnesses");
-        AppendTool(text, OpenCode, optional: true);
-        AppendTool(text, Claude, optional: true);
-        AppendTool(text, Codex, optional: true);
+        AppendHeading(text, "Agent harnesses", color);
+        AppendTool(text, OpenCode, color, optional: true);
+        AppendTool(text, Claude, color, optional: true);
+        AppendTool(text, Codex, color, optional: true);
         var readyHarnesses = new[] { OpenCode, Claude, Codex }.Count(static tool => tool.IsReady);
-        text.AppendLine(readyHarnesses > 0
-            ? $"  [PASS] {readyHarnesses} supported agent harness{(readyHarnesses == 1 ? string.Empty : "es")} available; at least one is required."
-            : "  [FAIL] No supported agent harness meets its minimum version; at least one is required.");
+        AppendStatus(text, readyHarnesses > 0 ? "PASS" : "FAIL",
+            readyHarnesses > 0
+                ? $"{readyHarnesses} supported agent harness{(readyHarnesses == 1 ? string.Empty : "es")} available; at least one is required."
+                : "No supported agent harness meets its minimum version; at least one is required.", color);
 
         text.AppendLine();
-        text.AppendLine("tmux");
-        AppendTool(text, Tmux, optional: true);
-        text.AppendLine(Tmux.IsReady
-            ? "  [PASS] Pane-hosted OpenCode, Claude, and Codex modes can use tmux."
-            : "  [WARN] Pane-hosted modes are unavailable; direct OpenCode Server mode does not require tmux.");
+        AppendHeading(text, "tmux", color);
+        AppendTool(text, Tmux, color, optional: true);
+        AppendStatus(text, Tmux.IsReady ? "PASS" : "WARN",
+            Tmux.IsReady
+                ? "Pane-hosted OpenCode, Claude, and Codex modes can use tmux."
+                : "Pane-hosted modes are unavailable; direct OpenCode Server mode does not require tmux.", color);
 
         text.AppendLine();
-        text.AppendLine("Referenced Git worktrees");
+        AppendHeading(text, "Referenced Git worktrees", color);
         if (WorktreeError is not null)
         {
-            text.AppendLine($"  [FAIL] Could not list worktrees: {WorktreeError}");
+            AppendStatus(text, "FAIL", $"Could not list worktrees: {WorktreeError}", color);
         }
         else
         {
@@ -212,31 +222,31 @@ public sealed record HealthReport(
 
             if (Worktrees.Count == 0)
             {
-                text.AppendLine("  [FAIL] Git reported no referenced worktrees.");
+                AppendStatus(text, "FAIL", "Git reported no referenced worktrees.", color);
                 text.AppendLine("  Multi-agent execution cannot use linked worktrees until worktrees are created. Separate clones may also be supplied, but health does not search for them.");
             }
             else if (Worktrees.Count == 1)
             {
-                text.AppendLine("  [WARN] No additional linked worktrees are referenced by the root repository.");
+                AppendStatus(text, "WARN", "No additional linked worktrees are referenced by the root repository.", color);
                 text.AppendLine("  Multi-agent execution cannot use linked worktrees until more are created. Separate clones may also be supplied, but health does not search for them.");
             }
             else
             {
-                text.AppendLine($"  [PASS] {Worktrees.Count} worktrees provide distinct candidate workspaces.");
+                AppendStatus(text, "PASS", $"{Worktrees.Count} worktrees provide distinct candidate workspaces.", color);
             }
         }
 
         text.AppendLine();
-        text.AppendLine("Bundled agent skills");
+        AppendHeading(text, "Bundled agent skills", color);
         foreach (var skill in Skills)
         {
             if (skill.IsInstalled)
             {
-                text.AppendLine($"  [PASS] {skill.Name}: {skill.Path}");
+                AppendStatus(text, "PASS", $"{skill.Name}: {skill.Path}", color);
             }
             else
             {
-                text.AppendLine($"  [FAIL] {skill.Name}: missing {string.Join(", ", skill.MissingFiles)}");
+                AppendStatus(text, "FAIL", $"{skill.Name}: missing {string.Join(", ", skill.MissingFiles)}", color);
             }
         }
 
@@ -246,7 +256,7 @@ public sealed record HealthReport(
         }
 
         text.AppendLine();
-        text.AppendLine("Available agent modes");
+        AppendHeading(text, "Available agent modes", color);
         if (AvailableModes.Count == 0)
         {
             text.AppendLine("  - none");
@@ -260,9 +270,9 @@ public sealed record HealthReport(
         }
 
         text.AppendLine();
-        text.AppendLine($"Bundled skills readiness: {(AreSkillsInstalled ? "READY" : "NOT READY")}");
-        text.AppendLine($"Single-agent readiness: {(SingleAgentReady ? "READY" : "NOT READY")}");
-        text.AppendLine($"Multi-agent readiness from linked worktrees: {(MultiAgentReady ? "READY" : "NOT READY")}");
+        AppendReadiness(text, "Bundled skills readiness", AreSkillsInstalled, color);
+        AppendReadiness(text, "Single-agent readiness", SingleAgentReady, color);
+        AppendReadiness(text, "Multi-agent readiness from linked worktrees", MultiAgentReady, color);
         if (!MultiAgentReady)
         {
             text.AppendLine("Separate clones can satisfy the workspace requirement, but they were not searched.");
@@ -271,7 +281,37 @@ public sealed record HealthReport(
         return text.ToString();
     }
 
-    private static void AppendTool(StringBuilder text, ToolHealth tool, bool optional = false)
+    internal static bool ShouldUseColor(bool outputRedirected, string? term, string? noColor) =>
+        !outputRedirected
+        && !string.Equals(term, "dumb", StringComparison.OrdinalIgnoreCase)
+        && noColor is null;
+
+    private static void AppendHeading(StringBuilder text, string heading, bool color) =>
+        text.AppendLine(Color(color, Bold + Cyan, heading));
+
+    private static void AppendReadiness(StringBuilder text, string label, bool ready, bool color)
+    {
+        var status = ready ? "READY" : "NOT READY";
+        text.Append(label).Append(": ")
+            .AppendLine(Color(color, ready ? Green : Red, status));
+    }
+
+    private static void AppendStatus(StringBuilder text, string marker, string detail, bool color)
+    {
+        var ansi = marker switch
+        {
+            "PASS" => Green,
+            "WARN" => Yellow,
+            "INFO" => Cyan,
+            _ => Red,
+        };
+        text.Append("  ").Append(Color(color, ansi, $"[{marker}]")).Append(' ').AppendLine(detail);
+    }
+
+    private static string Color(bool enabled, string ansi, string value) =>
+        enabled ? ansi + value + Reset : value;
+
+    private static void AppendTool(StringBuilder text, ToolHealth tool, bool color, bool optional = false)
     {
         var marker = tool.Status switch
         {
@@ -281,7 +321,7 @@ public sealed record HealthReport(
             ToolHealthStatus.Outdated => "WARN",
             _ => "FAIL",
         };
-        text.Append("  [").Append(marker).Append("] ").Append(tool.Name).Append(": ").AppendLine(tool.Detail);
+        AppendStatus(text, marker, $"{tool.Name}: {tool.Detail}", color);
     }
 }
 
