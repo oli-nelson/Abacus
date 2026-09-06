@@ -43,15 +43,16 @@ The project root also receives executable `run_abacus_opencode.sh`,
 discover the worktree directories at run time and pass one uniquely named agent
 per worktree to Abacus. Each launcher passes `--repo "$root/repo"` explicitly
 so invocation does not depend on the caller's working directory. Launchers accept
-model and effort overrides but do not
-create the tmux session.
+model and effort overrides and let `abacus run` resolve or create its default
+tmux target unless `ABACUS_TMUX_SESSION` supplies an explicit session.
 
 Before running Abacus:
 
 1. Set up a Beads project in your main Git checkout, then run `abacus init`
    to install skills and create missing target configuration. Review the target
    policy and use `targets check` before dispatch.
-2. For OpenCode, Codex, or Claude mode, start a tmux session and, optionally, the window where agent panes should run.
+2. For OpenCode, Codex, or Claude mode, Abacus creates or reuses a detached tmux
+   session and agent window. Supplying explicit names remains optional.
 3. For OpenCode Server mode, start an OpenCode server. A tmux session is optional in this mode.
 
 Install Abacus's bundled planning, issue-quality, attention-reporting, and
@@ -171,13 +172,14 @@ Resolve a user-attention callout from the current Beads project:
 abacus attention resolve <issue-id> [--message <text>] [--reopen]
 ```
 
-Start agents in an existing tmux session:
+Start agents with automatic tmux hosting, or select explicit tmux names:
 
 ```sh
-abacus run --tmux-session <session_name> \
+abacus run [--tmux-session <session_name>] \
   [--mode <opencode|codex|claude>] \
   [--tmux-window <window_name_or_index>] \
   [--tmux-layout <layout>] \
+  [--disown-tmux-session] \
   --model <model> \
   [--effort <effort>] \
   [--remote-control] \
@@ -256,12 +258,15 @@ Each local agent runs interactively in its own tmux pane using its assigned Git 
 
 These commands deliberately start the interactive interfaces rather than Codex `exec` or Claude `--print`. Codex and Claude use their automatic permission reviewers so ordinary approvals do not block an unattended Abacus pane while actions still receive background safety checks.
 
-Each pane has a stable `<agent> • <issue-id>` tmux title that the child process cannot replace. The selected agent CLI remains connected directly to the pane terminal so it has a TTY. When `--tmux-window` is supplied, Abacus verifies that the existing window belongs to the requested session and creates every agent pane there. Without it, tmux targets the session's current window. `--tmux-layout` is optional and reapplies a supported built-in layout (`even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`) to that target after each pane is spawned.
+Each pane has a stable `<agent> • <issue-id>` tmux title that the child process cannot replace. The selected agent CLI remains connected directly to the pane terminal so it has a TTY. Interactive modes default to a safe, repository-derived session name of `abacus - <project-id>` and the window name `Abacus Agents`. Abacus reuses either target when it exists and creates it detached when it does not. An explicitly named session is always user-owned. An implicit session is owned and removed at shutdown only when this invocation created it; `--disown-tmux-session` preserves an automatically created implicit session. An implicit session that already existed is never removed.
+
+Abacus enables the window-level `remain-on-exit` option for both existing and newly created target windows. Agent panes carry pane-local tmux user options identifying them as Abacus-managed and recording the repository project ID, agent, and issue. Before splitting the window, Abacus attempts to `respawn-pane` a dead pane whose management and project tags match. Failed or raced reuse attempts fall back to a new split. Normal cleanup interrupts the agent and leaves the tagged pane dead for later reuse; initialization failures remove the partially initialized pane. `--tmux-layout` optionally reapplies a supported built-in layout (`even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`, or `tiled`) after each pane starts.
 
 Tmux shutdown is deliberately best effort. Abacus sends Ctrl-C to the recorded
-pane, waits briefly, attempts `kill-pane`, removes its temporary run files, and
-continues finalization regardless of tmux command output or pane-verification
-races. Cleanup never targets a pane other than the ID Abacus recorded at launch.
+pane, waits briefly, and force-respawns a harmless exiting command if necessary
+so the tagged pane becomes dead and reusable. It removes temporary run files and
+continues finalization regardless of tmux command output. Cleanup never targets
+a pane other than the ID Abacus recorded at launch.
 
 To connect the agents to an existing OpenCode server:
 
@@ -273,11 +278,11 @@ abacus run --mode opencode-server --model <provider/model> --effort <effort> \
   -a <agent_name> <git_workspace_path>
 ```
 
-Without `--tmux-session`, each agent starts as a directly supervised, non-interactive `opencode run --attach` child process connected to the specified server. Direct processes receive their own workspace, prompt, model, and `BEADS_ACTOR`; Abacus drains their output so it does not corrupt the dashboard and stops them when supervision ends. tmux is not looked up or required in this mode.
+With no tmux-related option, each OpenCode Server agent starts as a directly supervised, non-interactive `opencode run --attach` child process connected to the specified server. Direct processes receive their own workspace, prompt, model, and `BEADS_ACTOR`; Abacus drains their output so it does not corrupt the dashboard and stops them when supervision ends. tmux is not looked up or required in this mode.
 
-Server attachment requires explicit `--mode opencode-server` with `--opencode-server <host:port>`; the address alone never changes modes. Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`. The server option is rejected for all other explicit modes.
+Server attachment requires explicit `--mode opencode-server` with `--opencode-server <host:port>`; the address alone never changes modes. With no tmux-related option, this mode remains directly hosted. Supplying `--tmux-session`, `--tmux-window`, `--tmux-layout`, or `--disown-tmux-session` requests pane hosting; an omitted session then uses the repository-derived default. The server option is rejected for all other explicit modes.
 
-By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, paused, waiting, idle, syncing, preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. The dashboard starts with new ticket claims enabled unless `--start-paused` is supplied; in that case its header shows claims paused from the first frame. Pressing Shift-Tab toggles new claims on or off for all agents; pausing does not interrupt tickets that are already active. The header shows the current claim state, and agents waiting for permission display a paused state. The up and down arrows select agent and latest-comment rows. Enter opens the selected agent's action panel or the selected comment's complete detail view; long comments scroll with the arrow or Page Up and Page Down keys, and Escape returns to the dashboard. Stop interrupts that agent's hosted process, keeps its current ticket reserved, and parks the loop. Restart interrupts an active process when necessary and relaunches the reserved ticket, or resumes a parked or idle loop. Clean Workspace requires explicit confirmation, safely reopens any active ticket, runs `git reset --hard` followed by `git clean -fd`, and leaves the agent parked until Restart. A successful clean clears that agent's persistent recovery alert. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
+By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, paused, waiting, idle, syncing, preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. For pane-hosted runs, the dashboard also shows the resolved tmux session and window names so the operator can attach from another shell. The dashboard starts with new ticket claims enabled unless `--start-paused` is supplied; in that case its header shows claims paused from the first frame. Pressing Shift-Tab toggles new claims on or off for all agents; pausing does not interrupt tickets that are already active. The header shows the current claim state, and agents waiting for permission display a paused state. The up and down arrows select agent and latest-comment rows. Enter opens the selected agent's action panel or the selected comment's complete detail view; long comments scroll with the arrow or Page Up and Page Down keys, and Escape returns to the dashboard. Stop interrupts that agent's hosted process, keeps its current ticket reserved, and parks the loop. Restart interrupts an active process when necessary and relaunches the reserved ticket, or resumes a parked or idle loop. Clean Workspace requires explicit confirmation, safely reopens any active ticket, runs `git reset --hard` followed by `git clean -fd`, and leaves the agent parked until Restart. A successful clean clears that agent's persistent recovery alert. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
 
 ### Event reporting, stdio control, and interactive intro
 
@@ -312,7 +317,7 @@ operations, redirected stdin/stdout/stderr, or dumb terminals. Honor `NO_COLOR`
 and terminal dimensions, and restore cursor visibility on skip or cancellation.
 All four new flags above are run-only.
 
-Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `preflight` runs the complete non-mutating preflight and exits without changing workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected main repository, target registry and local refs, agent executable, workspace, Beads `no-git-ops` setting, and Dolt configuration, the OpenCode server address when applicable, and any requested tmux session/window target. `--once` and `--drain` are mutually exclusive run options; `preflight` is a separate command and rejects both.
+Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `preflight` runs the complete non-mutating preflight and exits without changing workspaces, tmux sessions or windows, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected main repository, target registry and local refs, required executables, workspace, Beads `no-git-ops` setting, and Dolt configuration, plus the OpenCode server address when applicable. Missing tmux targets are created only by `run`, after preflight succeeds. `--once` and `--drain` are mutually exclusive run options; `preflight` is a separate command and rejects both.
 
 ### Repository health
 

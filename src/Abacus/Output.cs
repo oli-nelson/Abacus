@@ -28,6 +28,7 @@ internal interface IAgentOutput
     Task ClearTicketAsync(string agentName);
     Task SetRunLocationAsync(string agentName, string location);
     Task SetLastExitCodeAsync(string agentName, int? exitCode);
+    Task SetTmuxTargetAsync(string sessionName, string windowName);
     Task WarningAsync(string source, string message);
     Task SystemAsync(string message);
     Task DebugCommandAsync(string source, string command);
@@ -103,6 +104,14 @@ internal static class OutputExtensions
         output is IAgentOutput agentOutput
             ? agentOutput.SetLastExitCodeAsync(agentName, exitCode)
             : Task.CompletedTask;
+
+    public static Task SetTmuxTargetAsync(
+        this TextWriter output,
+        string sessionName,
+        string windowName) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.SetTmuxTargetAsync(sessionName, windowName)
+            : output.WriteLineAsync($"[abacus] tmux session '{sessionName}' • window '{windowName}'");
 
     public static Task SystemAsync(this TextWriter output, string message) =>
         output is IAgentOutput agentOutput
@@ -182,6 +191,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private IReadOnlyList<BeadsComment> latestComments = [];
     private readonly Timer? refreshTimer;
     private string systemStatus = "Running preflight checks";
+    private string? tmuxSessionName;
+    private string? tmuxWindowName;
     private bool claimingEnabled = true;
     private bool rendered;
     private bool dashboardFrozen;
@@ -492,6 +503,26 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             HasExitObservation = true,
         });
 
+    public Task SetTmuxTargetAsync(string sessionName, string windowName)
+    {
+        lock (gate)
+        {
+            tmuxSessionName = sessionName;
+            tmuxWindowName = windowName;
+            Events?.Emit("tmux.target", new { session = sessionName, window = windowName });
+            if (interactive)
+            {
+                RenderDashboard();
+            }
+            else
+            {
+                WriteEvent("abacus", "INFO", $"tmux session '{sessionName}' • window '{windowName}'");
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task WarningAsync(string source, string message)
     {
         lock (gate)
@@ -639,6 +670,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             {
                 id, command = "status", ok = true,
                 status = new { claimsEnabled, systemStatus, agents = agents.Values.ToArray(),
+                    tmux = tmuxSessionName is null ? null : new { session = tmuxSessionName, window = tmuxWindowName },
                     attention = userAttentionIssues, alerts = new Dictionary<string, string>(persistentAlerts),
                     comments = latestComments, warnings = warnings.ToArray() },
             });
@@ -670,6 +702,13 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         builder.Append("\u001b[K\n");
         builder.Append(Color(Dim, Truncate(" Shift-Tab claims on/off • Ctrl-C stop all", width)));
         builder.Append("\u001b[K\n");
+        if (tmuxSessionName is not null)
+        {
+            builder.Append(Color(
+                Dim,
+                Truncate($" tmux session: {tmuxSessionName} • window: {tmuxWindowName}", width)));
+            builder.Append("\u001b[K\n");
+        }
         builder.Append(Color(Dim, line)).Append("\u001b[K\n");
 
         if (panel is DashboardPanel.CommentDetail && openComment is not null)

@@ -222,8 +222,51 @@ public sealed class TmuxAgentHostTests
             "provider/model", "high", null, CancellationToken.None);
 
         var calls = await File.ReadAllLinesAsync(fixture.CallsPath);
+        Assert.Contains($"set-option -p -t {run.PaneId} @abacus_managed_pane 1", calls);
+        Assert.Contains($"set-option -p -t {run.PaneId} @abacus_project_id abacus", calls);
+        Assert.Contains($"set-option -p -t {run.PaneId} @abacus_agent alice #{{pane_id}}", calls);
+        Assert.Contains($"set-option -p -t {run.PaneId} @abacus_issue abc-1", calls);
         Assert.Contains($"set-option -p -t {run.PaneId} allow-set-title off", calls);
         Assert.Contains($"select-pane -t {run.PaneId} -T alice ##{{pane_id}} • abc-1", calls);
+    }
+
+    [Fact]
+    public async Task ReusesMatchingDeadManagedPaneBeforeCreatingANewPane()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = await TmuxFixture.CreateAsync();
+        await fixture.AddDeadPaneAsync("%9", "abacus");
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
+
+        var run = await fixture.CreateTmux().StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
+            "provider/model", "high", null, CancellationToken.None);
+
+        Assert.Equal("%9", run.PaneId);
+        var calls = await File.ReadAllLinesAsync(fixture.CallsPath);
+        Assert.Contains(calls, call => call.StartsWith(
+            $"respawn-pane -t %9 -c {workspace} ", StringComparison.Ordinal));
+        Assert.DoesNotContain(calls, static call => call.StartsWith("split-window", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DoesNotReuseDeadPaneOwnedByAnotherProject()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = await TmuxFixture.CreateAsync();
+        await fixture.AddDeadPaneAsync("%9", "another-project");
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
+
+        var run = await fixture.CreateTmux().StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
+            "provider/model", "high", null, CancellationToken.None);
+
+        Assert.Equal("%1", run.PaneId);
+        Assert.Contains(
+            await File.ReadAllLinesAsync(fixture.CallsPath),
+            static call => call.StartsWith("split-window", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -270,7 +313,8 @@ public sealed class TmuxAgentHostTests
 
         var calls = await File.ReadAllLinesAsync(fixture.CallsPath);
         Assert.Single(calls, line => line == $"send-keys -t {run.PaneId} C-c");
-        Assert.Single(calls, line => line == $"kill-pane -t {run.PaneId}");
+        Assert.Single(calls, line => line == $"respawn-pane -k -t {run.PaneId} true");
+        Assert.DoesNotContain(calls, line => line == $"kill-pane -t {run.PaneId}");
         Assert.False(File.Exists(run.PromptPath));
         Assert.False(File.Exists(run.WrapperPath));
         Assert.False(File.Exists(run.MarkerPath));
@@ -278,7 +322,23 @@ public sealed class TmuxAgentHostTests
     }
 
     [Fact]
-    public async Task CleanupMovesOnWhenPaneCannotBeVerifiedAsRemoved()
+    public async Task DeadPaneIsReportedAsNoLongerRunning()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "workspace")).FullName;
+        var tmux = fixture.CreateTmux();
+        var run = await tmux.StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
+            "provider/model", "high", null, CancellationToken.None);
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "display-dead"), string.Empty);
+
+        Assert.False(await tmux.PaneIsRunningAsync(run, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CleanupLeavesADeadReusablePane()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -292,15 +352,13 @@ public sealed class TmuxAgentHostTests
             Agent("alice", workspace),
             new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model", "high", null, CancellationToken.None);
-        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "keep-pane"), string.Empty);
-
         await tmux.StopAndCleanupAsync(run, CancellationToken.None);
 
         Assert.True(run.Cleaned);
         Assert.False(File.Exists(run.PromptPath));
         Assert.False(Directory.Exists(run.RunDirectory));
         Assert.Contains(
-            $"kill-pane -t {run.PaneId}",
+            $"respawn-pane -k -t {run.PaneId} true",
             await File.ReadAllLinesAsync(fixture.CallsPath));
     }
 
@@ -327,7 +385,7 @@ public sealed class TmuxAgentHostTests
     }
 
     [Fact]
-    public async Task CleanupMovesOnWhenKillPaneExceedsItsDeadline()
+    public async Task CleanupMovesOnWhenForcedRespawnExceedsItsDeadline()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -343,7 +401,7 @@ public sealed class TmuxAgentHostTests
             Agent("alice", workspace),
             new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model", "high", null, CancellationToken.None);
-        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "hang-kill"), string.Empty);
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "hang-respawn"), string.Empty);
 
         await tmux.StopAndCleanupAsync(run, CancellationToken.None);
 
@@ -375,7 +433,7 @@ public sealed class TmuxAgentHostTests
         Assert.DoesNotContain(calls, static line =>
             line.StartsWith("display-message", StringComparison.Ordinal));
         Assert.Contains($"send-keys -t {run.PaneId} C-c", calls);
-        Assert.Contains($"kill-pane -t {run.PaneId}", calls);
+        Assert.Contains($"respawn-pane -k -t {run.PaneId} true", calls);
         Assert.True(run.Cleaned);
         Assert.False(File.Exists(run.PromptPath));
     }
@@ -433,19 +491,23 @@ public sealed class TmuxAgentHostTests
                   printf '%s' "$value" > "$counter"
                   printf '%%%s\n' "$value" >> "$panes"
                   printf '%%%s\n' "$value"
+                elif test "$1" = list-panes; then
+                  dead={{QuoteForShell(Path.Combine(root.FullName, "dead-panes"))}}
+                  test -f "$dead" && cat "$dead"
+                elif test "$1" = respawn-pane; then
+                  test -f {{QuoteForShell(Path.Combine(root.FullName, "hang-respawn"))}} && sleep 10
+                  exit 0
                 elif test "$1" = display-message; then
                   test -f {{QuoteForShell(Path.Combine(root.FullName, "hang-display"))}} && sleep 10
                   test -f {{QuoteForShell(Path.Combine(root.FullName, "probe-error"))}} && { printf 'socket permission denied\n' >&2; exit 1; }
                   panes={{QuoteForShell(Path.Combine(root.FullName, "panes"))}}
                   test -f "$panes" && grep -Fx "$4" "$panes" >/dev/null || { printf "can't find pane: %s\n" "$4" >&2; exit 1; }
-                  printf '%s\n' "$4"
+                  test -f {{QuoteForShell(Path.Combine(root.FullName, "display-dead"))}} && dead=1 || dead=0
+                  printf '%s\t%s\n' "$4" "$dead"
                 elif test "$1" = kill-pane; then
-                  test -f {{QuoteForShell(Path.Combine(root.FullName, "hang-kill"))}} && sleep 10
                   panes={{QuoteForShell(Path.Combine(root.FullName, "panes"))}}
-                  if ! test -f {{QuoteForShell(Path.Combine(root.FullName, "keep-pane"))}}; then
-                    grep -Fvx "$3" "$panes" > "$panes.tmp" || true
-                    mv "$panes.tmp" "$panes"
-                  fi
+                  grep -Fvx "$3" "$panes" > "$panes.tmp" || true
+                  mv "$panes.tmp" "$panes"
                 elif test "$1" = set-option && test -f {{QuoteForShell(Path.Combine(root.FullName, "fail-title"))}}; then
                   exit 7
                 fi
@@ -487,6 +549,11 @@ public sealed class TmuxAgentHostTests
             layout,
             remote,
             cleanupTimeout);
+
+        public Task AddDeadPaneAsync(string paneId, string projectId) =>
+            File.AppendAllTextAsync(
+                Path.Combine(Root, "dead-panes"),
+                $"{paneId}\t1\t1\t{projectId}\n");
 
         private static string QuoteForShell(string value) =>
             $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";

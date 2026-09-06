@@ -66,6 +66,7 @@ public sealed class OutputTests
             await output.SetAgentAsync("bob", AgentActivity.Idle, "No ready tickets");
             await output.SetAgentAsync("alice", AgentActivity.Retrying, "Agent CLI failed; retrying soon");
             await output.SetLastExitCodeAsync("alice", 17);
+            await output.SetTmuxTargetAsync("abacus - sample-a1b2c3d4", "Abacus Agents");
             await output.WarningAsync("alice", "example warning");
             await output.SetUserAttentionIssuesAsync(
                 [new BeadsIssue("abc-9", IssueStatus.Blocked, "Choose a save format")]);
@@ -80,6 +81,8 @@ public sealed class OutputTests
         var text = writer.ToString();
         Assert.Contains("ABACUS", text, StringComparison.Ordinal);
         Assert.Contains("CLAIMS ON", text, StringComparison.Ordinal);
+        Assert.Contains("tmux session: abacus - sample-a1b2c3d4", text, StringComparison.Ordinal);
+        Assert.Contains("window: Abacus Agents", text, StringComparison.Ordinal);
         Assert.Contains("Shift-Tab", text, StringComparison.Ordinal);
         Assert.Contains("alice", text, StringComparison.Ordinal);
         Assert.Contains("WORKING", text, StringComparison.Ordinal);

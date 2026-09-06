@@ -354,8 +354,8 @@ public sealed class TicketSupervisorTests
                 printf '%s\n' "$*" >> "$root/tmux-calls"
                 if test "$1" = display-message; then
                   test -s "$root/pane" || { printf "can't find pane: %%9\n" >&2; exit 1; }
-                  cat "$root/pane"
-                elif test "$1" = kill-pane; then
+                  printf '%s\t0\n' "$(cat "$root/pane")"
+                elif test "$1" = respawn-pane; then
                   : > "$root/pane"
                 fi
                 exit 0

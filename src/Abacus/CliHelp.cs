@@ -46,9 +46,11 @@ internal static class CliHelp
           --remote-control              Claude only; enables interactive Remote Control.
 
         Hosting:
-          --tmux-session <name>          Existing session; required for interactive modes.
-          --tmux-window <name-or-index>  Existing window; requires --tmux-session.
-          --tmux-layout <layout>         Requires --tmux-session. Choices: even-horizontal,
+          --tmux-session <name>          Session to use or create. Interactive modes default to
+                                        "abacus - <project-id>".
+          --disown-tmux-session          Keep an automatically created default session after exit.
+          --tmux-window <name-or-index>  Window to use or create. Default: Abacus Agents.
+          --tmux-layout <layout>         Choices: even-horizontal,
                                         even-vertical, main-horizontal, main-vertical, tiled.
           --opencode-server <host:port>  Requires explicit --mode opencode-server.
                                         Server mode can run without tmux as direct children.

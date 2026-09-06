@@ -52,11 +52,15 @@ public sealed class TmuxAgentHost(
     string? tmuxWindow = null,
     string? tmuxLayout = null,
     bool remote = false,
-    TimeSpan? cleanupTimeout = null) : IAgentHost
+    TimeSpan? cleanupTimeout = null,
+    string? tmuxWindowId = null,
+    string projectId = "abacus") : IAgentHost
 {
+    private const string ManagedPaneOption = "@abacus_managed_pane";
+    private const string ProjectIdOption = "@abacus_project_id";
     private readonly TimeSpan gracePeriod = interruptGracePeriod ?? TimeSpan.FromSeconds(1);
     private readonly TimeSpan cleanupDeadline = cleanupTimeout ?? TimeSpan.FromSeconds(10);
-    private readonly string splitTarget = Target(tmuxSession, tmuxWindow);
+    private readonly string splitTarget = tmuxWindowId ?? Target(tmuxSession, tmuxWindow);
 
     public async Task<TmuxAgentRun> StartAgentAsync(
         ValidatedAgent agent,
@@ -102,30 +106,17 @@ public sealed class TmuxAgentHost(
                 wrapperPath,
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
-            var result = await runner.RunAsync(new CommandSpec(
-                tmuxExecutable,
-                [
-                    "split-window",
-                    "-t", splitTarget,
-                    "-d",
-                    "-P",
-                    "-F", "#{pane_id}",
-                    ShellQuote(wrapperPath),
-                ],
+            var paneId = await AcquirePaneAsync(
+                agent.Name,
                 agent.WorkspacePath,
-                AgentName: agent.Name), cancellationToken);
-            if (!result.Succeeded)
-            {
-                throw new TmuxException($"could not create agent pane: {Beads.FailureDetail(result)}");
-            }
-
-            var paneId = result.StandardOutput.Trim();
-            if (string.IsNullOrWhiteSpace(paneId))
-            {
-                throw new TmuxException("tmux did not return the created pane ID");
-            }
+                wrapperPath,
+                cancellationToken);
 
             run = new TmuxAgentRun(paneId, runDirectory, promptPath, wrapperPath, markerPath);
+            await SetPaneOptionAsync(run.PaneId, ManagedPaneOption, "1", agent.Name, cancellationToken);
+            await SetPaneOptionAsync(run.PaneId, ProjectIdOption, projectId, agent.Name, cancellationToken);
+            await SetPaneOptionAsync(run.PaneId, "@abacus_agent", agent.Name, agent.Name, cancellationToken);
+            await SetPaneOptionAsync(run.PaneId, "@abacus_issue", issue.Id, agent.Name, cancellationToken);
             var title = await runner.RunAsync(new CommandSpec(
                 tmuxExecutable,
                 [
@@ -185,7 +176,7 @@ public sealed class TmuxAgentHost(
 
             try
             {
-                await StopAndCleanupAsync(run, CancellationToken.None);
+                await StopRemoveAndCleanupAsync(run, CancellationToken.None);
             }
             catch (Exception cleanupFailure)
             {
@@ -197,17 +188,20 @@ public sealed class TmuxAgentHost(
         }
     }
 
-    public async Task<bool> PaneExistsAsync(TmuxAgentRun run, CancellationToken cancellationToken)
+    public async Task<bool> PaneIsRunningAsync(TmuxAgentRun run, CancellationToken cancellationToken)
     {
         var result = await runner.RunAsync(new CommandSpec(
             tmuxExecutable,
-            ["display-message", "-p", "-t", run.PaneId, "#{pane_id}"],
+            ["display-message", "-p", "-t", run.PaneId, "#{pane_id}\t#{pane_dead}"],
             temporaryRoot), cancellationToken);
         if (result.Succeeded)
         {
-            if (string.Equals(result.StandardOutput.Trim(), run.PaneId, StringComparison.Ordinal))
+            var fields = result.StandardOutput.Trim().Split('\t');
+            if (fields.Length == 2
+                && string.Equals(fields[0], run.PaneId, StringComparison.Ordinal)
+                && fields[1] is "0" or "1")
             {
-                return true;
+                return fields[1] == "0";
             }
 
             throw new TmuxException(
@@ -236,7 +230,7 @@ public sealed class TmuxAgentHost(
     Task<bool> IAgentHost.IsRunningAsync(
         IAgentRun run,
         CancellationToken cancellationToken) =>
-        PaneExistsAsync(RequireTmuxRun(run), cancellationToken);
+        PaneIsRunningAsync(RequireTmuxRun(run), cancellationToken);
 
     Task IAgentHost.StopAndCleanupAsync(
         IAgentRun run,
@@ -279,8 +273,10 @@ public sealed class TmuxAgentHost(
                 // when the grace-period budget has expired.
             }
 
+            // Force any process that ignored Ctrl-C to stop, but keep the pane as
+            // a dead, tagged slot that a later agent run can respawn.
             await TryCleanupCommandAsync(
-                ["kill-pane", "-t", run.PaneId],
+                ["respawn-pane", "-k", "-t", run.PaneId, "true"],
                 budget.Token);
 
             CleanupRunFiles(run);
@@ -292,6 +288,108 @@ public sealed class TmuxAgentHost(
             {
                 run.CleanupLock.Release();
             }
+        }
+    }
+
+    private async Task StopRemoveAndCleanupAsync(
+        TmuxAgentRun run,
+        CancellationToken cancellationToken)
+    {
+        await TryCleanupCommandAsync(["send-keys", "-t", run.PaneId, "C-c"], cancellationToken);
+        await TryCleanupCommandAsync(["kill-pane", "-t", run.PaneId], cancellationToken);
+        CleanupRunFiles(run);
+        run.Cleaned = true;
+    }
+
+    private async Task<string> AcquirePaneAsync(
+        string agentName,
+        string workspacePath,
+        string wrapperPath,
+        CancellationToken cancellationToken)
+    {
+        var panes = await runner.RunAsync(new CommandSpec(
+            tmuxExecutable,
+            [
+                "list-panes", "-t", splitTarget,
+                "-F", $"#{{pane_id}}\t#{{pane_dead}}\t#{{{ManagedPaneOption}}}\t#{{{ProjectIdOption}}}",
+            ],
+            workspacePath,
+            AgentName: agentName), cancellationToken);
+        if (!panes.Succeeded)
+        {
+            throw new TmuxException($"could not inspect reusable agent panes: {Beads.FailureDetail(panes)}");
+        }
+
+        foreach (var line in panes.StandardOutput
+                     .Replace("\r\n", "\n", StringComparison.Ordinal)
+                     .Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var fields = line.Split('\t');
+            if (fields.Length != 4
+                || fields[1] != "1"
+                || fields[2] != "1"
+                || !string.Equals(fields[3], projectId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var respawn = await runner.RunAsync(new CommandSpec(
+                tmuxExecutable,
+                [
+                    "respawn-pane", "-t", fields[0],
+                    "-c", workspacePath,
+                    ShellQuote(wrapperPath),
+                ],
+                workspacePath,
+                AgentName: agentName), cancellationToken);
+            if (respawn.Succeeded)
+            {
+                return fields[0];
+            }
+        }
+
+        var created = await runner.RunAsync(new CommandSpec(
+            tmuxExecutable,
+            [
+                "split-window",
+                "-t", splitTarget,
+                "-d",
+                "-P",
+                "-F", "#{pane_id}",
+                ShellQuote(wrapperPath),
+            ],
+            workspacePath,
+            AgentName: agentName), cancellationToken);
+        if (!created.Succeeded)
+        {
+            throw new TmuxException($"could not create agent pane: {Beads.FailureDetail(created)}");
+        }
+
+        var paneId = created.StandardOutput.Trim();
+        if (string.IsNullOrWhiteSpace(paneId))
+        {
+            throw new TmuxException("tmux did not return the created pane ID");
+        }
+
+        return paneId;
+    }
+
+    private async Task SetPaneOptionAsync(
+        string paneId,
+        string option,
+        string value,
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        var result = await runner.RunAsync(new CommandSpec(
+            tmuxExecutable,
+            ["set-option", "-p", "-t", paneId, option, value],
+            temporaryRoot,
+            AgentName: agentName), cancellationToken);
+        if (!result.Succeeded)
+        {
+            throw new TmuxException(
+                $"could not tag agent pane {paneId} with {option}: {Beads.FailureDetail(result)}");
         }
     }
 

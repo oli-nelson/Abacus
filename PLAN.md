@@ -91,7 +91,7 @@ persisted separately in Beads before branch preparation.
    matching bound `abacus/<issue_id>` or create it from the recorded target commit.
    Refuse unbound existing branches until explicitly adopted.
 6. Verify that a normal newly selected workspace is clean before the agent CLI starts. Preserve existing changes when resuming an interrupted issue workspace.
-7. Render the target-aware SPEC.md prompt, replacing its default merge section with controller-snapshotted target instructions when present, and launch the selected mode. OpenCode, Codex, and Claude use a new interactive pane in the requested tmux target. OpenCode Server uses `opencode run` and is directly supervised unless tmux was explicitly supplied.
+7. Render the target-aware SPEC.md prompt, replacing its default merge section with controller-snapshotted target instructions when present, and launch the selected mode. OpenCode, Codex, and Claude use a new interactive pane in the resolved tmux target. OpenCode Server uses `opencode run` and is directly supervised unless a tmux-related option was supplied.
 8. Poll `bd show <issue_id> --json` while also watching the hosted agent run for exit.
 9. When the ticket leaves `in_progress`, interrupt the agent CLI if it is still running and clean up its pane or direct process.
 10. When the agent CLI exits while the ticket is still `in_progress`, warn, reopen the issue with a useful note, and clean up its hosted run.
@@ -178,7 +178,8 @@ Before building the loop, capture the exact behavior of the locally supported co
   abacus attention resolve <issue-id> [--message <text>] [--reopen] [--repo <main-checkout>]
 
   abacus run [--mode <opencode|codex|claude|opencode-server>] \
-    [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
+    [--tmux-session <name>] [--tmux-window <name-or-index>] [--tmux-layout <layout>] \
+    [--disown-tmux-session] \
     --model <model> \
     [--effort <effort>] \
     [--remote-control] \
@@ -233,7 +234,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   results by harness, and isolate missing-tool or command failures. Report that
   Claude Code requires its interactive `/model` picker because its CLI exposes
   no non-interactive catalog command. Require no repository or agent options.
-- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; distinguish idle polling from failure retries. Start with new claims enabled unless `--start-paused` is set, and let Shift-Tab pause or resume new ticket claims across all agents without interrupting active tickets; show the current claim state in the header and a paused state for agents waiting at the claim boundary. Let the operator select agent and latest-comment rows with the arrow keys. Enter opens an agent action panel or a complete, wrapped comment detail view with vertical scrolling. Support stopping one loop while retaining its active ticket reservation, restarting that loop and ticket, and explicitly confirmed cleanup with `git reset --hard` plus `git clean -fd`. Cleaning must safely reopen an active ticket first and leave the agent stopped. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed latest-comments log at the bottom, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a colored header line, then wrap the uncolored, truncated comment across at most two indented lines beneath it. Color attention-labelled issue headers red, configured-agent headers green, and unrecognized-author headers cyan. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print the initial full Beads Dolt commit plus a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
+- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; for pane-hosted runs also show the resolved tmux session and window names so users can attach from another shell. Distinguish idle polling from failure retries. Start with new claims enabled unless `--start-paused` is set, and let Shift-Tab pause or resume new ticket claims across all agents without interrupting active tickets; show the current claim state in the header and a paused state for agents waiting at the claim boundary. Let the operator select agent and latest-comment rows with the arrow keys. Enter opens an agent action panel or a complete, wrapped comment detail view with vertical scrolling. Support stopping one loop while retaining its active ticket reservation, restarting that loop and ticket, and explicitly confirmed cleanup with `git reset --hard` plus `git clean -fd`. Cleaning must safely reopen an active ticket first and leave the agent stopped. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed latest-comments log at the bottom, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a colored header line, then wrap the uncolored, truncated comment across at most two indented lines beneath it. Color attention-labelled issue headers red, configured-agent headers green, and unrecognized-author headers cyan. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print the initial full Beads Dolt commit plus a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 - Keep desktop notifications dependency-free and owned by the orchestrator. `--notify attention` reports new user-attention issues, blocked tickets, and persistent recovery failures; `--notify all` also reports all ticket outcomes and the final run summary. Use `osascript` on macOS and optional `notify-send` on Linux through `ProcessStartInfo.ArgumentList`. When sound is enabled, distinguish successful outcomes from attention or unsuccessful outcomes with positive and negative platform sounds. Treat delivery as best effort, deduplicate polled attention issues, and use a terminal bell fallback only when `--notify-sound` was requested.
 
 ### Exit criteria
@@ -257,8 +258,8 @@ All checks happen before any ticket is claimed or agent run is created.
 ### Work
 
 - Verify `bd`, `git`, and only the selected agent executable are available from `PATH`.
-- Require tmux for OpenCode, Codex, and Claude modes. When a tmux session is supplied, verify `tmux` is executable and the session exists; if `--tmux-window` is supplied, verify that the named or indexed window exists in that session. Abacus must not create or own either one.
-- Allow `--opencode-server` without tmux and do not look up or invoke tmux in that configuration. Reject `--tmux-window` and `--tmux-layout` unless `--tmux-session` is also supplied.
+- Require tmux for OpenCode, Codex, and Claude modes. Resolve missing targets only after non-mutating preflight: default to `abacus - <safe-project-id>` and `Abacus Agents`, creating a detached session or window when absent. Own and remove a session only when this invocation created an implicit session and `--disown-tmux-session` was not supplied; never remove explicit or pre-existing sessions.
+- Allow `--opencode-server` without tmux and do not look up or invoke tmux when no tmux-related option is supplied. Any tmux-related option selects pane hosting and may use the implicit session.
 - For every agent workspace:
   - resolve the canonical absolute path and ensure it exists;
   - verify it is a Git worktree using `git -C <path> rev-parse`;
@@ -274,7 +275,7 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Exit criteria
 
-- Missing tmux for local mode, invalid explicit tmux targets, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and recovered or preserved by the agent loop before normal dispatch.
+- Missing tmux for pane-hosted modes, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and recovered or preserved by the agent loop before normal dispatch. Missing tmux session/window targets are not failures because `run` creates them after preflight.
 - A valid single-agent local setup and a valid multi-agent shared-Dolt setup pass.
 - Preflight never mutates Git, Beads, tmux, or agent CLI state.
 - `preflight` reports success immediately after this boundary and never claims work or starts an agent CLI.
@@ -330,13 +331,13 @@ All checks happen before any ticket is claimed or agent run is created.
   - connect the selected CLI directly to the pane terminal rather than piping it through `tee`, because interactive modes require a TTY;
   - write the agent CLI exit code to an atomic exit-marker file;
   - remain alive briefly/idle until Abacus has observed the marker, so the pane does not disappear before cleanup.
-- Create a detached pane in the existing session's current window, or the explicit `session:window` target supplied through `--tmux-window`, with `tmux split-window -d -P -F '#{pane_id}'`; run the wrapper there and record the returned pane ID. When `--tmux-layout` is supplied, reapply that validated built-in layout after each split.
-- Give every created pane a stable `<agent> • <issue-id>` title with `tmux select-pane -T` and disable application title changes for that pane so the selected CLI cannot replace the label.
+- Enable `remain-on-exit` on the resolved agent window. Tag panes with pane-local tmux user options for Abacus ownership, repository project ID, agent, and issue. Prefer `respawn-pane` on a dead pane with matching ownership/project tags; if none is available or reuse loses a race, create a detached pane with `tmux split-window -d -P -F '#{pane_id}'`. Run the wrapper there, record the pane ID, and reapply any requested layout.
+- Give every managed pane a stable `<agent> • <issue-id>` title with `tmux select-pane -T` and disable application title changes for that pane so the selected CLI cannot replace the label.
 - When `--opencode-server` is supplied without tmux, start one `opencode run --attach` child directly per agent using `ProcessStartInfo.ArgumentList`, the agent workspace, and `BEADS_ACTOR`. Drain stdout and stderr asynchronously to preserve the dashboard and prevent blocked pipes.
 - Keep one small agent host boundary so ticket supervision can observe exit and perform idempotent cleanup for either a pane or a direct process. Use one explicit switch-based command builder for the four known modes; this is not a plugin system.
 - Interrupt direct children, wait a short grace period, then terminate the process tree if needed.
 - Do not use tmux control mode or a tmux protocol library. All lifecycle operations are CLI commands using the recorded pane ID.
-- Implement idempotent, best-effort tmux cleanup: send Ctrl-C, allow a short grace period, then attempt `tmux kill-pane` for the recorded pane ID. Remove run files and continue finalization regardless of tmux command or pane-verification results. Never target a pane ID that Abacus did not record at launch.
+- Implement idempotent, best-effort tmux cleanup: send Ctrl-C, allow a short grace period, then force the recorded managed pane into a dead reusable state when necessary. Remove run files and continue finalization regardless of tmux command results. Initialization failures may remove their partially initialized pane. Never target a pane ID that Abacus did not record at launch.
 - Remove prompt, wrapper, and marker files when their run ends.
 
 ### Exit criteria
@@ -397,7 +398,8 @@ All checks happen before any ticket is claimed or agent run is created.
 - Add a README containing installation (`dotnet publish`), prerequisites, both usage examples from SPEC.md, how shared Dolt is validated, branch behavior, logs, and shutdown behavior.
 - State explicitly that normal orchestration does not create worktrees or
   configure Beads/Dolt; the standalone new-repository initializer is the only
-  setup exception. Abacus still does not start tmux, start OpenCode servers,
+  setup exception. Abacus may create its resolved tmux session/window but does
+  not start OpenCode servers,
   merge branches, or decide ticket outcomes.
 - Document the exact shared agent prompt, its basic default merge process, optional
   merge-slot behavior, and how `.abacus/merge-instructions.md` replaces it.

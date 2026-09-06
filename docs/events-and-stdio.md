@@ -65,7 +65,7 @@ correlate results. IDs are echoed, not persisted or deduplicated.
 
 | Command | Behavior |
 | --- | --- |
-| `status` | Returns claim permission, full agent rows, current attention issues, persistent alerts, recent comments, and recent warnings. |
+| `status` | Returns claim permission, full agent rows, the resolved tmux target when pane-hosted, current attention issues, persistent alerts, recent comments, and recent warnings. |
 | `pause` / `resume` | Disable/enable new claims; active tickets continue. |
 | `stop` | Interrupt the named agent, retain its ticket reservation, and park its loop. |
 | `restart` | Interrupt/relaunch the reserved ticket or resume the parked loop. |
@@ -109,6 +109,7 @@ inside strings are JSON-escaped. Consumers should ignore unknown types/fields.
 | `system`, `warning` | Message; warnings also include source |
 | `command` | Source and subprocess command diagnostic (including exit diagnostics); independent of `--verbose` |
 | `agent.state` | Full row: name, activity, detail, changedAt, issueId, ticketTitle, runLocation, workspacePath, lastExitCode, hasExitObservation, retryCount |
+| `tmux.target` | Resolved session and window names for a pane-hosted run |
 | `claims.changed` | `enabled` |
 | `attention.changed`, `comments.changed` | Replacement `issues` / `comments` arrays (empty clears them) |
 | `alert.raised`, `alert.cleared` | Source and, when raised, message |

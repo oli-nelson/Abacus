@@ -68,8 +68,11 @@ avoid claim races. Beads remains authoritative.
 ## Hosting model
 
 Interactive OpenCode, Codex, and Claude Code sessions run directly in dedicated
-tmux panes with real TTYs. Abacus records each pane ID, applies a stable
-`<agent> • <issue-id>` title, and cleans up only that pane.
+tmux panes with real TTYs. Abacus resolves or creates a detached project session
+and agent window, records each pane ID, applies pane-local ownership/project
+tags and a stable `<agent> • <issue-id>` title, and reuses matching dead panes.
+Only an implicit session created by the current invocation is lifetime-owned;
+explicit, pre-existing, and disowned sessions persist.
 
 OpenCode Server mode uses the supported `opencode run --attach` CLI. Without
 tmux, Abacus directly supervises the child and drains its output to protect the
@@ -128,7 +131,7 @@ During normal orchestration, Abacus does **not**:
 
 - create, delete, or repair Git worktrees or clones;
 - initialize or migrate Beads/Dolt databases and remotes;
-- create or start a tmux session or window;
+- delete an explicitly named or pre-existing tmux session or window;
 - start, stop, or directly query an OpenCode server;
 - merge agent branches or decide whether their work is correct;
 - decide successful delivery for an agent (it does block invalid target claims

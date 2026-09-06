@@ -92,6 +92,7 @@ public sealed class MultiAgentRepositoryInitializerTests
             Assert.Contains("--mode codex", launcherText, StringComparison.Ordinal);
             Assert.Contains("worktrees=\"$root/worktrees\"", launcherText, StringComparison.Ordinal);
             Assert.Contains("for workspace in \"$worktrees\"/*", launcherText, StringComparison.Ordinal);
+            Assert.Contains("run_args=(run", launcherText, StringComparison.Ordinal);
 
             var abacusLog = Path.Combine(root.FullName, "abacus.log");
             var fakeAbacus = Path.Combine(root.FullName, "abacus");
@@ -136,6 +137,8 @@ public sealed class MultiAgentRepositoryInitializerTests
                 Assert.Equal("provider/override", parsed.Model);
                 Assert.Equal("xhigh", parsed.Effort);
                 Assert.Equal(3, parsed.Agents.Count);
+                Assert.Null(parsed.TmuxSession);
+                Assert.True(parsed.UsesTmux);
             }
             Assert.Equal(string.Empty, await RunGitAsync(result.RepositoryPath, "status", "--porcelain"));
         }

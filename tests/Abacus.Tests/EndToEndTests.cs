@@ -263,10 +263,10 @@ public sealed partial class EndToEndTests
                 await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
             Assert.Contains("ready --unassigned --exclude-label gt:slot --limit 0 --json", await File.ReadAllTextAsync(Path.Combine(root.FullName, "bd-calls")), StringComparison.Ordinal);
             Assert.Contains("send-keys -t %1 C-c", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
-            Assert.Contains("split-window -t workers:agents", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
+            Assert.Contains("split-window -t @1", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Contains("set-option -p -t %1 allow-set-title off", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Contains("select-pane -t %1 -T alice • abc-1", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
-            Assert.Contains("select-layout -t workers:agents tiled", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
+            Assert.Contains("select-layout -t @1 tiled", await File.ReadAllTextAsync(Path.Combine(root.FullName, "tmux-calls")), StringComparison.Ordinal);
             Assert.Empty(await stdout);
             Assert.Contains("[alice]", await stderr, StringComparison.Ordinal);
             Assert.Contains("ABACUS RUN SUMMARY", await stderr, StringComparison.Ordinal);
@@ -579,8 +579,10 @@ public sealed partial class EndToEndTests
             printf '%s\n' "$*" >> "$root/tmux-calls"
             if test "$1" = has-session; then
               exit 0
-            elif test "$1" = display-message && test "$5" = '#{window_id}'; then
-              printf '@1\n'
+            elif test "$1" = list-windows; then
+              printf '@1\t0\tagents\n@2\t1\tAbacus Agents\n'
+              exit 0
+            elif test "$1" = list-panes; then
               exit 0
             elif test "$1" = split-window; then
               for command do :; done
@@ -594,12 +596,12 @@ public sealed partial class EndToEndTests
             elif test "$1" = display-message; then
               pid=$(cat "$root/pane-pid")
               kill -0 "$pid" 2>/dev/null || { printf "can't find pane: %%1\n" >&2; exit 1; }
-              printf '%%1\n'
+              printf '%%1\t0\n'
             elif test "$1" = send-keys; then
               pid=$(cat "$root/pane-pid")
               kill -INT "$pid" 2>/dev/null || true
               touch "$root/pane-cleaned"
-            elif test "$1" = kill-pane; then
+            elif test "$1" = respawn-pane && test "$2" = -k; then
               pid=$(cat "$root/pane-pid")
               kill -KILL "$pid" 2>/dev/null || true
               touch "$root/pane-cleaned"

@@ -743,7 +743,7 @@
         <a href="#repository"><strong>01</strong>Create the repo</a>
         <a href="#beads"><strong>02</strong>Choose storage</a>
         <a href="#worktrees"><strong>03</strong>Add worktrees</a>
-        <a href="#single-agent"><strong>04</strong>Start tmux + Abacus</a>
+        <a href="#single-agent"><strong>04</strong>Start Abacus</a>
         <a href="#dashboard"><strong>05</strong>Watch and steer</a>
       </nav>
 
@@ -1110,7 +1110,7 @@ and distinguish local commit or merge limits from legitimate push limits.</code>
         </div>
 
         <ol class="steps">
-          <li><strong>Create the tmux target.</strong> Abacus verifies an existing session and optional window; it never creates either.</li>
+          <li><strong>Choose the tmux target.</strong> Omit the names for an automatically managed project session and <code>Abacus Agents</code> window, or supply explicit names that Abacus will create when missing and leave running.</li>
           <li><strong>Choose the agent workspace.</strong> Use the Alice worktree or the primary checkout for a one-agent run.</li>
           <li><strong>Start Abacus.</strong> The model is required; effort defaults to <code>high</code>.</li>
         </ol>
@@ -1127,7 +1127,6 @@ export WINDOW=agents
 export MODEL=sonnet
 export AGENT_WORKTREE="$WORKTREES/alice"
 
-tmux new-session -d -s "$SESSION" -n "$WINDOW"
 git -C "$AGENT_WORKTREE" status --short
 
 abacus run --repo "$REPO" \

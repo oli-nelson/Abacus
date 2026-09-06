@@ -98,7 +98,9 @@ The initializer:
 7. Writes executable launchers that discover `worktrees/*` at runtime and
    explicitly pass `--repo "$root/repo"`.
 
-It does **not** create a tmux session. Create ready work and start one yourself:
+The initializer itself does not create a tmux session. Create ready work and run
+a launcher; `abacus run` creates its derived detached session and `Abacus Agents`
+window when needed:
 
 ```sh
 cd my-project/repo
@@ -108,7 +110,6 @@ bd create "Add the first feature" \
   --json
 
 cd ..
-tmux new-session -d -s my-project
 ./run_abacus_codex.sh gpt-5.6-sol high
 ```
 
@@ -119,7 +120,7 @@ Launchers accept model and effort as their first two arguments. You can also use
 | `ABACUS_BIN` | Override the Abacus executable |
 | `ABACUS_MODEL` | Set the default model |
 | `ABACUS_EFFORT` | Set the default effort or variant |
-| `ABACUS_TMUX_SESSION` | Override the normalized project-name session |
+| `ABACUS_TMUX_SESSION` | Supply an explicit user-owned session; when unset Abacus derives and owns its default session |
 
 ## Path B: use an existing repository
 
@@ -211,10 +212,9 @@ git status --porcelain
 
 If the final command shows changes you need, commit or move them now.
 
-### B5. Start tmux and validate the repository
+### B5. Validate the repository
 
 ```sh
-tmux new-session -d -s "$SESSION" -n "$WINDOW"
 abacus health
 ```
 
@@ -241,8 +241,8 @@ Attach in another terminal to watch the interactive agent:
 tmux attach-session -t "$SESSION"
 ```
 
-Detach with `Ctrl-b d`. Stop Abacus with `Ctrl-C`; remove the tmux session
-yourself when you are finished.
+Detach with `Ctrl-b d`. Because this example explicitly names the session,
+Abacus treats it as user-owned and leaves it running after shutdown.
 
 ## Path C: scale an existing repository to multiple agents
 
@@ -316,8 +316,6 @@ and the [Abacus shared Dolt operations guide](shared-dolt.md).
 Create enough independent ready issues for the pool, then run:
 
 ```sh
-tmux new-session -d -s abacus-work -n agents
-
 abacus run \
   --mode codex \
   --tmux-session abacus-work \
@@ -357,8 +355,8 @@ abacus run \
 
 Pass `host:port`, without an `http://` prefix. Abacus normalizes the address and
 starts a directly supervised `opencode run --attach` child. It does not start,
-stop, or query the server API. Add `--tmux-session` if you prefer attached
-clients hosted in panes.
+stop, or query the server API. Add any tmux-related option if you prefer attached
+clients hosted in panes; omitting the session name uses the derived default.
 
 ## Next steps
 

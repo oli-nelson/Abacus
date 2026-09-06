@@ -61,8 +61,15 @@ public sealed record Options(
     bool Stdio = false,
     string? EventLogPath = null,
     bool NoIntro = false,
-    bool StartPaused = false)
+    bool StartPaused = false,
+    bool DisownTmuxSession = false)
 {
+    public bool UsesTmux => AgentMode is not AgentMode.OpenCodeServer
+        || TmuxSession is not null
+        || TmuxWindow is not null
+        || TmuxLayout is not null
+        || DisownTmuxSession;
+
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
         "even-horizontal",
@@ -235,7 +242,8 @@ public sealed record Options(
                     or "--opencode-server" or "--target-filter" or "--append-prompt" or "--label" or "--exclude-label"
                     or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify" => 1,
                 "--remote-control" or "--notify-sound" or "--verbose" => 0,
-                "--once" or "--drain" or "--stdio" or "--no-intro" or "--start-paused" when command == "run" => 0,
+                "--once" or "--drain" or "--stdio" or "--no-intro" or "--start-paused"
+                    or "--disown-tmux-session" when command == "run" => 0,
                 "--event-log" when command == "run" => 1,
                 _ => -1,
             };
@@ -261,6 +269,7 @@ public sealed record Options(
         var stdio = false;
         var noIntro = false;
         var startPaused = false;
+        var disownTmuxSession = false;
         string? eventLogPath = null;
         var once = false;
         var drain = false;
@@ -287,6 +296,7 @@ public sealed record Options(
                 case "--stdio": stdio = true; break;
                 case "--no-intro": noIntro = true; break;
                 case "--start-paused": startPaused = true; break;
+                case "--disown-tmux-session": disownTmuxSession = true; break;
                 case "--event-log":
                     eventLogPath = CanonicalizePath(ReadValue(arguments, ref index, argument));
                     break;
@@ -422,24 +432,14 @@ public sealed record Options(
             throw new OptionsException("--remote-control can only be used with --mode claude");
         }
 
-        if (tmuxSession is null && agentMode is not AgentMode.OpenCodeServer)
-        {
-            throw new OptionsException("--tmux-session is required for opencode, codex, and claude modes");
-        }
-
         if (tmuxWindow is not null && string.IsNullOrWhiteSpace(tmuxWindow))
         {
             throw new OptionsException("--tmux-window cannot be empty");
         }
 
-        if (tmuxWindow is not null && tmuxSession is null)
+        if (disownTmuxSession && tmuxSession is not null)
         {
-            throw new OptionsException("--tmux-window requires --tmux-session");
-        }
-
-        if (tmuxLayout is not null && tmuxSession is null)
-        {
-            throw new OptionsException("--tmux-layout requires --tmux-session");
+            throw new OptionsException("--disown-tmux-session cannot be combined with --tmux-session");
         }
 
         if (tmuxLayout is not null && !TmuxLayouts.Contains(tmuxLayout))
@@ -550,7 +550,8 @@ public sealed record Options(
                 appendAgentPrompt,
                 null,
                 targetBranches.AsReadOnly(),
-                stdio, eventLogPath, noIntro, startPaused),
+                stdio, eventLogPath, noIntro, startPaused,
+                DisownTmuxSession: disownTmuxSession),
             ShowHelp: false);
     }
 

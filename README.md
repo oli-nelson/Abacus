@@ -90,7 +90,8 @@ my-project/
 └── run_abacus_claude.sh
 ```
 
-Create some ready Beads issues, start tmux, and launch the pool:
+Create some ready Beads issues and launch the pool; Abacus creates its default
+detached tmux session and `Abacus Agents` window automatically:
 
 ```sh
 cd my-project/repo
@@ -104,7 +105,6 @@ abacus targets set main <returned-id>
 abacus targets check <returned-id>
 
 cd ..
-tmux new-session -d -s my-project
 ./run_abacus_codex.sh gpt-5.6-sol high
 ```
 
@@ -139,6 +139,8 @@ abacus run --mode codex \
 
 Every local mode launches the full interactive agent interface with a real TTY.
 Abacus does not substitute `codex exec` or `claude --print`.
+When tmux names are omitted, the dashboard shows the derived session name and
+the default `Abacus Agents` window so you can attach from another shell.
 
 ## What happens to a ticket?
 
@@ -233,10 +235,11 @@ Abacus owns orchestration—not your infrastructure or engineering decisions.
 It **does** validate workspaces, claim tickets, prepare issue branches, launch
 agents, monitor status, recover interrupted work, and report outcomes.
 
-It **does not** start tmux or OpenCode servers, judge whether code is correct,
+It **does not** start OpenCode servers, judge whether code is correct,
 choose ticket outcomes, merge branches, push Git commits, or manage a dynamic
-agent pool. Except for the standalone initializer, it also does not create
-worktrees or configure Beads/Dolt.
+agent pool. It may create and temporarily own its derived tmux session and agent
+window. Except for the standalone initializer, it does not create worktrees or
+configure Beads/Dolt.
 
 The exact boundary is documented in
 [Architecture and boundaries](docs/architecture.md#deliberate-boundaries).

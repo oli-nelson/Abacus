@@ -16,7 +16,8 @@ public sealed record PreflightResult(
     Options Options,
     IReadOnlyList<ValidatedAgent> Agents,
     ExternalTools Tools,
-    string? OpenCodeServerUrl);
+    string? OpenCodeServerUrl,
+    string RepositoryRoot);
 
 public sealed class Preflight(CommandRunner runner, string? executablePath = null)
 {
@@ -35,20 +36,11 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
             FindExecutable("bd"),
             FindExecutable("git"),
             FindExecutable(AgentCommandFactory.ExecutableName(options.AgentMode)),
-            options.TmuxSession is null ? null : FindExecutable("tmux"));
+            options.UsesTmux ? FindExecutable("tmux") : null);
 
         var git = new Git(runner, tools.Git);
         var controllerRoot = await git.ResolveMainRepositoryAsync(
             Environment.CurrentDirectory, options.RepositoryPath, cancellationToken);
-
-        if (options.TmuxSession is not null)
-        {
-            await VerifyTmuxTargetAsync(
-                tools.Tmux!,
-                options.TmuxSession,
-                options.TmuxWindow,
-                cancellationToken);
-        }
 
         var beads = new Beads(runner, tools.Bd);
         var existingAgents = options.Agents
@@ -117,7 +109,8 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
             options,
             validated.AsReadOnly(),
             tools,
-            NormalizeServer(options.OpenCodeServer));
+            NormalizeServer(options.OpenCodeServer),
+            controllerRoot);
     }
 
     public static string? NormalizeServer(string? server)
@@ -157,38 +150,6 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
         return separator > 0
             && separator < server.Length - 1
             && int.TryParse(server[(separator + 1)..], out _);
-    }
-
-    private async Task VerifyTmuxTargetAsync(
-        string tmux,
-        string session,
-        string? window,
-        CancellationToken cancellationToken)
-    {
-        var result = await runner.RunAsync(new CommandSpec(
-            tmux,
-            ["has-session", "-t", session],
-            Environment.CurrentDirectory), cancellationToken);
-        if (!result.Succeeded)
-        {
-            throw new PreflightException($"tmux session '{session}' does not exist");
-        }
-
-        if (window is null)
-        {
-            return;
-        }
-
-        var target = TmuxAgentHost.Target(session, window);
-        var windowResult = await runner.RunAsync(new CommandSpec(
-            tmux,
-            ["display-message", "-p", "-t", target, "#{window_id}"],
-            Environment.CurrentDirectory), cancellationToken);
-        if (!windowResult.Succeeded)
-        {
-            throw new PreflightException(
-                $"tmux window '{window}' does not exist in session '{session}'");
-        }
     }
 
     private string FindExecutable(string name)

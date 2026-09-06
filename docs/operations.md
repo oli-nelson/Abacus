@@ -20,8 +20,9 @@ abacus preflight --repo /work/main-repo \
 Preflight validates the selected main checkout, target configuration, local
 target refs, selected harness, Git workspaces, Beads projects,
 `no-git-ops`, Dolt identity, server-address syntax when applicable, and the
-requested tmux target. It does not clean workspaces, claim issues, create panes,
-or print a run summary.
+required tmux executable when applicable. It does not clean workspaces, claim
+issues, create panes, sessions, or windows, or print a run summary. Missing tmux
+targets are created by `run` only after preflight succeeds.
 
 `abacus health` answers the broader question “is this repository generally
 ready?”; `preflight` answers “would this exact agent configuration pass
@@ -272,12 +273,13 @@ Press `Ctrl-C` in the Abacus terminal. Abacus:
 3. rechecks each issue;
 4. attempts to reopen anything still `in_progress` with a shutdown note;
 5. performs configured Dolt pushes with bounded retries; and
-6. removes only the panes, processes, and temporary files it created.
+6. leaves managed tmux panes dead for reuse and removes temporary files.
 
 Tmux cleanup is deliberately best effort. Abacus sends Ctrl-C to the recorded
-pane, waits briefly, attempts `kill-pane`, and continues even if tmux disappears
-or races with verification. It never targets an unrecorded pane and never kills
-the session or window you supplied.
+pane, waits briefly, and force-respawns a harmless exiting command when necessary
+so the pane becomes reusable. It never targets an unrecorded pane. An explicitly
+named or pre-existing session is never killed; an implicit session created by the
+current invocation is removed unless `--disown-tmux-session` was supplied.
 
 The final summary includes elapsed time, the initial full Dolt commit, and
 closed, reopened, blocked, and interrupted counts for each agent. The initial

@@ -119,8 +119,10 @@ A disposable session proved this pane contract:
 
 ```sh
 tmux split-window -t <session-or-session:window> -d -P -F '#{pane_id}' <wrapper-path>
+tmux set-option -p -t <returned-pane-id> @abacus_managed_pane 1
+tmux set-option -p -t <returned-pane-id> @abacus_project_id <safe-project-id>
 tmux send-keys -t <returned-pane-id> C-c
-tmux kill-pane -t <returned-pane-id>
+tmux respawn-pane -k -t <returned-pane-id> true
 ```
 
 The wrapper ran a child command, atomically renamed a temporary marker containing exit code `0`, and stayed alive. `split-window` returned a distinct pane ID, the marker contained `0`, and `send-keys ... C-c` interrupted the wrapper. Cleanup targeted only that recorded pane ID. This establishes the shared wrapper/marker protocol used by all pane-hosted modes without tmux control mode.

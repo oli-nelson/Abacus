@@ -52,8 +52,23 @@ public sealed class AbacusApplication(
             StringComparer.Ordinal);
         var inputMonitor = Task.CompletedTask;
         var controlShutdown = false;
+        TmuxSessionLease? tmuxSessionLease = null;
         try
         {
+            if (preflight.Options.UsesTmux)
+            {
+                tmuxSessionLease = await TmuxSessionLease.CreateAsync(
+                    runner,
+                    log,
+                    preflight.Tools.Tmux!,
+                    preflight.Options,
+                    preflight.RepositoryRoot,
+                    cancellationToken);
+                await log.SetTmuxTargetAsync(
+                    tmuxSessionLease.SessionName,
+                    tmuxSessionLease.WindowName);
+            }
+
             await log.SystemAsync("Agent loops started");
             var git = new Git(runner, preflight.Tools.Git);
             var dashboardMonitor = MonitorDashboardAsync(
@@ -62,18 +77,19 @@ public sealed class AbacusApplication(
                 preflight.Options.LatestCommentCount,
                 includeLatestComments: log is ConsoleOutput dashboard && (dashboard.IsInteractiveDashboard || dashboard.Events is not null),
                 linkedCancellation.Token);
-            IAgentHost agentHost = preflight.Options.TmuxSession is null
+            IAgentHost agentHost = !preflight.Options.UsesTmux
                 ? new DirectOpenCodeServerHost(runner, log, preflight.Tools.AgentExecutable)
                 : new TmuxAgentHost(
                     runner,
                     preflight.Tools.Tmux!,
                     preflight.Tools.AgentExecutable,
                     preflight.Options.AgentMode,
-                    preflight.Options.TmuxSession,
+                    tmuxSessionLease!.SessionName,
                     temporaryRoot,
-                    tmuxWindow: preflight.Options.TmuxWindow,
                     tmuxLayout: preflight.Options.TmuxLayout,
-                    remote: preflight.Options.Remote);
+                    remote: preflight.Options.Remote,
+                    tmuxWindowId: tmuxSessionLease.WindowId,
+                    projectId: tmuxSessionLease.ProjectId);
 
             var loops = preflight.Agents.Select(agent =>
             {
@@ -178,6 +194,11 @@ public sealed class AbacusApplication(
             catch (OperationCanceledException)
             {
                 // The input monitor shares the application lifetime.
+            }
+
+            if (tmuxSessionLease is not null)
+            {
+                await tmuxSessionLease.DisposeAsync();
             }
 
             try

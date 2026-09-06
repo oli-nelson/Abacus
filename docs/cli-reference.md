@@ -197,9 +197,9 @@ out in any worktree is skipped and reported without failing the remaining work.
 
 ```sh
 abacus run [--mode <opencode|codex|claude|opencode-server>] \
-  [--tmux-session <name> \
-    [--tmux-window <name-or-index>] \
-    [--tmux-layout <layout>]] \
+  [--tmux-session <name>] \
+  [--tmux-window <name-or-index>] \
+  [--tmux-layout <layout>] [--disown-tmux-session] \
   --model <model> \
   [--effort <effort>] \
   [--remote-control] \
@@ -245,17 +245,24 @@ IDs or aliases. Harnesses remain responsible for validating model availability.
 
 | Option | Behavior |
 | --- | --- |
-| `--tmux-session <name>` | Existing session that will host agent panes. Required by interactive modes. |
-| `--tmux-window <name-or-index>` | Existing window inside the requested session. |
+| `--tmux-session <name>` | Session to use or create. Interactive modes default to `abacus - <safe-project-id>`. |
+| `--disown-tmux-session` | Preserve an automatically created implicit session after Abacus exits; rejected with an explicit session. |
+| `--tmux-window <name-or-index>` | Window to use or create. Defaults to `Abacus Agents`. |
 | `--tmux-layout <layout>` | Reapplies a built-in layout after each pane is created. |
 | `--opencode-server <host:port>` | Existing server used by `opencode-server` mode. |
 
 Layouts: `even-horizontal`, `even-vertical`, `main-horizontal`,
 `main-vertical`, and `tiled`.
 
-OpenCode Server mode may omit tmux for direct child-process hosting. Use explicit `--mode opencode-server` with
-`--opencode-server`; the address alone never changes modes.
-`--tmux-window` and `--tmux-layout` are valid only with `--tmux-session`.
+OpenCode Server mode uses direct child-process hosting when every tmux-related
+option is omitted. Any tmux-related option requests pane hosting and may use the
+derived default session.
+
+Abacus enables `remain-on-exit` on the selected window and prefers to respawn a
+dead pane carrying matching Abacus/project tmux user options before splitting a
+new pane. It owns a session only when the current invocation created an implicit
+session without `--disown-tmux-session`; explicit and pre-existing sessions are
+never removed. The dashboard displays the resolved session and window names.
 
 ### Dispatch and supervision
 

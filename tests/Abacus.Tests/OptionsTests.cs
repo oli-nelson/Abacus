@@ -460,6 +460,7 @@ public sealed class OptionsTests
         Assert.Null(result.Value!.TmuxSession);
         Assert.Null(result.Value.TmuxWindow);
         Assert.Equal(AgentMode.OpenCodeServer, result.Value.AgentMode);
+        Assert.False(result.Value.UsesTmux);
     }
 
     [Fact]
@@ -481,17 +482,18 @@ public sealed class OptionsTests
     [InlineData("codex")]
     [InlineData("claude")]
     [InlineData("opencode")]
-    public void PaneHostedModesRequireTmux(string mode)
+    public void PaneHostedModesUseAnImplicitTmuxSession(string mode)
     {
         var model = mode == "opencode" ? "provider/model" : "model";
-        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+        var result = Options.Parse([
             "run",
             "--mode", mode,
             "--model", model,
             "-a", "alice", "/tmp/a",
-        ]));
+        ]);
 
-        Assert.Contains("--tmux-session", exception.Message, StringComparison.Ordinal);
+        Assert.Null(result.Value!.TmuxSession);
+        Assert.True(result.Value.UsesTmux);
     }
 
     [Fact]
@@ -537,31 +539,64 @@ public sealed class OptionsTests
     }
 
     [Fact]
-    public void TmuxWindowStillRequiresTmuxSession()
+    public void TmuxWindowRequestsAnImplicitSessionForServerMode()
     {
-        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+        var result = Options.Parse([
             "run",
             "--tmux-window", "agents",
             "--model", "provider/model",
             "--mode", "opencode-server", "--opencode-server", "127.0.0.1:1234",
             "-a", "alice", "/tmp/a",
-        ]));
+        ]);
 
-        Assert.Contains("requires --tmux-session", exception.Message, StringComparison.Ordinal);
+        Assert.Null(result.Value!.TmuxSession);
+        Assert.Equal("agents", result.Value.TmuxWindow);
+        Assert.True(result.Value.UsesTmux);
     }
 
     [Fact]
-    public void TmuxLayoutStillRequiresTmuxSession()
+    public void TmuxLayoutRequestsAnImplicitSessionForServerMode()
     {
-        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+        var result = Options.Parse([
             "run",
             "--tmux-layout", "tiled",
             "--model", "provider/model",
             "--mode", "opencode-server", "--opencode-server", "127.0.0.1:1234",
             "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Null(result.Value!.TmuxSession);
+        Assert.Equal("tiled", result.Value.TmuxLayout);
+        Assert.True(result.Value.UsesTmux);
+    }
+
+    [Fact]
+    public void ParsesDisownedImplicitTmuxSession()
+    {
+        var result = Options.Parse([
+            "run",
+            "--model", "provider/model",
+            "--disown-tmux-session",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.True(result.Value!.DisownTmuxSession);
+        Assert.True(result.Value.UsesTmux);
+        Assert.Null(result.Value.TmuxSession);
+    }
+
+    [Fact]
+    public void RejectsDisownWithExplicitTmuxSession()
+    {
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
+            "--tmux-session", "workers",
+            "--disown-tmux-session",
+            "--model", "provider/model",
+            "-a", "alice", "/tmp/a",
         ]));
 
-        Assert.Contains("requires --tmux-session", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("cannot be combined", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -599,7 +634,6 @@ public sealed class OptionsTests
 
     [Theory]
     [InlineData("run")]
-    [InlineData("run", "--model", "provider/model", "-a", "alice", "/tmp/a")]
     [InlineData("run", "--tmux-session", "s", "--model", "provider/model")]
     [InlineData("run", "--tmux-session", "s", "--tmux-window", "--model", "provider/model", "-a", "alice", "/tmp/a")]
     [InlineData("run", "--tmux-session", "s", "-a", "alice", "/tmp/a")]

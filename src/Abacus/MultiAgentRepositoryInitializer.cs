@@ -144,7 +144,7 @@ public sealed partial class MultiAgentRepositoryInitializer(
             var launcherPath = Path.Combine(projectRoot, $"run_abacus_{mode}.sh");
             await File.WriteAllTextAsync(
                 launcherPath,
-                RenderLauncher(mode, defaultModel, identifier),
+                RenderLauncher(mode, defaultModel),
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
                 cancellationToken);
             MakeExecutable(launcherPath);
@@ -171,7 +171,7 @@ public sealed partial class MultiAgentRepositoryInitializer(
         return identifier.Length <= 20 ? identifier : identifier[..20].TrimEnd('-');
     }
 
-    internal static string RenderLauncher(string mode, string defaultModel, string tmuxSession)
+    internal static string RenderLauncher(string mode, string defaultModel)
     {
         var script = $$$"""
             #!/usr/bin/env bash
@@ -185,7 +185,7 @@ public sealed partial class MultiAgentRepositoryInitializer(
             root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
             worktrees="$root/worktrees"
             abacus_bin="${ABACUS_BIN:-abacus}"
-            tmux_session="${ABACUS_TMUX_SESSION:-{{{tmuxSession}}}}"
+            tmux_session="${ABACUS_TMUX_SESSION:-}"
             model="${1:-${ABACUS_MODEL:-{{{defaultModel}}}}}"
             effort="${2:-${ABACUS_EFFORT:-high}}"
 
@@ -203,16 +203,11 @@ public sealed partial class MultiAgentRepositoryInitializer(
             done
             (( ${#agent_args[@]} > 0 )) || die "no worktrees found under $worktrees"
 
-            # Abacus owns panes but not the tmux session. Create it first, for example:
-            #   tmux new-session -d -s "$tmux_session"
-            exec "$abacus_bin" run \
-              --repo "$root/repo" \
-              --mode {{{mode}}} \
-              --tmux-session "$tmux_session" \
-              --tmux-layout tiled \
-              --model "$model" \
-              --effort "$effort" \
-              "${agent_args[@]}"
+            run_args=(run --repo "$root/repo" --mode {{{mode}}})
+            [[ -z "$tmux_session" ]] || run_args+=(--tmux-session "$tmux_session")
+            run_args+=(--tmux-layout tiled --model "$model" --effort "$effort")
+
+            exec "$abacus_bin" "${run_args[@]}" "${agent_args[@]}"
             """;
         return script + Environment.NewLine;
     }

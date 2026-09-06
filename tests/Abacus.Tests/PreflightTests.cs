@@ -258,7 +258,7 @@ public sealed class PreflightTests
     }
 
     [Fact]
-    public async Task MissingTmuxSessionIsRejected()
+    public async Task MissingTmuxSessionIsCreatedOnlyAfterPreflight()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -268,14 +268,14 @@ public sealed class PreflightTests
         using var fixture = await PreflightFixture.CreateAsync(tmuxSucceeds: false);
         var workspace = await fixture.AddWorkspaceAsync("one", EmbeddedIdentity, "[]");
 
-        var exception = await Assert.ThrowsAsync<PreflightException>(() => fixture.RunAsync(
-            new Options("missing", "provider/model", null, [new("alice", workspace)])));
+        var result = await fixture.RunAsync(
+            new Options("missing", "provider/model", null, [new("alice", workspace)]));
 
-        Assert.Contains("does not exist", exception.Message, StringComparison.Ordinal);
+        Assert.NotNull(result.Tools.Tmux);
     }
 
     [Fact]
-    public async Task MissingTmuxWindowIsRejected()
+    public async Task MissingTmuxWindowIsCreatedOnlyAfterPreflight()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -285,16 +285,16 @@ public sealed class PreflightTests
         using var fixture = await PreflightFixture.CreateAsync(tmuxWindowSucceeds: false);
         var workspace = await fixture.AddWorkspaceAsync("one", EmbeddedIdentity, "[]");
 
-        var exception = await Assert.ThrowsAsync<PreflightException>(() => fixture.RunAsync(
+        var result = await fixture.RunAsync(
             new Options(
                 "workers",
                 "provider/model",
                 null,
                 [new("alice", workspace)],
-                TmuxWindow: "missing")));
+                TmuxWindow: "missing"));
 
-        Assert.Contains("window 'missing'", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("session 'workers'", exception.Message, StringComparison.Ordinal);
+        Assert.NotNull(result.Tools.Tmux);
+        Assert.Equal("missing", result.Options.TmuxWindow);
     }
 
     [Fact]
