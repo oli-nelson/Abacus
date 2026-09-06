@@ -148,7 +148,7 @@ public sealed class EndToEndTests
             var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
             await WriteFakeToolsAsync(root.FullName, bin);
 
-            var startInfo = DirectStartInfo(root.FullName, bin, workspace, "--check");
+            var startInfo = DirectStartInfo(root.FullName, bin, workspace, "preflight");
             using var process = Process.Start(startInfo)!;
             var stdout = process.StandardOutput.ReadToEndAsync();
             var stderr = process.StandardError.ReadToEndAsync();
@@ -231,6 +231,7 @@ public sealed class EndToEndTests
                 UseShellExecute = false,
             };
             startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+            startInfo.ArgumentList.Add("run");
             startInfo.ArgumentList.Add("--tmux-session");
             startInfo.ArgumentList.Add("workers");
             startInfo.ArgumentList.Add("--tmux-window");
@@ -307,8 +308,11 @@ public sealed class EndToEndTests
                 UseShellExecute = false,
             };
             startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+            startInfo.ArgumentList.Add("run");
             startInfo.ArgumentList.Add("--model");
             startInfo.ArgumentList.Add("provider/exact-model");
+            startInfo.ArgumentList.Add("--mode");
+            startInfo.ArgumentList.Add("opencode-server");
             startInfo.ArgumentList.Add("--opencode-server");
             startInfo.ArgumentList.Add("127.0.0.1:4096");
             startInfo.ArgumentList.Add("-a");
@@ -379,7 +383,7 @@ public sealed class EndToEndTests
             };
             var startArguments = new List<string>
             {
-                typeof(Program).Assembly.Location,
+                typeof(Program).Assembly.Location, "run",
                 "--mode", mode,
                 "--tmux-session", "workers",
                 "--model", model,
@@ -389,7 +393,7 @@ public sealed class EndToEndTests
             };
             if (remote)
             {
-                startArguments.Insert(startArguments.IndexOf("--once"), "--remote");
+                startArguments.Insert(startArguments.IndexOf("--once"), "--remote-control");
             }
 
             foreach (var argument in startArguments)
@@ -419,7 +423,7 @@ public sealed class EndToEndTests
                 Assert.Contains("--approve-for-me", arguments);
                 Assert.Contains("model_reasoning_effort=xhigh", arguments);
                 Assert.DoesNotContain("exec", arguments);
-                Assert.DoesNotContain("--remote", arguments);
+                Assert.DoesNotContain("--remote-control", arguments);
                 Assert.DoesNotContain("unix://", arguments);
             }
             else
@@ -652,11 +656,14 @@ public sealed class EndToEndTests
             UseShellExecute = false,
         };
         startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+        startInfo.ArgumentList.Add(executionOption == "preflight" ? "preflight" : "run");
         startInfo.ArgumentList.Add("--model");
         startInfo.ArgumentList.Add("provider/exact-model");
+        startInfo.ArgumentList.Add("--mode");
+        startInfo.ArgumentList.Add("opencode-server");
         startInfo.ArgumentList.Add("--opencode-server");
         startInfo.ArgumentList.Add("127.0.0.1:4096");
-        if (executionOption is not null)
+        if (executionOption is not null and not "preflight")
         {
             startInfo.ArgumentList.Add(executionOption);
         }

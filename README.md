@@ -40,7 +40,7 @@ already use rather than replacing Git, Beads, tmux, or your agent harness.
   restart, or explicitly clean one agent workspace.
 - **Failure-aware.** Unexpected exits and timeouts safely reopen work instead of
   pretending it completed.
-- **Automation-friendly.** `--once`, `--drain`, and `--check` make the same
+- **Automation-friendly.** `--once`, `--drain`, and `preflight` make the same
   workflow useful in scripts and CI.
 - **Small by design.** One dependency-free .NET console application shells out
   to documented CLI contracts.
@@ -63,10 +63,10 @@ The [documentation index](docs/README.md) maps the rest of the project docs.
 
 ## Existing Git/Beads repository
 
-From the main Git checkout, run `abacus --init` to install/update bundled skills and create a missing
+From the main Git checkout, run `abacus init` to install/update bundled skills and create a missing
 `.abacus/targets.json` allowing `main`. Beads must already be initialized;
-existing configuration is preserved. Then run `abacus --health` and
-`abacus --check-ticket-targets`, and review default routing versus explicit ticket destinations.
+existing configuration is preserved. Then run `abacus health` and
+`abacus targets check`, and review default routing versus explicit ticket destinations.
 From elsewhere (including linked worktrees), pass `--repo /path/to/main-checkout`.
 `--repo` replaces `--config`; target configuration lives in that repo's `.abacus`
 directory. See [setup and migration](docs/targets.md#upgrade-checklist).
@@ -77,7 +77,7 @@ First [build Abacus](#build-and-install), then run the standalone initializer
 from the directory that should contain your new project:
 
 ```sh
-abacus --init-new-multi-agent-repo my-project 4
+abacus new my-project --agents 4
 ```
 
 It creates a Git repository, a shared-server Beads database, four detached
@@ -103,8 +103,8 @@ bd create "Add the first feature" \
   --json
 # Optional explicit target (required only under enforcement or for a non-default destination):
 # Replace <returned-id> with the ID from bd create:
-abacus --set-ticket-target main <returned-id>
-abacus --check-ticket-targets <returned-id>
+abacus targets set main <returned-id>
+abacus targets check <returned-id>
 
 cd ..
 tmux new-session -d -s my-project
@@ -124,13 +124,13 @@ Abacus supports exactly four execution modes:
 | --- | --- | --- | --- |
 | `opencode` | Interactive tmux pane | `provider/model` | Default mode; uses OpenCode's configured or selected variant. |
 | `codex` | Interactive tmux pane | Native Codex ID or alias | Receives `--effort` through Codex configuration. |
-| `claude` | Interactive tmux pane | Native Claude ID or alias | Supports `--remote` for Claude Remote Control. |
+| `claude` | Interactive tmux pane | Native Claude ID or alias | Supports `--remote-control` for Claude Remote Control. |
 | `opencode-server` | Direct process or tmux pane | `provider/model` | Attaches to an existing server and passes `--variant`. |
 
 Example with two existing worktrees:
 
 ```sh
-abacus --mode codex \
+abacus run --mode codex \
   --tmux-session work \
   --tmux-window agents \
   --tmux-layout tiled \
@@ -163,19 +163,21 @@ Explore the [visual agent-loop guide](docs/agent-loop-flow.html), or read the
 
 | Command | Purpose |
 | --- | --- |
-| `abacus --init-new-multi-agent-repo <name> <count>` | Create a complete new multi-agent project layout. |
-| `abacus --init` | Install skills and create missing target config in an existing Git/Beads project. |
-| `abacus --install-skills` | Install only the four bundled skills into the selected main checkout. |
-| `abacus --check-ticket-targets [<id> ...]` | Audit resolved ticket targets, bindings, and branch history. |
-| `abacus --set-ticket-target <branch> <id> ...` | Set or repair inactive ticket target metadata. |
-| `abacus --health` | Report whether the current repository is ready. |
-| `abacus --models` | List model IDs discoverable from installed harnesses. |
-| `abacus --list-user-attention` | Print issue IDs that need a decision or outside action. |
-| `abacus --resolve <id> [message] [--reopen]` | Respond to and clear an attention request. |
-| `abacus --prune-closed-branches` | Remove local Abacus branches for closed issues. |
-| `abacus [run options] -a <name> <workspace> [-a ...]` | Start one or more agent loops. |
+| `abacus new <name> --agents <count>` | Create a complete new multi-agent project layout. |
+| `abacus init` | Install skills and create missing target config in an existing Git/Beads project. |
+| `abacus skills install` | Install only the four bundled skills into the selected main checkout. |
+| `abacus targets check [<id> ...]` | Audit resolved ticket targets, bindings, and branch history. |
+| `abacus targets set <branch> <id> ...` | Set or repair inactive ticket target metadata. |
+| `abacus health` | Report whether the current repository is ready. |
+| `abacus models` | List model IDs discoverable from installed harnesses. |
+| `abacus attention list` | Print issue IDs that need a decision or outside action. |
+| `abacus attention resolve <id> [--message <text>] [--reopen]` | Respond to and clear an attention request. |
+| `abacus branches prune` | Remove local Abacus branches for closed issues. |
+| `abacus preflight [run options]` | Validate a specific run without claims or workspace changes. |
+| `abacus run [run options] -a <name> <workspace> [-a ...]` | Start one or more agent loops. |
 
-Run `abacus --help` for the built-in summary and see the
+Bare `abacus` prints help; use explicit commands. Old flag-based operations are
+not accepted. Run `abacus --help` for the built-in summary and see the
 [CLI reference](docs/cli-reference.md) for every mode and option.
 
 ## Prerequisites
@@ -197,7 +199,7 @@ agents, the repository must have Beads initialized with `no-git-ops=false`, and
 each agent must have a unique workspace. Multiple agents must share one
 reachable, server-backed Dolt database.
 
-Use `abacus --health` to inspect most of these conditions before configuring a
+Use `abacus health` to inspect most of these conditions before configuring a
 run. See [Getting started](docs/getting-started.md) for exact setup commands.
 
 ## Build and install

@@ -41,7 +41,7 @@ public sealed class HealthTests
         Assert.Contains("single-agent only", rendered, StringComparison.Ordinal);
         Assert.Contains("No additional linked worktrees", rendered, StringComparison.Ordinal);
         Assert.Contains("Separate clones", rendered, StringComparison.Ordinal);
-        Assert.Contains("abacus --install-skills", rendered, StringComparison.Ordinal);
+        Assert.Contains("abacus skills install", rendered, StringComparison.Ordinal);
         Assert.Equal(MergeSlotHealthStatus.Missing, report.MergeSlot.Status);
         Assert.Contains("may attempt merges concurrently", rendered, StringComparison.Ordinal);
     }

@@ -28,8 +28,8 @@ complete rather than reading every page in order.
 
 ## Bundled agent skills
 
-Abacus installs four bundled skills with `abacus --init` (existing Git/Beads
-setup plus missing targets config) or `abacus --install-skills` (skills only).
+Abacus installs four bundled skills with `abacus init` (existing Git/Beads
+setup plus missing targets config) or `abacus skills install` (skills only).
 Run inside the main checkout or pass `--repo <main-checkout>`; installation
 never targets a linked worktree:
 

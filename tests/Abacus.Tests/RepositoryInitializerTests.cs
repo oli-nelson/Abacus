@@ -8,12 +8,12 @@ public sealed class RepositoryInitializerTests
     [Fact]
     public void InitIsStandalone()
     {
-        var parsed = Options.Parse(["--init"]);
+        var parsed = Options.Parse(["init"]);
         Assert.True(parsed.InitializeRepository);
         Assert.Null(parsed.Value);
         Assert.False(parsed.InstallSkills);
-        foreach (var option in new[] { "--init", "--health", "--install-skills", "--once", "--config", "--check-ticket-targets" })
-            Assert.Throws<OptionsException>(() => Options.Parse(["--init", option]));
+        foreach (var option in new[] { "init", "health", "skills", "install", "--once", "--config", "targets", "check" })
+            Assert.Throws<OptionsException>(() => Options.Parse(["init", option]));
     }
 
     [Fact]

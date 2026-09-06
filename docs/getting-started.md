@@ -68,7 +68,7 @@ This is the fastest route when you are starting from scratch.
 From the directory that should contain the new project, run:
 
 ```sh
-abacus --init-new-multi-agent-repo my-project 4
+abacus new my-project --agents 4
 ```
 
 Abacus refuses an existing `my-project` destination, then creates:
@@ -137,7 +137,7 @@ export MODEL=provider/model
 export EFFORT=high
 ```
 
-Use `abacus --models` or the selected harness's model picker/catalog to choose a
+Use `abacus models` or the selected harness's model picker/catalog to choose a
 valid model.
 
 ### B2. Initialize and inspect Beads
@@ -160,10 +160,10 @@ branches itself.
 After Beads setup, run from inside the main checkout (not a linked worktree):
 
 ```sh
-abacus --init
+abacus init
 ```
 
-From outside the main checkout, use `abacus --init --repo /path/to/main-checkout`.
+From outside the main checkout, use `abacus init --repo /path/to/main-checkout`.
 The same `--repo` option is supported by health and ticket-maintenance commands.
 
 This installs the bundled skills and creates `.abacus/targets.json` allowing
@@ -178,7 +178,7 @@ The generated config sets `enforceTargetBranch: false` and `defaultTarget: "main
 Tickets without target metadata use `main`; explicit targets override it. Enable
 enforcement to require target metadata on every ticket. See [target operations](targets.md) for release
 branches, main-checkout selection with `--repo`, and migration of existing issue branches.
-`abacus --install-skills` remains available for skill-only installation without
+`abacus skills install` remains available for skill-only installation without
 requiring Beads or a targets config.
 
 This installs:
@@ -202,8 +202,8 @@ bd create "Add a hello-world file" \
   --acceptance "HELLO.md is committed and merged into main." \
   --json
 # Use the issue ID returned above:
-abacus --set-ticket-target main <returned-id>
-abacus --check-ticket-targets <returned-id>
+abacus targets set main <returned-id>
+abacus targets check <returned-id>
 
 bd ready --json
 git status --porcelain
@@ -215,10 +215,10 @@ If the final command shows changes you need, commit or move them now.
 
 ```sh
 tmux new-session -d -s "$SESSION" -n "$WINDOW"
-abacus --health
+abacus health
 ```
 
-`--health` is read-only. It reports tool versions, Beads storage and
+`health` is read-only. It reports tool versions, Beads storage and
 configuration, worktrees, merge-slot availability, bundled skills, and runnable
 agent modes. A missing merge slot is advisory; repositories may serialize
 merges another way.
@@ -226,7 +226,7 @@ merges another way.
 ### B6. Start the agent
 
 ```sh
-abacus \
+abacus run \
   --mode opencode \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
@@ -318,7 +318,7 @@ Create enough independent ready issues for the pool, then run:
 ```sh
 tmux new-session -d -s abacus-work -n agents
 
-abacus \
+abacus run \
   --mode codex \
   --tmux-session abacus-work \
   --tmux-window agents \
@@ -347,7 +347,7 @@ Then attach an Abacus agent from another terminal:
 ```sh
 export REPO=/path/to/your/repository
 
-abacus \
+abacus run \
   --mode opencode-server \
   --model provider/model \
   --effort high \

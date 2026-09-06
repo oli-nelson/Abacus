@@ -5,16 +5,16 @@ namespace Abacus.Tests;
 public sealed class RepositorySelectionTests
 {
     [Theory]
-    [InlineData("--init")]
-    [InlineData("--install-skills")]
-    [InlineData("--health")]
-    [InlineData("--check-ticket-targets")]
-    [InlineData("--list-user-attention")]
-    [InlineData("--prune-closed-branches")]
-    public void RepositoryOverrideWorksWithStandaloneCommands(string command)
+    [InlineData("init")]
+    [InlineData("skills", "install")]
+    [InlineData("health")]
+    [InlineData("targets", "check")]
+    [InlineData("attention", "list")]
+    [InlineData("branches", "prune")]
+    public void RepositoryOverrideWorksWithStandaloneCommands(params string[] command)
     {
         var expected = Path.GetFullPath("repo with spaces");
-        foreach (var args in new[] { new[] { command, "--repo", "repo with spaces" }, new[] { "--repo", "repo with spaces", command } })
+        foreach (var args in new[] { command.Concat(["--repo", "repo with spaces"]).ToArray(), new[] { "--repo", "repo with spaces" }.Concat(command).ToArray() })
         {
             var parsed = Options.Parse(args);
             Assert.Equal(expected, parsed.RepositoryPath);
@@ -25,17 +25,17 @@ public sealed class RepositorySelectionTests
     [Fact]
     public void RepositoryOverrideWorksWithRunAndRepairCommandsAndRejectsLegacyConfig()
     {
-        var run = Options.Parse(["--repo", "/tmp/repo", "--model", "p/m", "--tmux-session", "a", "-a", "a", "/tmp/wt"]);
+        var run = Options.Parse(["run", "--repo", "/tmp/repo", "--model", "p/m", "--tmux-session", "a", "-a", "a", "/tmp/wt"]);
         Assert.Equal("/tmp/repo", run.Value!.RepositoryPath);
-        Assert.Equal("/tmp/repo", Options.Parse(["--resolve", "abc-1", "--repo", "/tmp/repo"]).RepositoryPath);
-        Assert.Equal("/tmp/repo", Options.Parse(["--set-ticket-target", "main", "abc-1", "--repo", "/tmp/repo"]).TargetCommand!.RepositoryPath);
-        Assert.Throws<OptionsException>(() => Options.Parse(["--init", "--repo"]));
-        Assert.Throws<OptionsException>(() => Options.Parse(["--init", "--repo", ""]));
-        Assert.Throws<OptionsException>(() => Options.Parse(["--init", "--repo", "/tmp/a", "--repo", "/tmp/b"]));
-        Assert.Throws<OptionsException>(() => Options.Parse(["--models", "--repo", "/tmp/a"]));
-        Assert.Throws<OptionsException>(() => Options.Parse(["--init-new-multi-agent-repo", "sample", "2", "--repo", "/tmp/a"]));
-        Assert.Throws<OptionsException>(() => Options.Parse(["--health", "--config", "/tmp/targets.json"]));
-        Assert.Throws<OptionsException>(() => Options.Parse(["--check-ticket-targets", "--config", "/tmp/targets.json"]));
+        Assert.Equal("/tmp/repo", Options.Parse(["attention", "resolve", "abc-1", "--repo", "/tmp/repo"]).RepositoryPath);
+        Assert.Equal("/tmp/repo", Options.Parse(["targets", "set", "main", "abc-1", "--repo", "/tmp/repo"]).TargetCommand!.RepositoryPath);
+        Assert.Throws<OptionsException>(() => Options.Parse(["init", "--repo"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["init", "--repo", ""]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["init", "--repo", "/tmp/a", "--repo", "/tmp/b"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["models", "--repo", "/tmp/a"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["new", "sample", "--agents", "2", "--repo", "/tmp/a"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["health", "--config", "/tmp/targets.json"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["targets", "check", "--config", "/tmp/targets.json"]));
     }
 
     [Fact]

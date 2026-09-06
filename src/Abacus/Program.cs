@@ -9,7 +9,7 @@ public static class Program
             var parsed = Options.Parse(args);
             if (parsed.ShowHelp)
             {
-                Console.Out.WriteLine(Options.Usage);
+                Console.Out.WriteLine(parsed.HelpText ?? Options.Usage);
                 return 0;
             }
 
@@ -56,8 +56,8 @@ public static class Program
                 }
                 Console.Out.WriteLine($"Installed bundled skills in {result.Skills.SkillsRoot}");
                 Console.Out.WriteLine($"{(result.CreatedTargets ? "Created" : "Preserved")} target configuration: {result.TargetsPath}");
-                Console.Out.WriteLine("Next: review and commit .abacus/targets.json and .agents/skills; run abacus --health and abacus --check-ticket-targets.");
-                Console.Out.WriteLine("Missing ticket targets use defaultTarget unless enforceTargetBranch is true. Set explicit targets with abacus --set-ticket-target <branch> <issue-id> [...]. No Beads settings, tickets, branches, or commits were changed.");
+                Console.Out.WriteLine("Next: review and commit .abacus/targets.json and .agents/skills; run abacus health and abacus targets check.");
+                Console.Out.WriteLine("Missing ticket targets use defaultTarget unless enforceTargetBranch is true. Set explicit targets with abacus targets set <branch> <issue-id> [...]. No Beads settings, tickets, branches, or commits were changed.");
                 return 0;
             }
 

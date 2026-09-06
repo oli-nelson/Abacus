@@ -68,336 +68,182 @@ public sealed record Options(
         "tiled",
     };
 
-    public const string ShortUsage =
-        "Usage: abacus --init-new-multi-agent-repo <project-name> <agent-count> | " +
-        "abacus --check-ticket-targets [<id> ...] | abacus --set-ticket-target <branch> <id> ... | " +
-        "abacus --init | abacus --install-skills | abacus --health [--repo <path>] | abacus --models | " +
-        "abacus --prune-closed-branches | abacus --list-user-attention | " +
-        "abacus --resolve <issue-id> [<message>] [--reopen] | " +
-        "abacus [--mode <opencode|codex|claude|opencode-server>] " +
-        "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
-        "--model <model> [--effort <effort>] [--remote] " +
-        "[--repo <path>] [--target-branch <branch>] [--append-agent-prompt <prompt>] " +
-        "[--label <label>] [--exclude-label <label>] [--type <types>] [--priority <priority>] " +
-        "[--ticket-timeout <duration>] [--latest-comments <count>] " +
-        "[--notify <off|attention|all>] [--notify-sound] " +
-        "[--opencode-server <host:port>] [--once | --drain | --check] [--verbose] " +
-        "-a <agent_name> <git_workspace_path> [-a ...]";
-
-    public const string Usage = """
-        Abacus coordinates Beads tasks and interactive coding agents.
-
-        Targets:
-          Missing metadata.abacus_target uses defaultTarget (main) unless enforceTargetBranch is true.
-          Enforcement defaults to false; explicit invalid targets and binding conflicts always fail.
-          --repo <path> selects the main Git checkout (default: current directory, which must be inside it).
-          Linked worktrees cannot be controller roots. Targets load from <repo>/.abacus/targets.json.
-          Repository-scoped standalone commands also accept --repo; --config is no longer supported.
-          --target-branch <branch> is a repeatable dispatch filter, never a destination override.
-          --check-ticket-targets is read-only; without IDs it audits all tickets except gt:slot.
-          --set-ticket-target adds/repairs targets on inactive tickets without reopening or retargeting bound work.
-          Existing unbound issue branches require explicit operator adoption, with dispatch stopped:
-            --set-ticket-target <branch> <id> --adopt-existing-branch --start-commit <full-commit-id>
-          Adoption verifies the chosen starting commit is in both the issue and target histories; it does not change Git.
-
-        Usage:
-          abacus --init-new-multi-agent-repo <project-name> <agent-count>
-          abacus --check-ticket-targets [<issue-id> ...] [--repo <path>]
-          abacus --set-ticket-target <branch> <issue-id> [<issue-id> ...] [--repo <path>]
-          abacus --init
-          abacus --install-skills
-          abacus --health [--repo <path>]
-          abacus --models
-          abacus --prune-closed-branches
-          abacus --list-user-attention
-          abacus --resolve <issue-id> [<message>] [--reopen]
-          abacus -r <issue-id> [<message>] [--reopen]
-
-          abacus [--mode <opencode|codex|claude|opencode-server>] \
-            [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
-            --model <model> \
-            [--effort <effort>] \
-            [--remote] \
-            [--append-agent-prompt <prompt>] \
-            [--label <label>] [--exclude-label <label>] \
-            [--type <types>] [--priority <priority>] \
-            [--ticket-timeout <duration>] \
-            [--latest-comments <count>] \
-            [--notify <off|attention|all>] [--notify-sound] \
-            [--opencode-server <host:port>] \
-            [--once | --drain | --check] \
-            [--verbose] \
-            -a <agent_name> <git_workspace_path> [-a ...]
-
-        Setup:
-          --init-new-multi-agent-repo creates <project-name>/repo as a new Git
-          repository with shared-server Beads, bundled skills, <agent-count>
-          detached worktrees under <project-name>/worktrees, and launch scripts
-          for OpenCode, Codex, and Claude modes.
-
-          --init requires an existing Beads project, validates local target branches,
-          installs skills (confirming replacement), and creates .abacus/targets.json
-          allowing main only when absent (defaultTarget: main, enforceTargetBranch: false).
-          Existing configuration is preserved.
-          --install-skills installs the bundled abacus-beads-planner,
-          abacus-beads-doctor, abacus-beads-attention, and abacus-git-check skills under
-          .agents/skills at the Git root. Existing skills require confirmation
-          before their directories are replaced.
-
-        Health:
-          --health checks target configuration, instruction files, and local branches;
-          it also reports Beads configuration, no-git-ops, and merge-slot availability,
-          supported agent harness and tmux versions, referenced Git worktrees,
-          bundled skill presence, and single-/multi-agent readiness.
-
-        Models:
-          --models lists available model IDs grouped by installed agent harness.
-          OpenCode and Codex provide scriptable catalogs. Claude Code is reported
-          with guidance to use its interactive /model picker.
-
-        Repository maintenance:
-          --prune-closed-branches deletes local abacus/<issue-id> branches for
-          closed Beads tickets. Branches checked out in a worktree are skipped.
-
-        List user attention:
-          --list-user-attention prints the ID of every issue carrying the
-          abacus:needs-user-attention label, one per line.
-
-        Resolve user attention:
-          --resolve (or -r) removes the abacus:needs-user-attention label from
-          one Beads issue. If a quoted message is supplied, Abacus first adds a
-          Beads comment containing that exact message. --reopen also sets the
-          issue status to open and clears its assignee.
-
-        Output:
-          The default interactive display is a live dashboard of agent activity
-          with the latest Beads comments at the bottom. --latest-comments sets
-          the number shown from 1 through 100 and defaults to 8.
-          Use --verbose (or -v) for timestamped state changes and subprocess commands.
-
-        Agent modes:
-          opencode        Run the interactive OpenCode TUI in tmux (default).
-          codex           Run the interactive Codex TUI in tmux.
-          claude          Run interactive Claude Code in tmux.
-          opencode-server Attach OpenCode clients to --opencode-server; tmux is optional.
-
-        Effort:
-          --effort defaults to high. Codex, Claude Code, and OpenCode Server
-          receive it through their native CLI options. The interactive OpenCode TUI
-          has no variant option and uses its configured or session-selected variant.
-
-        Remote control:
-          --remote enables Claude Code Remote Control while keeping the session
-          interactive and naming it after the Beads issue.
-
-        Agent prompt customization:
-          --append-agent-prompt appends a nonempty prompt fragment to every agent
-          prompt. If <workspace>/.abacus/append-prompt.md exists, its contents are
-          appended after the command-line fragment.
-          Target merge instruction files come from the controller configuration.
-          merge-instructions.md beside that configuration is the optional fallback.
-          An empty instruction file suppresses the built-in merge section.
-
-        Dispatch filters:
-          --label and --exclude-label are repeatable. --type accepts the literal
-          Beads type filter, including comma-separated values. --priority accepts
-          0 (highest) through 4 (lowest). Filters apply to every ready claim.
-          Highest-priority ties prefer the issue with the newest comment, or the
-          first Beads result when none of the tied issues has comments.
-
-        Ticket runtime guard:
-          --ticket-timeout interrupts an agent after a positive duration such as
-          30s, 15m, or 2h, then safely reopens and synchronizes the ticket.
-
-        Desktop notifications:
-          --notify defaults to off. attention reports tickets labelled for user
-          attention, blocked tickets, and persistent recovery failures. all also
-          reports every ticket outcome and the final run summary.
-          --notify-sound uses positive sounds for successful outcomes and negative
-          sounds for attention or unsuccessful outcomes. It permits a terminal
-          bell fallback when desktop notification delivery is unavailable.
-
-        Finite execution:
-          --once   Process at most one ready ticket per agent, then exit.
-          --drain  Process ready work until the queue is empty, then exit.
-          --check  Run preflight validation without claiming tickets.
-
-        Tmux layouts:
-          --tmux-layout reapplies one of even-horizontal, even-vertical,
-          main-horizontal, main-vertical, or tiled after each pane is spawned.
-
-        Required prerequisites:
-          - macOS or Linux with bd, git, and the selected agent CLI on PATH
-          - tmux on PATH for pane-hosted modes
-          - OpenCode, Codex, and Claude modes require an existing tmux session
-          - OpenCode Server mode can run directly without tmux
-          - each workspace is a clean Git worktree with a Beads project
-          - multiple workspaces share one server-backed Dolt database
-
-        Run Codex agents locally:
-          abacus --mode codex --tmux-session work --tmux-window agents --tmux-layout tiled --model gpt-5.6-terra --effort high \
-            -a alice /work/repo-a -a bob /work/repo-b
-
-        Connect each new client session to an existing OpenCode server:
-          abacus --mode opencode-server --model provider/model --effort high --opencode-server 127.0.0.1:1234 \
-            -a alice /work/repo-a -a bob /work/repo-b
-        """;
+    public const string ShortUsage = "Usage: abacus <command> [options]. Run 'abacus help' for commands.";
+    public const string Usage = CliHelp.Overview;
 
     public static OptionsParseResult Parse(IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
-        if (arguments.Any(static argument => argument is "--help" or "-h"))
-            return OptionsParseResult.Help;
+        if (arguments.Count == 0) return OptionsParseResult.Help;
+        var index = 0;
         string? repositoryPath = null;
-        var remaining = new List<string>();
-        for (var i = 0; i < arguments.Count; i++)
+        while (index < arguments.Count && (arguments[index] == "--repo" || arguments[index].StartsWith("--repo=", StringComparison.Ordinal)))
         {
-            if (arguments[i] != "--repo") { remaining.Add(arguments[i]); continue; }
-            if (repositoryPath is not null) throw new OptionsException("--repo can only be specified once");
-            repositoryPath = CanonicalizePath(ReadValue(arguments, ref i, "--repo"));
+            var argument = arguments[index];
+            var value = argument.StartsWith("--repo=", StringComparison.Ordinal)
+                ? argument[7..] : ReadValue(arguments, ref index, "--repo");
+            SetRepository(value);
+            index++;
         }
-        var parsed = ParseCore(remaining);
-        if (repositoryPath is null) return parsed;
-        if (parsed.NewMultiAgentRepository is not null || parsed.ShowModels)
-            throw new OptionsException("--repo cannot be combined with --init-new-multi-agent-repo or --models");
+        if (index == arguments.Count) throw new OptionsException("a command is required after --repo");
+        var command = arguments[index++];
+        if (command is "--help" or "-h" or "help")
+        {
+            var topic = string.Join(" ", arguments.Skip(index));
+            return OptionsParseResult.Help with { HelpText = CliHelp.For(topic) };
+        }
+        if (command is "skills" or "branches" or "attention" or "targets")
+        {
+            if (index == arguments.Count || arguments[index] is "--help" or "-h")
+            {
+                if (index < arguments.Count - 1) throw new OptionsException("unexpected arguments after help");
+                return OptionsParseResult.Help with { HelpText = CliHelp.For(command) };
+            }
+            command += " " + arguments[index++];
+        }
+        // Validate the command before interpreting any options or their values.
+        _ = CliHelp.For(command);
+        if (repositoryPath is not null && command is "new" or "models")
+            throw new OptionsException($"--repo is not supported by {command}");
+        var run = command is "run" or "preflight";
+        var optionValues = new List<string>();
+        var positionals = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var endOfOptions = false;
+        var help = false;
+        for (; index < arguments.Count; index++)
+        {
+            var argument = arguments[index];
+            if (!endOfOptions && argument == "--") { endOfOptions = true; continue; }
+            if (endOfOptions || !argument.StartsWith("-", StringComparison.Ordinal))
+            {
+                positionals.Add(argument);
+                continue;
+            }
+            if (argument is "--help" or "-h") { help = true; continue; }
+            var equals = argument.IndexOf('=');
+            var option = equals < 0 ? argument : argument[..equals];
+            var canonical = option switch { "-a" => "--agent", "-v" => "--verbose", _ => option };
+            var arity = OptionArity(command, canonical);
+            if (arity < 0) throw new OptionsException($"unknown option '{option}' for {command}");
+            if (!seen.Add(canonical) && canonical is not ("--agent" or "--label" or "--exclude-label" or "--target-filter"))
+                throw new OptionsException($"{option} can only be specified once");
+            if (equals >= 0 && arity != 1) throw new OptionsException($"{option} does not accept an equals value");
+            var values = new List<string>();
+            for (var n = 0; n < arity; n++)
+            {
+                if (equals >= 0) values.Add(argument[(equals + 1)..]);
+                else if (canonical is "--message" or "--append-prompt")
+                {
+                    if (++index >= arguments.Count) throw new OptionsException($"{option} requires a value");
+                    values.Add(arguments[index]);
+                }
+                else values.Add(ReadValue(arguments, ref index, option));
+            }
+            if (canonical == "--repo") SetRepository(values[0]);
+            else { optionValues.Add(canonical); optionValues.AddRange(values); }
+        }
+        if (help) return OptionsParseResult.Help with { HelpText = CliHelp.For(command) };
+        if (run && positionals.Count != 0) throw new OptionsException($"{command} does not accept positional arguments");
+        OptionsParseResult parsed;
+        if (run) parsed = ParseRun(optionValues, command == "preflight");
+        else
+        {
+            string? Value(string name)
+            {
+                var at = optionValues.IndexOf(name);
+                return at < 0 ? null : optionValues[at + 1];
+            }
+            switch (command)
+            {
+                case "new":
+                    if (positionals.Count != 1 || !IsValidProjectName(positionals[0]))
+                        throw new OptionsException("new requires a single nonempty project directory name, not a path");
+                    if (!int.TryParse(Value("--agents"), out var count) || count <= 0)
+                        throw new OptionsException("--agents is required and must be a positive integer");
+                    parsed = OptionsParseResult.InitializeNewMultiAgentRepository(positionals[0], count);
+                    break;
+                case "attention resolve":
+                    if (positionals.Count != 1 || !Git.IsValidIssueId(positionals[0]))
+                        throw new OptionsException("attention resolve requires exactly one issue ID");
+                    var message = Value("--message");
+                    if (message is not null && string.IsNullOrWhiteSpace(message))
+                        throw new OptionsException("--message cannot be empty");
+                    parsed = OptionsParseResult.ResolveAttentionOnly(positionals[0], message, seen.Contains("--reopen"));
+                    break;
+                case "targets check":
+                case "targets set":
+                    var check = command == "targets check";
+                    string? target = null;
+                    if (!check)
+                    {
+                        if (positionals.Count < 2 || !Git.IsValidTargetBranch(positionals[0]))
+                            throw new OptionsException("use targets set <branch> <issue-id> [<issue-id> ...]");
+                        target = positionals[0];
+                        positionals.RemoveAt(0);
+                    }
+                    if (positionals.Any(id => !Git.IsValidIssueId(id))) throw new OptionsException("invalid issue ID");
+                    if (positionals.Distinct(StringComparer.Ordinal).Count() != positionals.Count)
+                        throw new OptionsException("duplicate issue IDs");
+                    var adopt = seen.Contains("--adopt-existing-branch");
+                    var commit = Value("--start-commit");
+                    if ((adopt || commit is not null) && (!adopt || positionals.Count != 1 || !Git.IsCommitId(commit)))
+                        throw new OptionsException("adoption requires targets set <branch> <id> --adopt-existing-branch --start-commit <full-commit-id>");
+                    parsed = new(null, false, TargetCommand: new(check, target, positionals, null, adopt, commit));
+                    break;
+                default:
+                    if (positionals.Count != 0) throw new OptionsException($"{command} does not accept positional arguments");
+                    parsed = command switch
+                    {
+                        "init" => new(null, false, InitializeRepository: true),
+                        "skills install" => OptionsParseResult.InstallSkillsOnly,
+                        "health" => OptionsParseResult.Health,
+                        "models" => OptionsParseResult.Models,
+                        "branches prune" => OptionsParseResult.PruneClosedBranchesOnly,
+                        "attention list" => OptionsParseResult.ListUserAttentionOnly,
+                        _ => throw new OptionsException($"unknown command '{command}'"),
+                    };
+                    break;
+            }
+        }
         return parsed with
         {
             RepositoryPath = repositoryPath,
             Value = parsed.Value is { } options ? options with { RepositoryPath = repositoryPath } : null,
-            TargetCommand = parsed.TargetCommand is { } command ? command with { RepositoryPath = repositoryPath } : null,
+            TargetCommand = parsed.TargetCommand is { } targetCommand ? targetCommand with { RepositoryPath = repositoryPath } : null,
+        };
+
+        void SetRepository(string value)
+        {
+            if (repositoryPath is not null) throw new OptionsException("--repo can only be specified once");
+            repositoryPath = CanonicalizePath(value);
+        }
+    }
+
+    private static int OptionArity(string command, string option)
+    {
+        if (option == "--repo") return command is "new" or "models" ? -1 : 1;
+        if (command is "run" or "preflight")
+            return option switch
+            {
+                "--agent" => 2,
+                "--mode" or "--model" or "--effort" or "--tmux-session" or "--tmux-window" or "--tmux-layout"
+                    or "--opencode-server" or "--target-filter" or "--append-prompt" or "--label" or "--exclude-label"
+                    or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify" => 1,
+                "--remote-control" or "--notify-sound" or "--verbose" => 0,
+                "--once" or "--drain" when command == "run" => 0,
+                _ => -1,
+            };
+        return (command, option) switch
+        {
+            ("new", "--agents") or ("attention resolve", "--message") or ("targets set", "--start-commit") => 1,
+            ("attention resolve", "--reopen") or ("targets set", "--adopt-existing-branch") => 0,
+            _ => -1,
         };
     }
 
-    private static OptionsParseResult ParseCore(IReadOnlyList<string> arguments)
+    private static OptionsParseResult ParseRun(IReadOnlyList<string> arguments, bool checkOnly)
     {
-        ArgumentNullException.ThrowIfNull(arguments);
-
-        if (arguments.Any(static argument => argument is "--help" or "-h"))
-        {
-            return OptionsParseResult.Help;
-        }
-
-        if (arguments.Contains("--init-new-multi-agent-repo", StringComparer.Ordinal))
-        {
-            if (arguments.Count != 3
-                || !string.Equals(arguments[0], "--init-new-multi-agent-repo", StringComparison.Ordinal))
-            {
-                throw new OptionsException(
-                    "--init-new-multi-agent-repo must be used alone as --init-new-multi-agent-repo <project-name> <agent-count>");
-            }
-
-            var projectName = arguments[1];
-            if (!IsValidProjectName(projectName))
-            {
-                throw new OptionsException(
-                    "project name must be a single nonempty directory name, not a path");
-            }
-
-            if (!int.TryParse(arguments[2], out var agentCount) || agentCount <= 0)
-            {
-                throw new OptionsException("agent count must be a positive integer");
-            }
-
-            return OptionsParseResult.InitializeNewMultiAgentRepository(projectName, agentCount);
-        }
-
-        if (arguments.Contains("--init", StringComparer.Ordinal))
-        {
-            if (arguments.Count != 1)
-                throw new OptionsException("--init cannot be combined with other options");
-            return new(null, ShowHelp: false, InitializeRepository: true);
-        }
-
-        if (arguments.Any(a => a is "--check-ticket-targets" or "--set-ticket-target"))
-            return ParseTargetCommand(arguments);
-
-        if (arguments.Contains("--install-skills", StringComparer.Ordinal))
-        {
-            if (arguments.Count != 1)
-            {
-                throw new OptionsException("--install-skills cannot be combined with other options");
-            }
-
-            return OptionsParseResult.InstallSkillsOnly;
-        }
-
-        if (arguments.Contains("--health", StringComparer.Ordinal))
-        {
-            if (arguments.Count != 1)
-                throw new OptionsException("--health can only be combined with --repo <path>");
-            return OptionsParseResult.Health;
-        }
-
-        if (arguments.Contains("--models", StringComparer.Ordinal))
-        {
-            if (arguments.Count != 1)
-            {
-                throw new OptionsException("--models cannot be combined with other options");
-            }
-
-            return OptionsParseResult.Models;
-        }
-
-        if (arguments.Contains("--prune-closed-branches", StringComparer.Ordinal))
-        {
-            if (arguments.Count != 1)
-            {
-                throw new OptionsException("--prune-closed-branches cannot be combined with other options");
-            }
-
-            return OptionsParseResult.PruneClosedBranchesOnly;
-        }
-
-        if (arguments.Contains("--list-user-attention", StringComparer.Ordinal))
-        {
-            if (arguments.Count != 1)
-            {
-                throw new OptionsException("--list-user-attention cannot be combined with other options");
-            }
-
-            return OptionsParseResult.ListUserAttentionOnly;
-        }
-
-        if (arguments.Any(static argument => argument is "--resolve" or "-r"))
-        {
-            if (arguments.Count is < 2 or > 4
-                || arguments[0] is not ("--resolve" or "-r"))
-            {
-                throw new OptionsException(
-                    "--resolve (-r) must be used alone as --resolve <issue-id> [<message>] [--reopen]");
-            }
-
-            var issueId = arguments[1];
-            if (string.IsNullOrWhiteSpace(issueId) || issueId.Any(char.IsWhiteSpace))
-            {
-                throw new OptionsException("--resolve requires a nonempty issue ID without whitespace");
-            }
-
-            var trailingArguments = arguments.Skip(2).ToArray();
-            var reopenCount = trailingArguments.Count(static argument => argument == "--reopen");
-            if (reopenCount > 1)
-            {
-                throw new OptionsException("--reopen can only be specified once");
-            }
-
-            var messageArguments = trailingArguments
-                .Where(static argument => argument != "--reopen")
-                .ToArray();
-            if (messageArguments.Length > 1)
-            {
-                throw new OptionsException(
-                    "--resolve (-r) must be used alone as --resolve <issue-id> [<message>] [--reopen]");
-            }
-
-            var message = messageArguments.SingleOrDefault();
-            if (message is not null && string.IsNullOrWhiteSpace(message))
-            {
-                throw new OptionsException("--resolve message cannot be empty");
-            }
-
-            return OptionsParseResult.ResolveAttentionOnly(issueId, message, reopenCount == 1);
-        }
-
         var targetBranches = new List<string>();
         string? tmuxSession = null;
         string? tmuxWindow = null;
@@ -409,7 +255,6 @@ public sealed record Options(
         var verbose = false;
         var once = false;
         var drain = false;
-        var checkOnly = false;
         var remote = false;
         var labels = new List<string>();
         var excludedLabels = new List<string>();
@@ -430,9 +275,9 @@ public sealed record Options(
             var argument = arguments[index];
             switch (argument)
             {
-                case "--target-branch":
+                case "--target-filter":
                     var target = ReadValue(arguments, ref index, argument);
-                    if (!Git.IsValidTargetBranch(target)) throw new OptionsException("--target-branch requires a literal local branch name");
+                    if (!Git.IsValidTargetBranch(target)) throw new OptionsException("--target-filter requires a literal local branch name");
                     if (targetBranches.Contains(target)) throw new OptionsException($"duplicate target filter '{target}'");
                     targetBranches.Add(target);
                     break;
@@ -463,19 +308,16 @@ public sealed record Options(
                 case "--drain":
                     drain = true;
                     break;
-                case "--check":
-                    checkOnly = true;
-                    break;
-                case "--remote":
+                case "--remote-control":
                     remote = true;
                     break;
-                case "--append-agent-prompt":
+                case "--append-prompt":
                     if (appendAgentPromptSpecified)
                     {
-                        throw new OptionsException("--append-agent-prompt can only be specified once");
+                        throw new OptionsException("--append-prompt can only be specified once");
                     }
 
-                    appendAgentPrompt = ReadValue(arguments, ref index, argument);
+                    appendAgentPrompt = arguments[++index];
                     appendAgentPromptSpecified = true;
                     break;
                 case "--label":
@@ -530,11 +372,10 @@ public sealed record Options(
                     notificationSound = true;
                     break;
                 case "--verbose":
-                case "--debug":
                 case "-v":
                     verbose = true;
                     break;
-                case "-a":
+                case "--agent":
                     var name = ReadValue(arguments, ref index, argument);
                     var workspace = ReadValue(arguments, ref index, argument);
                     agents.Add(new AgentOptions(name, CanonicalizePath(workspace)));
@@ -549,7 +390,7 @@ public sealed record Options(
             throw new OptionsException("--tmux-session cannot be empty");
         }
 
-        var agentMode = requestedAgentMode ?? (server is null ? AgentMode.OpenCode : AgentMode.OpenCodeServer);
+        var agentMode = requestedAgentMode ?? AgentMode.OpenCode;
 
         if (agentMode is not AgentMode.OpenCodeServer && server is not null)
         {
@@ -563,7 +404,7 @@ public sealed record Options(
 
         if (remote && agentMode is not AgentMode.Claude)
         {
-            throw new OptionsException("--remote can only be used with --mode claude");
+            throw new OptionsException("--remote-control can only be used with --mode claude");
         }
 
         if (tmuxSession is null && agentMode is not AgentMode.OpenCodeServer)
@@ -599,7 +440,7 @@ public sealed record Options(
 
         if (checkOnly && (once || drain))
         {
-            throw new OptionsException("--check cannot be combined with --once or --drain");
+            throw new OptionsException("preflight cannot be combined with --once or --drain");
         }
 
         if (notificationSound && notificationMode is NotificationMode.Off)
@@ -609,7 +450,7 @@ public sealed record Options(
 
         if (appendAgentPrompt is not null && string.IsNullOrWhiteSpace(appendAgentPrompt))
         {
-            throw new OptionsException("--append-agent-prompt cannot be empty");
+            throw new OptionsException("--append-prompt cannot be empty");
         }
 
         if (string.IsNullOrWhiteSpace(model))
@@ -691,45 +532,6 @@ public sealed record Options(
                 null,
                 targetBranches.AsReadOnly()),
             ShowHelp: false);
-    }
-
-    private static OptionsParseResult ParseTargetCommand(IReadOnlyList<string> arguments)
-    {
-        string? target = null;
-        bool? check = null;
-        var adopt = false;
-        string? startCommit = null;
-        var ids = new List<string>();
-        for (var i = 0; i < arguments.Count; i++)
-        {
-            switch (arguments[i])
-            {
-                case "--adopt-existing-branch":
-                    if (adopt) throw new OptionsException("duplicate --adopt-existing-branch");
-                    adopt = true;
-                    break;
-                case "--start-commit":
-                    if (startCommit is not null) throw new OptionsException("duplicate --start-commit");
-                    startCommit = ReadValue(arguments, ref i, "--start-commit");
-                    break;
-                case "--check-ticket-targets":
-                case "--set-ticket-target":
-                    if (check is not null) throw new OptionsException("choose one target metadata command");
-                    check = arguments[i] == "--check-ticket-targets";
-                    if (check == false) target = ReadValue(arguments, ref i, "--set-ticket-target");
-                    break;
-                default:
-                    if (!Git.IsValidIssueId(arguments[i])) throw new OptionsException($"invalid issue ID or option '{arguments[i]}'");
-                    ids.Add(arguments[i]);
-                    break;
-            }
-        }
-        if (check == false && (ids.Count == 0 || !Git.IsValidTargetBranch(target!)))
-            throw new OptionsException("use --set-ticket-target <branch> <issue-id> [<issue-id> ...]");
-        if (ids.Distinct(StringComparer.Ordinal).Count() != ids.Count) throw new OptionsException("duplicate issue IDs");
-        if ((adopt || startCommit is not null) && (check != false || !adopt || ids.Count != 1 || !Git.IsCommitId(startCommit)))
-            throw new OptionsException("adoption requires --set-ticket-target <branch> <id> --adopt-existing-branch --start-commit <full-commit-id>");
-        return new(null, false, TargetCommand: new(check == true, target, ids, null, adopt, startCommit));
     }
 
     private static string ReadFilterValue(
@@ -870,7 +672,8 @@ public sealed record OptionsParseResult(
     NewMultiAgentRepositoryOptions? NewMultiAgentRepository = null,
     TicketTargetCommand? TargetCommand = null,
     string? RepositoryPath = null,
-    bool InitializeRepository = false)
+    bool InitializeRepository = false,
+    string? HelpText = null)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);

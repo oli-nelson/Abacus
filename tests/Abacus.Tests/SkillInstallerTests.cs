@@ -53,6 +53,10 @@ public sealed class SkillInstallerTests
             Assert.Contains("name: abacus-beads-doctor", await File.ReadAllTextAsync(doctor));
             Assert.Contains("name: abacus-beads-attention", await File.ReadAllTextAsync(attention));
             Assert.Contains("name: abacus-git-check", await File.ReadAllTextAsync(gitCheck));
+            Assert.Contains("abacus targets set", await File.ReadAllTextAsync(planner));
+            Assert.Contains("abacus targets check", await File.ReadAllTextAsync(doctor));
+            Assert.Contains("abacus attention resolve <id> --reopen", await File.ReadAllTextAsync(attention));
+            Assert.Contains("--message", await File.ReadAllTextAsync(attention));
             Assert.True(File.Exists(Path.Combine(installedRoot, "abacus-beads-planner", "agents", "openai.yaml")));
             Assert.True(File.Exists(Path.Combine(installedRoot, "abacus-beads-doctor", "agents", "openai.yaml")));
             Assert.True(File.Exists(Path.Combine(installedRoot, "abacus-beads-attention", "agents", "openai.yaml")));

@@ -789,7 +789,7 @@ abacus --help</code></pre>
 
         <div class="callout info">
           <span class="icon">i</span>
-          <p><strong>Health is the fastest diagnostic.</strong> Run <code>abacus --health</code> inside the main checkout, or pass <code>--repo /path/to/main-checkout</code>. It reports target configuration and enforcement/default policy, tool versions, Beads storage, server connectivity, <code>no-git-ops</code>, merge-slot status, Git worktrees, installed Abacus skills, and single-/multi-agent readiness.</p>
+          <p><strong>Health is the fastest diagnostic.</strong> Run <code>abacus health</code> inside the main checkout, or pass <code>--repo /path/to/main-checkout</code>. It reports target configuration and enforcement/default policy, tool versions, Beads storage, server connectivity, <code>no-git-ops</code>, merge-slot status, Git worktrees, installed Abacus skills, and single-/multi-agent readiness.</p>
         </div>
       </article>
 
@@ -835,7 +835,7 @@ git status --short</code></pre>
           <span class="section-number">03</span>
           <div>
             <h2>Give every agent a worktree</h2>
-            <p class="section-intro">A worktree is a second working directory attached to the same Git repository. Normal orchestration never creates worktrees and rejects duplicate resolved workspace paths. The standalone <code>--init-new-multi-agent-repo</code> command creates a new project and its worktrees.</p>
+            <p class="section-intro">A worktree is a second working directory attached to the same Git repository. Normal orchestration never creates worktrees and rejects duplicate resolved workspace paths. The standalone <code>new</code> command creates a new project and its worktrees.</p>
           </div>
         </div>
 
@@ -894,8 +894,8 @@ bd init --non-interactive
 bd config set no-git-ops false
 bd dolt show --json
 bd where
-abacus --repo "$REPO" --init
-abacus --repo "$REPO" --health</code></pre>
+abacus init --repo "$REPO"
+abacus health --repo "$REPO"</code></pre>
             </div>
             <p class="small">Expect <code>"embedded": true</code>. Abacus permits exactly one configured agent with this storage mode.</p>
           </section>
@@ -912,9 +912,9 @@ bd config set no-git-ops false
 bd dolt start
 bd dolt status
 bd dolt show --json
-abacus --repo "$REPO" --init
+abacus init --repo "$REPO"
 bd merge-slot create
-abacus --repo "$REPO" --health</code></pre>
+abacus health --repo "$REPO"</code></pre>
             </div>
             <p class="small">Expect <code>"embedded": false</code>, a reachable host/port, and <code>"connection_ok": true</code>.</p>
           </section>
@@ -961,7 +961,7 @@ bd dolt show --json</code></pre>
         </details>
 
         <h3>Configure ticket destinations</h3>
-        <p><code>abacus --init</code> requires an existing readable Beads project, installs the bundled skills with replacement confirmation, and creates a missing <code>$REPO/.abacus/targets.json</code>. Existing configuration is never overwritten.</p>
+        <p><code>abacus init</code> requires an existing readable Beads project, installs the bundled skills with replacement confirmation, and creates a missing <code>$REPO/.abacus/targets.json</code>. Existing configuration is never overwritten.</p>
         <div class="code-block">
           <div class="code-label"><span>Generated default targets.json</span><button class="copy-button" type="button">Copy</button></div>
           <pre><code>{
@@ -972,7 +972,7 @@ bd dolt show --json</code></pre>
 }</code></pre>
         </div>
         <p>Missing <code>metadata.abacus_target</code> uses the default when enforcement is off. Explicit targets override it; malformed or unconfigured targets fail in either mode. Enable enforcement to require explicit metadata. Configured target branches must already exist locally. Policies are loaded from the main checkout, never from an agent's changing checkout.</p>
-        <p>The controller must be the primary Git checkout, not a linked worktree (regardless of which branch is checked out). From elsewhere, including an agent worktree, pass <code>--repo "$REPO"</code>. The old Abacus <code>--config</code> selector is removed. Review and commit setup files before dispatch; <code>--init</code> does not create branches or commits, or assign ticket metadata. See <a href="targets.md">target operations and migration</a>.</p>
+        <p>The controller must be the primary Git checkout, not a linked worktree (regardless of which branch is checked out). From elsewhere, including an agent worktree, pass <code>--repo "$REPO"</code>. The old Abacus <code>--config</code> selector is removed. Review and commit setup files before dispatch; <code>init</code> does not create branches or commits, or assign ticket metadata. See <a href="targets.md">target operations and migration</a>.</p>
 
         <h3>Create ready work</h3>
         <div class="code-block">
@@ -986,7 +986,7 @@ bd create "Add a health endpoint" \
   --json
 
 bd ready --json
-abacus --repo "$REPO" --check-ticket-targets</code></pre>
+abacus targets check --repo "$REPO"</code></pre>
         </div>
 
         <div class="callout success">
@@ -1007,9 +1007,9 @@ abacus --repo "$REPO" --check-ticket-targets</code></pre>
         <div class="code-block">
           <div class="code-label"><span>Install/update from the main checkout</span><button class="copy-button" type="button">Copy</button></div>
           <pre><code>cd "$REPO"
-abacus --repo "$REPO" --init
+abacus init --repo "$REPO"
 
-<span class="comment"># For skills only, use abacus --repo "$REPO" --install-skills.</span>
+<span class="comment"># For skills only, use abacus skills install --repo "$REPO".</span>
 <span class="comment"># Installed under the selected main Git root:</span>
 find .agents/skills -maxdepth 2 -name SKILL.md -print</code></pre>
         </div>
@@ -1117,7 +1117,7 @@ and distinguish local commit or merge limits from legitimate push limits.</code>
 
         <div class="callout info">
           <span class="icon">i</span>
-          <p><strong>Find model IDs with <code>abacus --models</code>.</strong> It groups IDs discovered from installed OpenCode and Codex CLIs. Claude Code exposes its available-model picker interactively through <code>/model</code>, so Abacus reports that guidance in the Claude Code group.</p>
+          <p><strong>Find model IDs with <code>abacus models</code>.</strong> It groups IDs discovered from installed OpenCode and Codex CLIs. Claude Code exposes its available-model picker interactively through <code>/model</code>, so Abacus reports that guidance in the Claude Code group.</p>
         </div>
 
         <div class="code-block">
@@ -1130,7 +1130,7 @@ export AGENT_WORKTREE="$WORKTREES/alice"
 tmux new-session -d -s "$SESSION" -n "$WINDOW"
 git -C "$AGENT_WORKTREE" status --short
 
-abacus --repo "$REPO" \
+abacus run --repo "$REPO" \
   --mode claude \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
@@ -1146,11 +1146,11 @@ abacus --repo "$REPO" \
 
         <section class="card accent-blue">
           <p class="kicker">Optional · Claude Remote Control</p>
-          <h3>Add <code>--remote</code></h3>
-          <p>In Claude mode, Abacus’s <code>--remote</code> switch keeps the session running locally and adds Claude’s <code>--remote-control "&lt;issue-id&gt; • &lt;issue-title&gt;"</code>. You can then steer the same local session from claude.ai or the Claude mobile app.</p>
+          <h3>Add <code>--remote-control</code></h3>
+          <p>In Claude mode, Abacus’s <code>--remote-control</code> switch keeps the session running locally and adds Claude’s <code>--remote-control "&lt;issue-id&gt; • &lt;issue-title&gt;"</code>. You can then steer the same local session from claude.ai or the Claude mobile app.</p>
           <div class="code-block">
             <div class="code-label"><span>Remotely steerable local session</span><button class="copy-button" type="button">Copy</button></div>
-            <pre><code>abacus --repo "$REPO" --mode claude --remote \
+            <pre><code>abacus run --repo "$REPO" --mode claude --remote-control \
   --tmux-session "$SESSION" --tmux-window "$WINDOW" \
   --model "$MODEL" --effort high \
   --notify all --notify-sound \
@@ -1193,12 +1193,12 @@ bd ready --json
 
 bd -C "$WORKTREES/alice" dolt show --json
 bd -C "$WORKTREES/bob" dolt show --json
-abacus --repo "$REPO" --health</code></pre>
+abacus health --repo "$REPO"</code></pre>
         </div>
 
         <div class="code-block">
           <div class="code-label"><span>Two Claude agents</span><button class="copy-button" type="button">Copy</button></div>
-          <pre><code>abacus --repo "$REPO" \
+          <pre><code>abacus run --repo "$REPO" \
   --mode claude \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
@@ -1247,7 +1247,7 @@ abacus --repo "$REPO" --health</code></pre>
           </section>
           <section class="card accent-blue">
             <p class="kicker">Invocation</p>
-            <h3><code>--append-agent-prompt</code></h3>
+            <h3><code>--append-prompt</code></h3>
             <p class="small">Pass one quoted, nonempty prompt fragment to apply it globally to every agent started by the invocation.</p>
           </section>
           <section class="card accent-yellow">
@@ -1269,16 +1269,16 @@ Submit the issue branch through the repository merge queue and close the ticket
 only after the queue reports success.
 EOF
 
-abacus --repo "$REPO" --mode claude \
+abacus run --repo "$REPO" --mode claude \
   --tmux-session "$SESSION" --tmux-window "$WINDOW" \
   --model "$MODEL" \
-  --append-agent-prompt "Keep the change narrowly scoped." \
+  --append-prompt "Keep the change narrowly scoped." \
   -a alice "$REPO"</code></pre>
         </div>
 
         <div class="callout info">
           <span class="icon">i</span>
-          <p><strong>Composition is deterministic.</strong> <code>.abacus/merge-instructions.md</code> replaces the built-in merge section, while the <code>--append-agent-prompt</code> value and <code>.abacus/append-prompt.md</code> remain additions at the end. The merge override applies by presence, even when empty.</p>
+          <p><strong>Composition is deterministic.</strong> <code>.abacus/merge-instructions.md</code> replaces the built-in merge section, while the <code>--append-prompt</code> value and <code>.abacus/append-prompt.md</code> remain additions at the end. The merge override applies by presence, even when empty.</p>
         </div>
       </article>
 
@@ -1349,7 +1349,7 @@ abacus --repo "$REPO" --mode claude \
         <div class="code-block">
           <div class="code-label"><span>Change the number of visible comments</span><button class="copy-button" type="button">Copy</button></div>
           <pre><code><span class="comment"># The default is 8; valid values are 1 through 100.</span>
-abacus --repo "$REPO" --latest-comments 12 \
+abacus run --repo "$REPO" --latest-comments 12 \
   --mode claude \
   --tmux-session "$SESSION" \
   --model "$MODEL" \
@@ -1431,7 +1431,7 @@ abacus --repo "$REPO" --latest-comments 12 \
           <summary><strong>What <code>--verbose</code> looks like</strong></summary>
           <p class="muted small">Verbose mode stops repainting the live dashboard and emits append-only event lines suitable for diagnostics.</p>
           <div class="terminal" aria-label="Example verbose output">
-            <div class="terminal-bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="terminal-title">abacus --verbose</span></div>
+            <div class="terminal-bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="terminal-title">abacus run --verbose</span></div>
             <pre>14:22:01 [abacus] INFO       Preflight complete; starting Claude Code agent loops
 14:22:01 [alice] WAITING    Looking for a ready ticket
 14:22:01 [alice] DEBUG      bd ready --unassigned --exclude-label gt:slot --limit 0 --json
@@ -1472,19 +1472,19 @@ bd comment &lt;issue-id&gt; "Choose the public endpoint name."
 bd update &lt;issue-id&gt; --add-label abacus:needs-user-attention --json
 
 <span class="comment"># Record your response as a comment, then remove the persistent alert.</span>
-abacus --repo "$REPO" --resolve &lt;issue-id&gt; "Approved: use public-api"
+abacus attention resolve --repo "$REPO" &lt;issue-id&gt; --message "Approved: use public-api"
 
 <span class="comment"># Or remove the alert without adding a response comment.</span>
-abacus --repo "$REPO" --resolve &lt;issue-id&gt;
+abacus attention resolve --repo "$REPO" &lt;issue-id&gt;
 
 <span class="comment"># Resolve, reopen, and unassign the ticket so an agent can claim it again.</span>
-abacus --repo "$REPO" --resolve &lt;issue-id&gt; "Approved: use public-api" --reopen
+abacus attention resolve --repo "$REPO" &lt;issue-id&gt; --message "Approved: use public-api" --reopen
 
 <span class="comment"># List every ticket still carrying the attention label.</span>
-abacus --repo "$REPO" --list-user-attention
+abacus attention list --repo "$REPO"
 
 <span class="comment"># Delete local abacus/* branches for closed tickets.</span>
-abacus --repo "$REPO" --prune-closed-branches
+abacus branches prune --repo "$REPO"
 
 <span class="comment"># If no work can continue, also mark the ticket blocked.</span>
 bd comment &lt;issue-id&gt; "Waiting for the API name decision."
@@ -1524,14 +1524,14 @@ bd update &lt;issue-id&gt; --status blocked --json</code></pre>
           <span class="section-number">11</span>
           <div>
             <h2>Control which issues enter the pool</h2>
-            <p class="section-intro">Dispatch filters are global to the run. Label/type/priority filters are passed to Beads; <code>--target-branch</code> filters resolved destinations before priority/comment selection. Dirty recovery bypasses dispatch filters but never target/binding checks.</p>
+            <p class="section-intro">Dispatch filters are global to the run. Label/type/priority filters are passed to Beads; <code>--target-filter</code> filters resolved destinations before priority/comment selection. Dirty recovery bypasses dispatch filters but never target/binding checks.</p>
           </div>
         </div>
 
         <table class="comparison">
           <thead><tr><th>Argument</th><th>Repeat?</th><th>Effect</th></tr></thead>
           <tbody>
-            <tr><td><code>--target-branch &lt;branch&gt;</code></td><td>Yes</td><td>Allow resolved ticket destinations, including the default. Does not supply or overwrite metadata.</td></tr>
+            <tr><td><code>--target-filter &lt;branch&gt;</code></td><td>Yes</td><td>Allow resolved ticket destinations, including the default. Does not supply or overwrite metadata.</td></tr>
             <tr><td><code>--label &lt;label&gt;</code></td><td>Yes</td><td>Require the label. Repeating it requires all supplied labels.</td></tr>
             <tr><td><code>--exclude-label &lt;label&gt;</code></td><td>Yes</td><td>Reject issues carrying any supplied excluded label.</td></tr>
             <tr><td><code>--type &lt;types&gt;</code></td><td>No</td><td>Pass one Beads type filter; comma-separated values such as <code>bug,task</code> are allowed.</td></tr>
@@ -1541,7 +1541,7 @@ bd update &lt;issue-id&gt; --status blocked --json</code></pre>
 
         <div class="code-block">
           <div class="code-label"><span>Filtered multi-agent run</span><button class="copy-button" type="button">Copy</button></div>
-          <pre><code>abacus --repo "$REPO" --mode claude \
+          <pre><code>abacus run --repo "$REPO" --mode claude \
   --tmux-session "$SESSION" --tmux-window "$WINDOW" \
   --model "$MODEL" \
   --label abacus-ready \
@@ -1617,10 +1617,10 @@ bd update &lt;issue-id&gt; --status blocked --json</code></pre>
         <div class="code-block">
           <div class="code-label"><span>Notification examples</span><button class="copy-button" type="button">Copy</button></div>
           <pre><code><span class="comment"># Important events only.</span>
-abacus --repo "$REPO" --notify attention --notify-sound ...
+abacus run --repo "$REPO" --notify attention --notify-sound ...
 
 <span class="comment"># Every outcome and the run summary.</span>
-abacus --repo "$REPO" --notify all --notify-sound ...</code></pre>
+abacus run --repo "$REPO" --notify all --notify-sound ...</code></pre>
         </div>
 
         <div class="grid-2">
@@ -1656,7 +1656,7 @@ abacus --repo "$REPO" --notify all --notify-sound ...</code></pre>
         <div class="grid-3">
           <section class="card accent-green">
             <p class="kicker">Continuous</p>
-            <h3>Default</h3>
+            <h3><code>abacus run</code></h3>
             <p class="small">Wait forever, poll every five seconds, and retry transient orchestration failures.</p>
           </section>
           <section class="card accent-blue">
@@ -1666,14 +1666,14 @@ abacus --repo "$REPO" --notify all --notify-sound ...</code></pre>
           </section>
           <section class="card accent-yellow">
             <p class="kicker">Validation</p>
-            <h3><code>--check</code></h3>
-            <p class="small">Run preflight without changing workspaces, claiming, creating panes, or printing a run summary.</p>
+            <h3><code>abacus preflight</code></h3>
+            <p class="small">Use the same model, agent, and hosting options as <code>run</code>, without changing workspaces, claiming, creating panes, or printing a run summary. This is a separate command, not a run flag; <code>--once</code> and <code>--drain</code> are rejected.</p>
           </section>
         </div>
 
         <div class="code-block">
           <div class="code-label"><span>Useful operator commands</span><button class="copy-button" type="button">Copy</button></div>
-          <pre><code>abacus --repo "$REPO" --health
+          <pre><code>abacus health --repo "$REPO"
 bd ready --json
 bd list --all
 bd show &lt;issue-id&gt; --json

@@ -52,13 +52,18 @@ Never close a ticket unless the user explicitly asks to close that ticket. Treat
 When the user confirms that an attention request is resolved, preserve any useful resolution context in the issue if requested, then remove the label with:
 
 ```sh
-bd update <id> --remove-label abacus:needs-user-attention --json
+abacus attention resolve <id>
 ```
 
-For a blocked ticket, remove the label and reopen it in the same update:
+Pass `--repo <main-checkout>` when outside the controller checkout. To record a
+requested response first, add `--message "<response>"`; positional messages are
+not accepted. If the comment fails, Abacus leaves the attention label in place.
+
+For a blocked ticket, remove the label, reopen it, and clear its assignee in the
+same update so it can be claimed again:
 
 ```sh
-bd update <id> --remove-label abacus:needs-user-attention --status open --json
+abacus attention resolve <id> --reopen
 ```
 
 Read the issue back after any approved change and follow the repository's Beads synchronization policy.

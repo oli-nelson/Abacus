@@ -106,12 +106,12 @@ public sealed record HealthReport(
             text.AppendLine(targetConfig.EnforceTargetBranch
                 ? "  Target metadata enforcement: enabled (explicit ticket targets required)"
                 : $"  Target metadata enforcement: disabled (missing targets use {targetConfig.DefaultTarget})");
-            text.AppendLine("  Ticket metadata is checked separately with: abacus --check-ticket-targets");
+            text.AppendLine("  Ticket metadata is checked separately with: abacus targets check");
         }
         else
         {
             text.AppendLine($"  [FAIL] {TargetConfiguration?.Error ?? "Target configuration was not checked"}");
-            text.AppendLine("  Create .abacus/targets.json with abacus --init, or repair the existing version-1 targets allowlist explicitly.");
+            text.AppendLine("  Create .abacus/targets.json with abacus init, or repair the existing version-1 targets allowlist explicitly.");
         }
         text.AppendLine();
         text.AppendLine("Beads");
@@ -213,12 +213,12 @@ public sealed record HealthReport(
             if (Worktrees.Count == 0)
             {
                 text.AppendLine("  [FAIL] Git reported no referenced worktrees.");
-                text.AppendLine("  Multi-agent execution cannot use linked worktrees until worktrees are created. Separate clones may also be supplied, but --health does not search for them.");
+                text.AppendLine("  Multi-agent execution cannot use linked worktrees until worktrees are created. Separate clones may also be supplied, but health does not search for them.");
             }
             else if (Worktrees.Count == 1)
             {
                 text.AppendLine("  [WARN] No additional linked worktrees are referenced by the root repository.");
-                text.AppendLine("  Multi-agent execution cannot use linked worktrees until more are created. Separate clones may also be supplied, but --health does not search for them.");
+                text.AppendLine("  Multi-agent execution cannot use linked worktrees until more are created. Separate clones may also be supplied, but health does not search for them.");
             }
             else
             {
@@ -242,7 +242,7 @@ public sealed record HealthReport(
 
         if (!AreSkillsInstalled)
         {
-            text.AppendLine("  Install or replace the bundled skills with: abacus --install-skills");
+            text.AppendLine("  Install or replace the bundled skills with: abacus skills install");
         }
 
         text.AppendLine();

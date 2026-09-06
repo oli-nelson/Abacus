@@ -199,13 +199,13 @@ public sealed partial class MultiAgentRepositoryInitializer(
               [[ -d "$workspace" ]] || continue
               [[ -e "$workspace/.git" ]] || continue
               index="${workspace##*/}"
-              agent_args+=(-a "agent-$index" "$workspace")
+              agent_args+=(--agent "agent-$index" "$workspace")
             done
             (( ${#agent_args[@]} > 0 )) || die "no worktrees found under $worktrees"
 
             # Abacus owns panes but not the tmux session. Create it first, for example:
             #   tmux new-session -d -s "$tmux_session"
-            exec "$abacus_bin" \
+            exec "$abacus_bin" run \
               --repo "$root/repo" \
               --mode {{{mode}}} \
               --tmux-session "$tmux_session" \

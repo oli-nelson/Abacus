@@ -111,7 +111,7 @@ claude --model <model> \
   '<ticket prompt>'
 ```
 
-There is deliberately no `--print`. `--effort` applies the requested model-specific effort to the interactive session. Automatic permission mode performs background safety checks without requiring a human to answer ordinary approval prompts. With Abacus `--remote`, the command additionally receives `--remote-control '<issue-id> • <issue-title>'`; the [official Claude Code Remote Control documentation](https://code.claude.com/docs/en/remote-control) confirms that this preserves the full local interactive session while giving the remote session an explicit name. Abacus does not use Claude background agents, worktree creation, or the Agent SDK.
+There is deliberately no `--print`. `--effort` applies the requested model-specific effort to the interactive session. Automatic permission mode performs background safety checks without requiring a human to answer ordinary approval prompts. With Abacus `--remote-control`, the command additionally receives `--remote-control '<issue-id> • <issue-title>'`; the [official Claude Code Remote Control documentation](https://code.claude.com/docs/en/remote-control) confirms that this preserves the full local interactive session while giving the remote session an explicit name. Abacus does not use Claude background agents, worktree creation, or the Agent SDK.
 
 ## tmux 3.6a
 
@@ -158,12 +158,12 @@ and local `bd update --help`; metadata edits are not a compare-and-swap API.
 - Workspace ownership directory: `git -C <workspace> rev-parse --absolute-git-dir`.
 
 All values are passed through `ProcessStartInfo.ArgumentList`. Target files are
-controller-owned snapshots; `--check` and metadata audits do not acquire locks or
+controller-owned snapshots; `preflight` and metadata audits do not acquire locks or
 mutate Git/Beads. No landing or completion-verification CLI is introduced.
 
 ### Existing-project initialization discovery
 
-`abacus --init` uses `bd where --json` (`path`, optional `redirected_from`) to
+`abacus init` uses `bd where --json` (`path`, optional `redirected_from`) to
 locate the existing project and `bd list --limit 1 --json` to verify it is readable.
 Git `rev-parse --path-format=absolute --git-common-dir` verifies that the Beads
 source and target checkout belong to the same repository, allowing linked

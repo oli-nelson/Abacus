@@ -24,18 +24,18 @@ public sealed class TargetRoutingTests
     [Fact]
     public void ParsesStandaloneCommandsAndRunFilters()
     {
-        var check = Options.Parse(["--check-ticket-targets", "abc-1", "abc-2", "--repo", "/tmp/repo"]).TargetCommand!;
+        var check = Options.Parse(["targets", "check", "abc-1", "abc-2", "--repo", "/tmp/repo"]).TargetCommand!;
         Assert.True(check.Check);
         Assert.Equal(["abc-1", "abc-2"], check.IssueIds);
-        var set = Options.Parse(["--set-ticket-target", "release/1.2", "abc-1"]).TargetCommand!;
+        var set = Options.Parse(["targets", "set", "release/1.2", "abc-1"]).TargetCommand!;
         Assert.False(set.Check);
         Assert.Equal("release/1.2", set.Target);
-        var run = Options.Parse(["--model", "p/m", "--tmux-session", "x", "-a", "a", "/tmp/a",
-            "--target-branch", "main", "--target-branch", "release/1.2", "--repo", "/tmp/repo"]).Value!;
+        var run = Options.Parse(["run", "--model", "p/m", "--tmux-session", "x", "-a", "a", "/tmp/a",
+            "--target-filter", "main", "--target-filter", "release/1.2", "--repo", "/tmp/repo"]).Value!;
         Assert.Equal(["main", "release/1.2"], run.TargetBranches);
-        Assert.Throws<OptionsException>(() => Options.Parse(["--set-ticket-target", "main"]));
-        Assert.Throws<OptionsException>(() => Options.Parse(["--check-ticket-targets", "--once"]));
-        Assert.Throws<OptionsException>(() => Options.Parse(["--check-ticket-targets", "--set-ticket-target", "main", "a"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["targets", "set", "main"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["targets", "check", "--once"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["targets", "check", "--target-filter", "main"]));
     }
 
     [Theory]
@@ -168,7 +168,7 @@ public sealed class TargetRoutingTests
         Assert.Equal("blocked", issue["status"]!.GetValue<string>());
         Assert.Contains(Beads.NeedsUserAttentionLabel, issue["labels"]!.ToJsonString());
         Assert.Contains("abacus_target", issue["notes"]!.GetValue<string>());
-        Assert.Contains("--set-ticket-target", issue["notes"]!.GetValue<string>());
+        Assert.Contains("targets set", issue["notes"]!.GetValue<string>());
         Assert.Equal(before, await f.RunGitAsync("rev-parse", "HEAD"));
         Assert.Equal("main", (await f.RunGitAsync("branch", "--show-current")).Trim());
         Assert.False(await f.Git.IssueBranchExistsAsync(f.Workspace, "alice", "abc-1", CancellationToken.None));
@@ -283,7 +283,7 @@ public sealed class TargetRoutingTests
         await f.RunGitAsync("switch", "-c", "abacus/abc-1", "release/1.2");
         var start = (await f.RunGitAsync("rev-parse", "HEAD")).Trim();
         await File.WriteAllTextAsync(Path.Combine(f.Workspace, "work.txt"), "unfinished work");
-        var command = Options.Parse(["--set-ticket-target", "release/1.2", "abc-1", "--repo", f.Workspace,
+        var command = Options.Parse(["targets", "set", "release/1.2", "abc-1", "--repo", f.Workspace,
             "--adopt-existing-branch", "--start-commit", start]).TargetCommand!;
         Assert.Equal(0, await new TicketTargets(f.Beads, f.Git)
             .RunAsync(f.Workspace, command, TextWriter.Null, CancellationToken.None));

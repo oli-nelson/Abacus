@@ -15,7 +15,7 @@ die() {
 }
 
 usage() {
-  printf 'usage: %s <opencode|codex|claude|opencode-server> [model] [effort] [--remote]\n' "${0##*/}" >&2
+  printf 'usage: %s <opencode|codex|claude|opencode-server> [model] [effort] [--remote-control]\n' "${0##*/}" >&2
   exit 2
 }
 
@@ -27,7 +27,7 @@ shift
 remote=false
 positionals=()
 for argument; do
-  if [[ "$argument" == --remote ]]; then
+  if [[ "$argument" == --remote-control ]]; then
     [[ "$remote" == false ]] || usage
     remote=true
   else
@@ -62,7 +62,7 @@ if [[ "$agent_mode" == opencode || "$agent_mode" == opencode-server ]]; then
   [[ "$model" == */* ]] || die "model must use OpenCode's provider/model format"
 fi
 if [[ "$remote" == true && "$agent_mode" != claude ]]; then
-  die "--remote is only supported for claude mode"
+  die "--remote-control is only supported for claude mode"
 fi
 
 root="$PWD"
@@ -81,19 +81,21 @@ fi
 [[ -x "$abacus_bin" ]] || die "Abacus executable is not runnable: $abacus_bin"
 
 abacus_args=(
+  run
+  --repo "$root/repo"
   --mode "$agent_mode"
   --tmux-session oli
   --tmux-window agents
   --tmux-layout tiled
   --model "$model"
   --effort "$effort"
-  --append-agent-prompt "NEVER use the git-commit-staged skill"
+  --append-prompt "NEVER use the git-commit-staged skill"
   --notify all
   --notify-sound
 )
 
 if [[ "$remote" == true ]]; then
-  abacus_args+=(--remote)
+  abacus_args+=(--remote-control)
 fi
 
 if [[ "$agent_mode" == opencode-server ]]; then

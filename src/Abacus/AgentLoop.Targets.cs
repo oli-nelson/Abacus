@@ -52,8 +52,8 @@ public sealed partial class ClaimCoordinator
     private async Task RejectTargetAsync(ValidatedAgent agent, BeadsIssue issue, string detail, CancellationToken token)
     {
         var reason = $"Abacus target validation failed: {detail}. " +
-            $"Run abacus --check-ticket-targets {issue.Id}; for missing targets use " +
-            $"abacus --set-ticket-target <branch> {issue.Id}, then abacus --resolve {issue.Id} --reopen after review.";
+            $"Run abacus targets check {issue.Id}; for missing targets use " +
+            $"abacus targets set <branch> {issue.Id}, then abacus attention resolve {issue.Id} --reopen after review.";
         try
         {
             await beads.BlockTargetIssueAsync(agent.WorkspacePath, agent.Name, issue.Id, reason, token);

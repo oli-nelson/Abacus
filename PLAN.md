@@ -31,7 +31,7 @@ Abacus should own only the orchestration state machine. It should not reimplemen
 - Use one .NET console application and the .NET standard library.
 - Use `Process`/`ProcessStartInfo` to run `bd`, `git`, the selected `opencode`, `codex`, or `claude` executable, and `tmux`. Do not add vendor SDKs or Beads, Git, tmux, Dolt, or HTTP client libraries.
 - Support exactly four agent modes: interactive OpenCode, interactive Codex, interactive Claude Code, and OpenCode Server attachment. Do not call agent server APIs.
-- Accept `--remote` only for Claude Code. Keep Claude interactive and enable Remote Control with an explicit `<issue-id> • <issue-title>` session name. Do not implement the remote-control protocol in Abacus.
+- Accept `--remote-control` only for Claude Code. Keep Claude interactive and enable Remote Control with an explicit `<issue-id> • <issue-title>` session name. Do not implement the remote-control protocol in Abacus.
 - Require one `--model <model>` value per Abacus invocation. Accept one provider-specific `--effort <effort>` value, default it to `high`, and translate model and effort into the selected CLI's native arguments where supported. Preserve OpenCode's `provider/model` validation while allowing native Codex and Claude model identifiers. Interactive OpenCode 1.18.20 has no TUI variant option, so keep its model ID unchanged and let OpenCode use its configured or session-selected variant.
 - Parse only the small amount of JSON/JSONL emitted by `bd` that Abacus needs: issue ID, issue title and status, direct-child status, Dolt identity, remote presence, and the comment fields and labels needed by the dashboard. Query Beads by label rather than importing its issue model when the dashboard needs attention alerts; use read-only `bd export` for the latest-comment snapshot so embedded and server-backed modes share one path.
 - Pass ordinary command arguments through `ProcessStartInfo.ArgumentList`, not interpolated shell strings. Use a generated shell wrapper only where tmux needs a pane command and process-exit marker.
@@ -156,7 +156,7 @@ Before building the loop, capture the exact behavior of the locally supported co
 - Bundle the `abacus-beads-planner`, `abacus-beads-doctor`, and
   `abacus-beads-attention` skills, plus the `abacus-git-check` agent-instruction
   audit, as executable resources. A standalone
-  `abacus --install-skills [--repo <path>]` resolves the selected main Git checkout
+  `abacus skills install [--repo <path>]` resolves the selected main Git checkout
   with the Git CLI and installs all
   four skills under `.agents/skills` without entering agent preflight or
   requiring normal run options. Stage the bundled contents before installation;
@@ -166,31 +166,30 @@ Before building the loop, capture the exact behavior of the locally supported co
 - Implement the exact CLI from the spec:
 
   ```text
-  abacus --init-new-multi-agent-repo <project-name> <agent-count>
-  abacus --init [--repo <main-checkout>]
-  abacus --install-skills [--repo <main-checkout>]
-  abacus --check-ticket-targets [<id> ...] [--repo <main-checkout>]
-  abacus --set-ticket-target <branch> <id> [<id> ...] [--repo <main-checkout>]
-  abacus --health [--repo <main-checkout>]
-  abacus --models
-  abacus --prune-closed-branches [--repo <main-checkout>]
-  abacus --list-user-attention [--repo <main-checkout>]
-  abacus --resolve <issue-id> [<message>] [--reopen] [--repo <main-checkout>]
-  abacus -r <issue-id> [<message>] [--reopen] [--repo <main-checkout>]
+  abacus new <project-name> --agents <agent-count>
+  abacus init [--repo <main-checkout>]
+  abacus skills install [--repo <main-checkout>]
+  abacus targets check [<id> ...] [--repo <main-checkout>]
+  abacus targets set <branch> <id> [<id> ...] [--repo <main-checkout>]
+  abacus health [--repo <main-checkout>]
+  abacus models
+  abacus branches prune [--repo <main-checkout>]
+  abacus attention list [--repo <main-checkout>]
+  abacus attention resolve <issue-id> [--message <text>] [--reopen] [--repo <main-checkout>]
 
-  abacus [--mode <opencode|codex|claude|opencode-server>] \
+  abacus run [--mode <opencode|codex|claude|opencode-server>] \
     [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
     --model <model> \
     [--effort <effort>] \
-    [--remote] \
-    [--repo <main-checkout>] [--target-branch <branch>] \
+    [--remote-control] \
+    [--repo <main-checkout>] [--target-filter <branch>] \
     [--label <label>] [--exclude-label <label>] \
     [--type <types>] [--priority <priority>] \
     [--ticket-timeout <duration>] \
     [--latest-comments <count>] \
     [--notify <off|attention|all>] [--notify-sound] \
     [--opencode-server <host:port>] \
-    [--once | --drain | --check] \
+    [--once | --drain] \
     [--verbose] \
     -a <agent_name> <git_workspace_path> [-a ...]
   ```
@@ -202,13 +201,13 @@ Before building the loop, capture the exact behavior of the locally supported co
   its assignee so it can be claimed again. Do not run normal
   preflight or require agent options for this operation.
 
-- Support standalone repository helpers. `--list-user-attention` prints only
-  the IDs returned by an unbounded Beads label query. `--prune-closed-branches`
+- Support standalone repository helpers. `attention list` prints only
+  the IDs returned by an unbounded Beads label query. `branches prune`
   queries all closed tickets and deletes only matching local
   `abacus/<issue-id>` branches, skipping branches checked out in worktrees.
   Neither command runs normal preflight or requires agent options.
 
-- Reject a missing or malformed `--model` value, a malformed `--effort` value, `--remote` outside Claude mode, malformed or duplicate singular dispatch filters, malformed ticket timeouts, invalid mode/server/tmux combinations, other missing values, unknown options, duplicate agent names, duplicate canonical workspace paths, and zero agents. OpenCode model IDs use `provider/model`; Codex and Claude IDs must be nonempty and whitespace-free. Effort defaults to `high`; model and effort availability remain the selected CLI's responsibility. Dispatch labels are repeatable, priority is 0 through 4, and ticket timeouts are positive integer seconds, minutes, or hours.
+- Reject a missing or malformed `--model` value, a malformed `--effort` value, `--remote-control` outside Claude mode, malformed or duplicate singular dispatch filters, malformed ticket timeouts, invalid mode/server/tmux combinations, other missing values, unknown options, duplicate agent names, duplicate canonical workspace paths, and zero agents. OpenCode model IDs use `provider/model`; Codex and Claude IDs must be nonempty and whitespace-free. Effort defaults to `high`; model and effort availability remain the selected CLI's responsibility. Dispatch labels are repeatable, priority is 0 through 4, and ticket timeouts are positive integer seconds, minutes, or hours.
 - Implement `CommandRunner` around `ProcessStartInfo` with:
   - executable plus argument list;
   - working directory;
@@ -217,8 +216,8 @@ Before building the loop, capture the exact behavior of the locally supported co
   - cancellation that terminates the child process tree;
   - concise, agent-prefixed logging.
 - Add Ctrl-C cancellation and one top-level error boundary.
-- Support finite execution without a scheduler: `--once` processes at most one ticket per agent, `--drain` runs until agents observe an empty ready queue, and `--check` exits after preflight without starting the application loop. Treat the modes as mutually exclusive and fail fast on orchestration errors during finite runs.
-- Add a standalone, read-only `--health` report. Reuse the documented minimum
+- Support finite execution without a scheduler: `--once` processes at most one ticket per agent, `--drain` runs until agents observe an empty ready queue, and `preflight` exits after preflight without starting the application loop. Keep the run-length options mutually exclusive and reject both on `preflight` and fail fast on orchestration errors during finite runs.
+- Add a standalone, read-only `health` report. Reuse the documented minimum
   versions while probing Git, Beads, OpenCode, Claude Code, Codex, and tmux;
   require at least one supported harness. Report Beads storage/concurrency,
   merge-slot availability and holder, available agent modes, every
@@ -229,7 +228,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   not fail—when no merge slot exists because the repository may provide another
   serialized merge process. Do not search the filesystem for separate clones or
   contact an OpenCode server.
-- Add a standalone, read-only `--models` report. Discover OpenCode IDs with
+- Add a standalone, read-only `models` report. Discover OpenCode IDs with
   `opencode models` and visible Codex IDs with `codex debug models`, group the
   results by harness, and isolate missing-tool or command failures. Report that
   Claude Code requires its interactive `/model` picker because its CLI exposes
@@ -278,7 +277,7 @@ All checks happen before any ticket is claimed or agent run is created.
 - Missing tmux for local mode, invalid explicit tmux targets, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and recovered or preserved by the agent loop before normal dispatch.
 - A valid single-agent local setup and a valid multi-agent shared-Dolt setup pass.
 - Preflight never mutates Git, Beads, tmux, or agent CLI state.
-- `--check` reports success immediately after this boundary and never claims work or starts an agent CLI.
+- `preflight` reports success immediately after this boundary and never claims work or starts an agent CLI.
 
 ## Phase 4 - Claiming and workspace preparation
 
@@ -405,7 +404,7 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Manual smoke test
 
-1. Create a disposable Git repository and Beads project, run `abacus --init`,
+1. Create a disposable Git repository and Beads project, run `abacus init`,
    review `.abacus/targets.json`, create a small ticket, and audit its target.
 2. Start a named tmux session and run one agent in each of the OpenCode, Codex, and Claude modes.
 3. Verify claim, branch creation, selected model, prompt, completion-state detection, pane cleanup, and push behavior.
@@ -421,26 +420,26 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ## Definition of done
 
-- `abacus --install-skills [--repo <path>]` installs all four bundled skills at
+- `abacus skills install [--repo <path>]` installs all four bundled skills at
   the selected main Git checkout without starting preflight or agent loops, and requires confirmation before
   it replaces existing bundled skill directories.
-- `abacus --health` reports project readiness without mutating it and fails when
+- `abacus health` reports project readiness without mutating it and fails when
   `no-git-ops` is enabled, no single-agent mode is runnable, or a bundled skill
   is missing, or main-repository/target configuration validation fails.
-- `abacus --models` reports discoverable model IDs by harness without requiring
+- `abacus models` reports discoverable model IDs by harness without requiring
   Beads, Git, tmux, a model, or an agent configuration.
-- `abacus --prune-closed-branches` removes local Abacus issue branches for
+- `abacus branches prune` removes local Abacus issue branches for
   closed tickets while preserving non-Abacus, remote, and checked-out branches.
-- `abacus --list-user-attention` prints the IDs of all attention-labelled
+- `abacus attention list` prints the IDs of all attention-labelled
   tickets without starting orchestration.
-- `abacus --resolve` (or `abacus -r`) removes the attention label from one issue,
+- `abacus attention resolve` removes the attention label from one issue,
   optionally records the user's response, and can reopen and unassign the issue
   with `--reopen`, without starting agent orchestration.
 - The CLI and prompt match SPEC.md.
-- `--mode` selects exactly one of OpenCode, Codex, Claude, or OpenCode Server; legacy `--opencode-server` implies server mode.
+- `--mode` selects exactly one of OpenCode, Codex, Claude, or OpenCode Server; server attachment requires explicit `--mode opencode-server`.
 - `--model <model>` is required and every selected agent instance receives that exact model ID.
 - `--effort <effort>` defaults to `high`. Codex, Claude Code, and OpenCode Server receive the equivalent native effort or variant selection. Interactive OpenCode uses its configured or session-selected variant until the TUI exposes a variant CLI option.
-- `--remote` keeps Claude Code interactive while exposing its CLI-managed Remote Control feature; it is rejected in Codex and both OpenCode modes.
+- `--remote-control` keeps Claude Code interactive while exposing its CLI-managed Remote Control feature; it is rejected in Codex and both OpenCode modes.
 - Optional dispatch filters limit every fresh and same-agent resumed ready claim without reimplementing Beads query semantics.
 - Optional ticket timeouts stop the hosted run and safely reopen and synchronize work that remains `in_progress`, while preserving terminal-state races.
 - Optional Abacus-owned desktop notifications report attention and ticket outcomes consistently across every agent mode without configuring the selected agent CLI.
@@ -470,7 +469,7 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Existing-repository setup and simplified identity
 
-- `abacus --init` validates existing Git/Beads setup and local targets, installs
+- `abacus init` validates existing Git/Beads setup and local targets, installs
   bundled skills with overwrite confirmation, and creates an absent default
   targets config. Preserve existing config and reject uninitialized Beads.
 - Keep setup non-destructive: no automatic branch creation, ticket assignment,
@@ -497,3 +496,15 @@ All checks happen before any ticket is claimed or agent run is created.
   maintenance at that selected repository, not the invocation directory.
 - New-project launchers must pass `--repo "$root/repo"` and work from outside Git.
   Help, models, and new-project creation need no existing repo.
+
+### Command-oriented CLI
+
+- Require bare operation names and an explicit `run`; bare invocation prints help.
+- Parse options in their command scope, consuming values before interpreting any
+  other tokens. Support `--`, single-value `--option=value`, and focused help.
+- No compatibility aliases or implicit OpenCode Server mode. Keep `-a`, `-v`,
+  and `-h` as documented short options for agent, verbosity, and help.
+- Keep existing command handlers and shell-first integrations; use a small
+  standard-library dispatcher rather than a CLI framework.
+- Update bundled skills, generated launchers, shell demos, and all documentation
+  alongside parser and process-boundary regression tests.

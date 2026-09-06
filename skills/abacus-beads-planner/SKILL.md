@@ -32,8 +32,8 @@ separate linked ticket with its own destination and acceptance criteria.
 
 After creation, while dispatch is paused, stamp targets when enforcement requires
 them or work is intended for a non-default branch, using
-`abacus --set-ticket-target <branch> <id> ...` and verify with
-`abacus --check-ticket-targets <id> ...`. Pass `--repo <path>` to both commands
+`abacus targets set <branch> <id> ...` and verify with
+`abacus targets check <id> ...`. Pass `--repo <path>` to both commands
 when outside the main checkout. Never use a linked worktree as `--repo`. Defaulted tickets need no metadata backfill. If required stamping fails, report the incomplete graph rather than declaring
 it execution-ready. Never create or modify `abacus_execution` yourself; Abacus
 records that binding before it prepares an issue branch.

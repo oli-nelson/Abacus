@@ -32,12 +32,40 @@ JSON file path. Relative `--repo` paths resolve against the invocation directory
 Help, model listing, and new-repository creation remain usable outside Git;
 `--repo` is not accepted with model listing or new-repository creation.
 
+## Command structure
+
+Operations use bare command names; options configure those operations. Bare
+`abacus` prints help and never starts agents. Use `abacus run` explicitly.
+There are no legacy operation flags, implicit-run syntax, or deprecated aliases.
+
+```sh
+abacus help
+abacus help attention resolve
+abacus attention resolve --help
+abacus run --help
+abacus preflight --help
+```
+
+`--help` / `-h` works on every command and command group without repository or
+agent prerequisites. `--repo <path>` is accepted before or after a complete
+repository-scoped command (for example, `abacus --repo /work/repo health` or
+`abacus health --repo /work/repo`), but not by `new` or `models`.
+Options are command-scoped; unknown names and duplicate non-repeatable options
+fail rather than being silently ignored. `--agent` / `-a`, `--label`,
+`--exclude-label`, and `--target-filter` are repeatable.
+
+Single-value options accept `--option=value`. `--` ends option parsing before
+positional subjects, for example `abacus targets check -- ab-123 ab-456`.
+Message and prompt values are consumed as text, even when they look like a
+command or flag: `abacus attention resolve ab-123 --message "--help"` records
+that exact message; it does not display help. Positional messages are rejected.
+
 ## Standalone operations
 
 ### Create a new multi-agent project
 
 ```sh
-abacus --init-new-multi-agent-repo <project-name> <agent-count>
+abacus new <project-name> --agents <agent-count>
 ```
 
 Creates `<project-name>/repo`, shared-server Beads configuration, bundled
@@ -49,7 +77,7 @@ The destination must not already exist. See
 ### Initialize an existing Git/Beads project
 
 ```sh
-abacus --init
+abacus init
 ```
 
 Validates an existing, readable Beads project belonging to this Git repository,
@@ -63,13 +91,13 @@ nothing. Main-checkout subdirectories are supported; linked worktrees require
 
 Accepts `--repo <path>` and needs no harness, model, or tmux. It does not initialize
 Beads, change Beads settings, create branches, assign targets to tickets, stage,
-or commit. Run `--health` and `--check-ticket-targets` afterwards; successful init
+or commit. Run `health` and `targets check` afterwards; successful init
 is not proof of agent readiness. Review and commit the installed files.
 
 ### Install bundled skills
 
 ```sh
-abacus --install-skills
+abacus skills install
 ```
 
 Installs the four bundled skills under `.agents/skills` at the selected main Git root.
@@ -83,7 +111,7 @@ not require Beads, tmux, a model, or an agent harness.
 ### Check repository health
 
 ```sh
-abacus --health
+abacus health
 ```
 
 Reports:
@@ -99,14 +127,14 @@ Reports:
 It exits zero when at least one single-agent mode is runnable,
 `no-git-ops=false`, all bundled skills are installed, and main-repository and
 target configuration checks pass. It does not audit individual tickets; use
-`--check-ticket-targets` for that. A missing merge slot
+`targets check` for that. A missing merge slot
 is advisory. The check is read-only and does not contact an OpenCode server.
 
 ### Audit and repair ticket targets
 
 ```sh
-abacus --check-ticket-targets [<id> ...] [--repo <main-checkout>]
-abacus --set-ticket-target <branch> <id> [<id> ...] [--repo <main-checkout>]
+abacus targets check [<id> ...] [--repo <main-checkout>]
+abacus targets set <branch> <id> [<id> ...] [--repo <main-checkout>]
 ```
 
 The read-only audit includes closed history when no IDs are supplied and exempts
@@ -120,7 +148,7 @@ and `--start-commit <full-commit-id>`. See [target operations](targets.md).
 ### List available models
 
 ```sh
-abacus --models
+abacus models
 ```
 
 Groups IDs discovered from `opencode models` and `codex debug models`. Missing
@@ -132,7 +160,7 @@ model ID is discovered.
 ### List user-attention issues
 
 ```sh
-abacus --list-user-attention
+abacus attention list
 ```
 
 Prints every issue ID carrying `abacus:needs-user-attention`, including closed
@@ -141,8 +169,7 @@ issues, one per line with no heading.
 ### Resolve a user-attention issue
 
 ```sh
-abacus --resolve <issue-id> [<message>] [--reopen]
-abacus -r <issue-id> [<message>] [--reopen]
+abacus attention resolve <issue-id> [--message <text>] [--reopen]
 ```
 
 - With a message, Abacus adds that exact text as a Beads comment first.
@@ -153,13 +180,13 @@ abacus -r <issue-id> [<message>] [--reopen]
 Quote a multi-word message as one argument:
 
 ```sh
-abacus --resolve ab-123 "Approved option A" --reopen
+abacus attention resolve ab-123 --message "Approved option A" --reopen
 ```
 
 ### Prune branches for closed issues
 
 ```sh
-abacus --prune-closed-branches
+abacus branches prune
 ```
 
 Force-deletes local `abacus/<issue-id>` branches whose Beads issues are closed.
@@ -169,21 +196,21 @@ out in any worktree is skipped and reported without failing the remaining work.
 ## Orchestration synopsis
 
 ```sh
-abacus [--mode <opencode|codex|claude|opencode-server>] \
+abacus run [--mode <opencode|codex|claude|opencode-server>] \
   [--tmux-session <name> \
     [--tmux-window <name-or-index>] \
     [--tmux-layout <layout>]] \
   --model <model> \
   [--effort <effort>] \
-  [--remote] \
-  [--append-agent-prompt <prompt>] \
+  [--remote-control] \
+  [--append-prompt <prompt>] \
   [--label <label>] [--exclude-label <label>] \
   [--type <types>] [--priority <priority>] \
   [--ticket-timeout <duration>] \
   [--latest-comments <count>] \
   [--notify <off|attention|all>] [--notify-sound] \
   [--opencode-server <host:port>] \
-  [--once | --drain | --check] \
+  [--once | --drain] \
   [--verbose] \
   -a <agent-name> <git-workspace> [-a ...]
 ```
@@ -191,17 +218,25 @@ abacus [--mode <opencode|codex|claude|opencode-server>] \
 `--model` and at least one `-a` pair are required. Each agent name and canonical
 workspace path must be unique.
 
+## Preflight
+
+`abacus preflight <run-configuration-options>` uses the same model, agent,
+repository, filter, and hosting configuration as `run`. It validates without
+claims, workspace changes, hosted agents, cleanup, or a run summary. It rejects
+`--once` and `--drain`. For broad diagnostics without specifying agents, use
+`abacus health` instead.
+
 ## Run options
 
 ### Agent and model
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `-a <name> <workspace>` | — | Adds an agent and its dedicated Git workspace. Repeat for a pool. |
+| `--agent <name> <workspace>`, `-a <name> <workspace>` | — | Adds an agent and its dedicated Git workspace. Repeat for a pool. |
 | `--mode <mode>` | `opencode` | Selects one of the four supported modes. |
 | `--model <model>` | — | Required; passed to every selected harness. |
 | `--effort <effort>` | `high` | Nonempty provider-specific value without whitespace. |
-| `--remote` | off | Enables Claude Remote Control; rejected in every other mode. |
+| `--remote-control` | off | Enables Claude Remote Control; rejected in every other mode. |
 
 OpenCode modes require `provider/model`. Codex and Claude accept their native
 IDs or aliases. Harnesses remain responsible for validating model availability.
@@ -218,8 +253,8 @@ IDs or aliases. Harnesses remain responsible for validating model availability.
 Layouts: `even-horizontal`, `even-vertical`, `main-horizontal`,
 `main-vertical`, and `tiled`.
 
-OpenCode Server mode may omit tmux for direct child-process hosting. Supplying
-`--opencode-server` without `--mode` selects server mode for compatibility.
+OpenCode Server mode may omit tmux for direct child-process hosting. Use explicit `--mode opencode-server` with
+`--opencode-server`; the address alone never changes modes.
 `--tmux-window` and `--tmux-layout` are valid only with `--tmux-session`.
 
 ### Dispatch and supervision
@@ -229,7 +264,7 @@ OpenCode Server mode may omit tmux for direct child-process hosting. Supplying
 | `--label <label>` | Requires a label; repeat to require all supplied labels. |
 | `--exclude-label <label>` | Excludes a label; repeat to reject any supplied label. |
 | `--type <types>` | Passes one literal Beads type filter, including comma-separated values. |
-| `--target-branch <branch>` | Restricts the pool to resolved destinations; repeat to allow several. Never supplies ticket metadata. |
+| `--target-filter <branch>` | Restricts the pool to resolved destinations; repeat to allow several. Never supplies ticket metadata. |
 | `--priority <0-4>` | Limits dispatch to one Beads priority (`0` is highest). |
 | `--ticket-timeout <duration>` | Stops a run after a positive `s`, `m`, or `h` duration and safely recovers it. |
 
@@ -248,7 +283,7 @@ atomic, and Abacus refreshes selection after a lost race.
 
 | Input | Scope | Order |
 | --- | --- | --- |
-| `--append-agent-prompt <prompt>` | Every agent in the run | First addition |
+| `--append-prompt <prompt>` | Every agent in the run | First addition |
 | `<workspace>/.abacus/append-prompt.md` | Agents using that workspace | Second addition |
 
 The final prompt is the built-in Abacus prompt, the command-line addition, then
@@ -292,7 +327,7 @@ The exact built-in prompt is normative in
 | `--latest-comments <1-100>` | `8` | Number of recent Beads comments in the live dashboard. |
 | `--notify <off\|attention\|all>` | `off` | Selects desktop notification coverage. |
 | `--notify-sound` | off | Adds positive/negative sounds; requires notifications. |
-| `--verbose`, `--debug`, `-v` | off | Replaces the dashboard with timestamped transitions and subprocess diagnostics. |
+| `--verbose`, `-v` | off | Replaces the dashboard with timestamped transitions and subprocess diagnostics. |
 
 `attention` reports newly observed attention labels, blocked tickets, and
 persistent recovery failures. `all` also reports every outcome and the final
@@ -305,9 +340,9 @@ results. See [Operations](operations.md#desktop-notifications).
 | --- | --- |
 | `--once` | Each agent processes at most one currently ready issue, then exits. |
 | `--drain` | Agents continue until active work finishes and no ready issue remains. |
-| `--check` | Runs full non-mutating preflight and exits before cleanup or claims. |
 
-These options are mutually exclusive. Normal operation polls continuously.
+`--once` and `--drain` are mutually exclusive options for `run`.
+`preflight` is a separate command and rejects both. Normal runs poll continuously.
 Finite modes fail instead of retrying orchestration errors forever, making them
 suitable for scripts and CI.
 
@@ -315,13 +350,13 @@ Examples:
 
 ```sh
 # Validate without claiming or changing a workspace.
-abacus --check --mode opencode-server \
+abacus preflight --mode opencode-server \
   --model provider/model \
   --opencode-server 127.0.0.1:4096 \
   -a alice /work/repo-a
 
 # Process the current ready queue, then return control.
-abacus --drain --mode opencode-server \
+abacus run --drain --mode opencode-server \
   --model provider/model \
   --opencode-server 127.0.0.1:4096 \
   -a alice /work/repo-a
@@ -350,7 +385,7 @@ pass `--variant` directly.
   terminal control sequences.
 - `NO_COLOR=1` disables colors while retaining the live layout.
 - Successful `--once` and `--drain` runs print the normal summary.
-- `--check` prints preflight success without a run summary.
+- `preflight` prints preflight success without a run summary.
 - The final summary contains elapsed time, initial Dolt commit, and per-agent
   closed, reopened, blocked, and interrupted counts.
 

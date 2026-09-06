@@ -1,5 +1,9 @@
 # Release Smoke-Test Record
 
+> To repeat these checks with the current CLI, start agents with `abacus run`
+> and validate with `abacus preflight`. Server attachment also requires
+> explicit `--mode opencode-server`; the server address alone is insufficient.
+
 This page records manual release evidence; it is not a setup guide. For a
 repeatable user walkthrough, see [Getting started](getting-started.md). For the
 external behaviors under test, see the [CLI contracts](contracts/cli-contracts.md).
@@ -16,7 +20,7 @@ versions. All repositories, Dolt databases and remotes, servers, and tmux
 sessions used in this smoke test were disposable under `/tmp`.
 
 > **Historical evidence:** This exercise predates target routing, execution
-> bindings, `--init`, and `--repo`. It does not verify those later features.
+> bindings, `init`, and `--repo`. It does not verify those later features.
 > For a current rerun, initialize/review targets, audit tickets, and pass the
 > main checkout explicitly when launching outside it. The observations below
 > are preserved as recorded rather than rewritten to imply a newer smoke test.

@@ -8,9 +8,9 @@ public sealed class OptionsTests
     public void ParsesNewMultiAgentRepositoryInitialization()
     {
         var result = Options.Parse([
-            "--init-new-multi-agent-repo",
+            "new",
             "sample-project",
-            "4",
+            "--agents", "4",
         ]);
 
         var initialization = Assert.IsType<NewMultiAgentRepositoryOptions>(
@@ -22,12 +22,12 @@ public sealed class OptionsTests
     }
 
     [Theory]
-    [InlineData("--init-new-multi-agent-repo")]
-    [InlineData("--init-new-multi-agent-repo", "sample-project")]
-    [InlineData("--init-new-multi-agent-repo", "sample-project", "0")]
-    [InlineData("--init-new-multi-agent-repo", "sample-project", "many")]
-    [InlineData("--init-new-multi-agent-repo", "../sample-project", "2")]
-    [InlineData("--verbose", "--init-new-multi-agent-repo", "sample-project", "2")]
+    [InlineData("new")]
+    [InlineData("new", "sample-project")]
+    [InlineData("new", "sample-project", "--agents", "0")]
+    [InlineData("new", "sample-project", "--agents", "many")]
+    [InlineData("new", "../sample-project", "--agents", "2")]
+    [InlineData("--verbose", "new", "sample-project", "2")]
     public void RejectsInvalidNewMultiAgentRepositoryInitialization(params string[] arguments)
     {
         Assert.Throws<OptionsException>(() => Options.Parse(arguments));
@@ -40,12 +40,13 @@ public sealed class OptionsTests
         var second = Path.Combine(Path.GetTempPath(), "abacus", "two");
 
         var result = Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--tmux-window", "agents",
             "--tmux-layout", "tiled",
             "--model", "provider/model",
             "--effort", "xhigh",
-            "--opencode-server", "127.0.0.1:1234",
+            "--mode", "opencode-server", "--opencode-server", "127.0.0.1:1234",
             "-a", "alice", first,
             "-a", "bob", second,
         ]);
@@ -71,6 +72,7 @@ public sealed class OptionsTests
     public void ParsesPaneHostedAgentModes(string value, string model, AgentMode expected)
     {
         var result = Options.Parse([
+            "run",
             "--mode", value,
             "--tmux-session", "workers",
             "--model", model,
@@ -84,6 +86,7 @@ public sealed class OptionsTests
     public void DefaultsToOpenCodeMode()
     {
         var result = Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "-a", "alice", "/tmp/a",
@@ -101,6 +104,7 @@ public sealed class OptionsTests
     public void ParsesLatestCommentCount()
     {
         var result = Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--latest-comments", "24",
@@ -114,9 +118,10 @@ public sealed class OptionsTests
     public void ParsesAdditionalAgentPrompt()
     {
         var result = Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
-            "--append-agent-prompt", "Run the focused integration checks before merging.",
+            "--append-prompt", "Run the focused integration checks before merging.",
             "-a", "alice", "/tmp/a",
         ]);
 
@@ -129,10 +134,11 @@ public sealed class OptionsTests
     public void RejectsDuplicateAdditionalAgentPrompt()
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
-            "--append-agent-prompt", "first",
-            "--append-agent-prompt", "second",
+            "--append-prompt", "first",
+            "--append-prompt", "second",
             "-a", "alice", "/tmp/a",
         ]));
     }
@@ -141,9 +147,10 @@ public sealed class OptionsTests
     public void RejectsEmptyAdditionalAgentPrompt()
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
-            "--append-agent-prompt", "   ",
+            "--append-prompt", "   ",
             "-a", "alice", "/tmp/a",
         ]));
     }
@@ -155,6 +162,7 @@ public sealed class OptionsTests
     public void RejectsInvalidLatestCommentCount(string count)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--latest-comments", count,
@@ -166,6 +174,7 @@ public sealed class OptionsTests
     public void RejectsDuplicateLatestCommentCount()
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--latest-comments", "8",
@@ -182,6 +191,7 @@ public sealed class OptionsTests
     {
         var arguments = new List<string>
         {
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--notify", value,
@@ -205,6 +215,7 @@ public sealed class OptionsTests
     public void RejectsUnknownDesktopNotificationMode(string value)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--notify", value,
@@ -216,6 +227,7 @@ public sealed class OptionsTests
     public void NotificationSoundRequiresEnabledNotifications()
     {
         var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--notify-sound",
@@ -229,6 +241,7 @@ public sealed class OptionsTests
     public void RejectsDuplicateDesktopNotificationMode()
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--notify", "attention",
@@ -241,10 +254,11 @@ public sealed class OptionsTests
     public void ParsesRemoteForClaudeMode()
     {
         var result = Options.Parse([
+            "run",
             "--mode", "claude",
             "--tmux-session", "workers",
             "--model", "sonnet",
-            "--remote",
+            "--remote-control",
             "-a", "alice", "/tmp/a",
         ]);
 
@@ -255,6 +269,7 @@ public sealed class OptionsTests
     public void ParsesDispatchFiltersAndTicketTimeout()
     {
         var result = Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--label", "abacus-ready",
@@ -284,6 +299,7 @@ public sealed class OptionsTests
     public void RejectsInvalidTicketTimeout(string timeout)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--ticket-timeout", timeout,
@@ -298,6 +314,7 @@ public sealed class OptionsTests
     public void RejectsInvalidDispatchPriority(string priority)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--priority", priority,
@@ -316,6 +333,7 @@ public sealed class OptionsTests
         string secondValue)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             firstOption, firstValue,
@@ -332,9 +350,10 @@ public sealed class OptionsTests
     {
         var arguments = new List<string>
         {
+            "run",
             "--mode", mode,
             "--model", "provider/model",
-            "--remote",
+            "--remote-control",
         };
         if (mode == "opencode-server")
         {
@@ -358,6 +377,7 @@ public sealed class OptionsTests
     public void RejectsInvalidEffort(string effort)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "workers",
             "--model", "provider/model",
             "--effort", effort,
@@ -367,11 +387,11 @@ public sealed class OptionsTests
 
     [Theory]
     [InlineData("--verbose")]
-    [InlineData("--debug")]
     [InlineData("-v")]
     public void ParsesVerboseAliases(string verbosityOption)
     {
         var result = Options.Parse([
+            "run",
             "--tmux-session", "s",
             "--model", "provider/model",
             verbosityOption,
@@ -387,6 +407,7 @@ public sealed class OptionsTests
     public void ParsesFiniteExecutionModes(string option, ExecutionMode expected)
     {
         var result = Options.Parse([
+            "run",
             "--tmux-session", "s",
             "--model", "provider/model",
             option,
@@ -398,12 +419,12 @@ public sealed class OptionsTests
     }
 
     [Fact]
-    public void ParsesCheckOnlyMode()
+    public void ParsesPreflightCommand()
     {
         var result = Options.Parse([
+            "preflight",
             "--tmux-session", "s",
             "--model", "provider/model",
-            "--check",
             "-a", "alice", "/tmp/a",
         ]);
 
@@ -413,11 +434,11 @@ public sealed class OptionsTests
 
     [Theory]
     [InlineData("--once", "--drain")]
-    [InlineData("--check", "--once")]
-    [InlineData("--check", "--drain")]
+
     public void RejectsConflictingExecutionModes(string first, string second)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "s",
             "--model", "provider/model",
             first,
@@ -430,8 +451,9 @@ public sealed class OptionsTests
     public void AttachedServerDoesNotRequireTmux()
     {
         var result = Options.Parse([
+            "run",
             "--model", "provider/model",
-            "--opencode-server", "127.0.0.1:1234",
+            "--mode", "opencode-server", "--opencode-server", "127.0.0.1:1234",
             "-a", "alice", "/tmp/a",
         ]);
 
@@ -444,6 +466,7 @@ public sealed class OptionsTests
     public void ExplicitOpenCodeServerModeParsesWithoutTmux()
     {
         var result = Options.Parse([
+            "run",
             "--mode", "opencode-server",
             "--model", "provider/model",
             "--opencode-server", "127.0.0.1:1234",
@@ -462,6 +485,7 @@ public sealed class OptionsTests
     {
         var model = mode == "opencode" ? "provider/model" : "model";
         var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--mode", mode,
             "--model", model,
             "-a", "alice", "/tmp/a",
@@ -474,6 +498,7 @@ public sealed class OptionsTests
     public void ExplicitOpenCodeServerModeRequiresAddress()
     {
         var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--mode", "opencode-server",
             "--model", "provider/model",
             "-a", "alice", "/tmp/a",
@@ -486,6 +511,7 @@ public sealed class OptionsTests
     public void ServerAddressIsRejectedForOtherExplicitModes()
     {
         var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--mode", "codex",
             "--tmux-session", "workers",
             "--model", "gpt-5.6-terra",
@@ -502,6 +528,7 @@ public sealed class OptionsTests
     public void CodexAndClaudeModelsRejectWhitespace(string mode, string model)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--mode", mode,
             "--tmux-session", "workers",
             "--model", model,
@@ -513,9 +540,10 @@ public sealed class OptionsTests
     public void TmuxWindowStillRequiresTmuxSession()
     {
         var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-window", "agents",
             "--model", "provider/model",
-            "--opencode-server", "127.0.0.1:1234",
+            "--mode", "opencode-server", "--opencode-server", "127.0.0.1:1234",
             "-a", "alice", "/tmp/a",
         ]));
 
@@ -526,9 +554,10 @@ public sealed class OptionsTests
     public void TmuxLayoutStillRequiresTmuxSession()
     {
         var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-layout", "tiled",
             "--model", "provider/model",
-            "--opencode-server", "127.0.0.1:1234",
+            "--mode", "opencode-server", "--opencode-server", "127.0.0.1:1234",
             "-a", "alice", "/tmp/a",
         ]));
 
@@ -544,6 +573,7 @@ public sealed class OptionsTests
     public void ParsesSupportedTmuxLayouts(string layout)
     {
         var result = Options.Parse([
+            "run",
             "--tmux-session", "s",
             "--tmux-layout", layout,
             "--model", "provider/model",
@@ -557,6 +587,7 @@ public sealed class OptionsTests
     public void RejectsUnknownTmuxLayout()
     {
         var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "s",
             "--tmux-layout", "spiral",
             "--model", "provider/model",
@@ -567,18 +598,18 @@ public sealed class OptionsTests
     }
 
     [Theory]
-    [InlineData()]
-    [InlineData("--model", "provider/model", "-a", "alice", "/tmp/a")]
-    [InlineData("--tmux-session", "s", "--model", "provider/model")]
-    [InlineData("--tmux-session", "s", "--tmux-window", "--model", "provider/model", "-a", "alice", "/tmp/a")]
-    [InlineData("--tmux-session", "s", "-a", "alice", "/tmp/a")]
-    [InlineData("--tmux-session", "s", "--model", "model", "-a", "alice", "/tmp/a")]
-    [InlineData("--tmux-session", "s", "--model", "/model", "-a", "alice", "/tmp/a")]
-    [InlineData("--tmux-session", "s", "--model", "provider/", "-a", "alice", "/tmp/a")]
-    [InlineData("--tmux-session", "s", "--model", "provider/model#high", "-a", "alice", "/tmp/a")]
-    [InlineData("--tmux-session", "s", "--model", "one/two/three", "-a", "alice", "/tmp/a")]
-    [InlineData("--mode", "invalid", "--tmux-session", "s", "--model", "provider/model", "-a", "alice", "/tmp/a")]
-    [InlineData("--tmux-session", "s", "--model", "provider/model", "--unknown", "x", "-a", "alice", "/tmp/a")]
+    [InlineData("run")]
+    [InlineData("run", "--model", "provider/model", "-a", "alice", "/tmp/a")]
+    [InlineData("run", "--tmux-session", "s", "--model", "provider/model")]
+    [InlineData("run", "--tmux-session", "s", "--tmux-window", "--model", "provider/model", "-a", "alice", "/tmp/a")]
+    [InlineData("run", "--tmux-session", "s", "-a", "alice", "/tmp/a")]
+    [InlineData("run", "--tmux-session", "s", "--model", "model", "-a", "alice", "/tmp/a")]
+    [InlineData("run", "--tmux-session", "s", "--model", "/model", "-a", "alice", "/tmp/a")]
+    [InlineData("run", "--tmux-session", "s", "--model", "provider/", "-a", "alice", "/tmp/a")]
+    [InlineData("run", "--tmux-session", "s", "--model", "provider/model#high", "-a", "alice", "/tmp/a")]
+    [InlineData("run", "--tmux-session", "s", "--model", "one/two/three", "-a", "alice", "/tmp/a")]
+    [InlineData("run", "--mode", "invalid", "--tmux-session", "s", "--model", "provider/model", "-a", "alice", "/tmp/a")]
+    [InlineData("run", "--tmux-session", "s", "--model", "provider/model", "--unknown", "x", "-a", "alice", "/tmp/a")]
     public void RejectsInvalidArguments(params string[] arguments)
     {
         Assert.Throws<OptionsException>(() => Options.Parse(arguments));
@@ -588,6 +619,7 @@ public sealed class OptionsTests
     public void RejectsDuplicateAgentNames()
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "s", "--model", "p/m",
             "-a", "alice", "/tmp/a",
             "-a", "alice", "/tmp/b",
@@ -598,6 +630,7 @@ public sealed class OptionsTests
     public void RejectsEquivalentWorkspacePaths()
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
+            "run",
             "--tmux-session", "s", "--model", "p/m",
             "-a", "alice", "/tmp/a/../a",
             "-a", "bob", "/tmp/a",
@@ -615,7 +648,7 @@ public sealed class OptionsTests
     [Fact]
     public void InstallSkillsDoesNotRequireAgentOptions()
     {
-        var result = Options.Parse(["--install-skills"]);
+        var result = Options.Parse(["skills", "install"]);
 
         Assert.True(result.InstallSkills);
         Assert.False(result.ShowHelp);
@@ -625,13 +658,13 @@ public sealed class OptionsTests
     [Fact]
     public void InstallSkillsCannotBeCombinedWithAgentOptions()
     {
-        Assert.Throws<OptionsException>(() => Options.Parse(["--install-skills", "--verbose"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["skills", "install", "--verbose"]));
     }
 
     [Fact]
     public void InitDoesNotRequireAgentOptions()
     {
-        var result = Options.Parse(["--init"]);
+        var result = Options.Parse(["init"]);
         Assert.True(result.InitializeRepository);
         Assert.Null(result.Value);
     }
@@ -639,7 +672,7 @@ public sealed class OptionsTests
     [Fact]
     public void HealthDoesNotRequireAgentOptions()
     {
-        var result = Options.Parse(["--health"]);
+        var result = Options.Parse(["health"]);
 
         Assert.True(result.ShowHealth);
         Assert.False(result.ShowHelp);
@@ -649,13 +682,13 @@ public sealed class OptionsTests
     [Fact]
     public void HealthCannotBeCombinedWithAgentOptions()
     {
-        Assert.Throws<OptionsException>(() => Options.Parse(["--health", "--verbose"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["health", "--verbose"]));
     }
 
     [Fact]
     public void ModelsDoesNotRequireAgentOptions()
     {
-        var result = Options.Parse(["--models"]);
+        var result = Options.Parse(["models"]);
 
         Assert.True(result.ShowModels);
         Assert.False(result.ShowHelp);
@@ -665,36 +698,34 @@ public sealed class OptionsTests
     [Fact]
     public void ModelsCannotBeCombinedWithOtherOptions()
     {
-        Assert.Throws<OptionsException>(() => Options.Parse(["--models", "--verbose"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["models", "--verbose"]));
     }
 
     [Theory]
-    [InlineData("--prune-closed-branches")]
-    [InlineData("--list-user-attention")]
-    public void RepositoryCommandsDoNotRequireAgentOptions(string command)
+    [InlineData("branches", "prune")]
+    [InlineData("attention", "list")]
+    public void RepositoryCommandsDoNotRequireAgentOptions(string group, string command)
     {
-        var result = Options.Parse([command]);
+        var result = Options.Parse([group, command]);
 
-        Assert.Equal(command == "--prune-closed-branches", result.PruneClosedBranches);
-        Assert.Equal(command == "--list-user-attention", result.ListUserAttention);
+        Assert.Equal(command == "prune", result.PruneClosedBranches);
+        Assert.Equal(command == "list", result.ListUserAttention);
         Assert.False(result.ShowHelp);
         Assert.Null(result.Value);
     }
 
     [Theory]
-    [InlineData("--prune-closed-branches")]
-    [InlineData("--list-user-attention")]
-    public void RepositoryCommandsCannotBeCombinedWithOtherOptions(string command)
+    [InlineData("branches", "prune")]
+    [InlineData("attention", "list")]
+    public void RepositoryCommandsCannotBeCombinedWithOtherOptions(string group, string command)
     {
-        Assert.Throws<OptionsException>(() => Options.Parse([command, "--verbose"]));
+        Assert.Throws<OptionsException>(() => Options.Parse([group, command, "--verbose"]));
     }
 
-    [Theory]
-    [InlineData("--resolve")]
-    [InlineData("-r")]
-    public void ResolveDoesNotRequireAgentOptions(string command)
+    [Fact]
+    public void ResolveDoesNotRequireAgentOptions()
     {
-        var result = Options.Parse([command, "ab-123"]);
+        var result = Options.Parse(["attention", "resolve", "ab-123"]);
 
         var resolution = Assert.IsType<AttentionResolutionOptions>(result.AttentionResolution);
         Assert.Equal("ab-123", resolution.IssueId);
@@ -715,9 +746,9 @@ public sealed class OptionsTests
     public void ResolveAttentionAcceptsAnOptionalQuotedMessage()
     {
         var result = Options.Parse([
-            "--resolve",
+            "attention", "resolve",
             "ab-123",
-            "Use option A after QA",
+            "--message", "Use option A after QA",
         ]);
 
         var resolution = Assert.IsType<AttentionResolutionOptions>(result.AttentionResolution);
@@ -727,12 +758,12 @@ public sealed class OptionsTests
 
     [Theory]
     [InlineData("--reopen")]
-    [InlineData("Approved option A", "--reopen")]
-    [InlineData("--reopen", "Approved option A")]
+    [InlineData("--message", "Approved option A", "--reopen")]
+    [InlineData("--reopen", "--message", "Approved option A")]
     public void ResolveAttentionAcceptsReopenWithOrWithoutAMessage(params string[] trailingArguments)
     {
         var result = Options.Parse([
-            "--resolve",
+            "attention", "resolve",
             "ab-123",
             .. trailingArguments,
         ]);
@@ -740,17 +771,17 @@ public sealed class OptionsTests
         var resolution = Assert.IsType<AttentionResolutionOptions>(result.AttentionResolution);
         Assert.Equal("ab-123", resolution.IssueId);
         Assert.Equal(
-            trailingArguments.SingleOrDefault(static argument => argument != "--reopen"),
+            trailingArguments.SingleOrDefault(static argument => argument is not ("--reopen" or "--message")),
             resolution.Message);
         Assert.True(resolution.Reopen);
     }
 
     [Theory]
-    [InlineData("--resolve")]
+    [InlineData("attention", "resolve")]
     [InlineData("-r")]
-    [InlineData("--resolve", "ab-123", "message", "extra")]
-    [InlineData("--resolve", "ab-123", "--reopen", "--reopen")]
-    [InlineData("--verbose", "--resolve", "ab-123")]
+    [InlineData("attention", "resolve", "ab-123", "message", "extra")]
+    [InlineData("attention", "resolve", "ab-123", "--reopen", "--reopen")]
+    [InlineData("--verbose", "attention", "resolve", "ab-123")]
     public void ResolveAttentionRejectsMissingOrCombinedArguments(params string[] arguments)
     {
         Assert.Throws<OptionsException>(() => Options.Parse(arguments));
@@ -762,6 +793,6 @@ public sealed class OptionsTests
     public void ResolveAttentionRejectsAnEmptyMessage(string message)
     {
         Assert.Throws<OptionsException>(() =>
-            Options.Parse(["--resolve", "ab-123", message]));
+            Options.Parse(["attention", "resolve", "ab-123", "--message", message]));
     }
 }

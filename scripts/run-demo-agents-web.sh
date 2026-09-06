@@ -118,10 +118,12 @@ fi
 
 printf 'OpenCode web is ready; starting Abacus\n'
 printf 'In OpenCode Web, use the project menu to Enable workspaces, then expand wt/0 through wt/3 to see agent sessions.\n'
-"$abacus_bin" \
+"$abacus_bin" run \
+  --repo "$root/repo" \
+  --mode opencode-server \
   --model "$model" \
   --opencode-server "$server_address" \
-  --append-agent-prompt "NEVER use the git-commit-staged skill" \
+  --append-prompt "NEVER use the git-commit-staged skill" \
   -a demo-0 "$root/wt/0" \
   -a demo-1 "$root/wt/1" \
   -a demo-2 "$root/wt/2" \

@@ -30,28 +30,28 @@ nonempty target. Explicit malformed or unconfigured targets and conflicting
 execution bindings are invalid in either mode. Internal `gt:slot` records are
 exempt. Never infer a destination from a parent, label, or workspace checkout.
 
-Run `abacus --check-ticket-targets <id> ...` for the selected scope, or
-`abacus --check-ticket-targets` to audit all tickets including closed history.
+Run `abacus targets check <id> ...` for the selected scope, or
+`abacus targets check` to audit all tickets including closed history.
 Pass `--repo <main-checkout>` when outside the main checkout, including from agent worktrees.
 This command is read-only and exits nonzero for invalid targets or execution
 bindings. Treat its findings as agent-stoppers, not optional metadata advice.
 
 Propose the intended target to the user; never infer it from an agent workspace,
 parent, label, or the name `main`. After repair approval, pause dispatch and use
-`abacus --set-ticket-target <branch> <id> ...` to add or correct targets. This
+`abacus targets set <branch> <id> ...` to add or correct targets. This
 preserves unrelated metadata and does not reopen tickets or clear attention.
 Do not edit `abacus_execution` to bypass a binding mismatch. Existing unbound
 branches and changed execution policies require explicit operator recovery.
 For an unbound legacy branch, after explicit review/approval of the destination
-and starting commit, use `abacus --set-ticket-target <branch> <id>
+and starting commit, use `abacus targets set <branch> <id>
 --adopt-existing-branch --start-commit <full-commit-id>` with dispatch stopped.
 This adoption changes metadata only and cannot replace an existing binding.
-Rerun `abacus --check-ticket-targets <id> ...` after each repair batch.
+Rerun `abacus targets check <id> ...` after each repair batch.
 
 Dispatch atomically claims invalid candidates only to block them, add
 `abacus:needs-user-attention`, and append the precise target-validation reason;
 no coding agent starts and no workspace files are changed. Once the check passes,
-use `abacus --resolve <id> --reopen` only with the user's lifecycle approval.
+use `abacus attention resolve <id> --reopen` only with the user's lifecycle approval.
 
 ## Agent-Readiness Audit
 

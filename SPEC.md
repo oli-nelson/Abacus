@@ -27,7 +27,7 @@ It uses:
 Create a brand-new multi-agent repository layout from the current directory:
 
 ```sh
-abacus --init-new-multi-agent-repo <project-name> <agent-count>
+abacus new <project-name> --agents <agent-count>
 ```
 
 This standalone operation must reject an existing `<project-name>` destination,
@@ -48,9 +48,9 @@ create the tmux session.
 
 Before running Abacus:
 
-1. Set up a Beads project in your main Git checkout, then run `abacus --init`
+1. Set up a Beads project in your main Git checkout, then run `abacus init`
    to install skills and create missing target configuration. Review the target
-   policy and use `--check-ticket-targets` before dispatch.
+   policy and use `targets check` before dispatch.
 2. For OpenCode, Codex, or Claude mode, start a tmux session and, optionally, the window where agent panes should run.
 3. For OpenCode Server mode, start an OpenCode server. A tmux session is optional in this mode.
 
@@ -59,7 +59,7 @@ Git-instruction-audit skills from inside the main checkout (or pass
 `--repo <main-checkout>` from elsewhere):
 
 ```sh
-abacus --install-skills
+abacus skills install
 ```
 
 This installs `.agents/skills/abacus-beads-planner`,
@@ -75,20 +75,20 @@ not start the orchestrator.
 
 ### Initialize Abacus in an existing repository
 
-`abacus --init [--repo <path>]` is standalone. Resolve the main Git checkout,
+`abacus init [--repo <path>]` is standalone. Resolve the main Git checkout,
 require an initialized, readable Beads project belonging to the same Git
 repository (including explicit Beads redirects), and validate target
 configuration and local branch refs before installing anything. Reject missing
 or unusable Beads with setup guidance; never run `bd init` automatically.
 Install the bundled skills using the same confirmation contract as
-`--install-skills`. A declined confirmation leaves both skills and configuration
+`skills install`. A declined confirmation leaves both skills and configuration
 unchanged. Create `.abacus/targets.json` allowing only `main` when absent, with
 `enforceTargetBranch: false` and `defaultTarget: "main"`;
 preserve existing configuration byte-for-byte. If no local `main` exists, require
 an explicit configuration naming an existing target or an operator-created branch.
 Do not create branches, assign tickets, change Beads settings, stage, or commit.
 Report created/preserved config, installed skills, and next steps: review/commit
-setup files, run `--health`, then audit/set ticket targets. Full agent readiness
+setup files, run `health`, then audit/set ticket targets. Full agent readiness
 is a separate health/preflight check, not an initialization prerequisite.
 
 ### Agent workspaces
@@ -109,72 +109,85 @@ Multiple agents must use the same shared Dolt database so task claims are atomic
 
 ## Usage
 
+Operations are bare commands: `run`, `preflight`, `new`, `init`, `skills install`,
+`health`, `models`, `branches prune`, `attention list`, `attention resolve`,
+`targets check`, and `targets set`. Bare `abacus` prints help; there is no implicit
+run or compatibility syntax. `abacus help <command>`, `<command> --help`, and
+`<command> -h` provide scoped help without operational prerequisites.
+`--repo` works before or after repository-scoped commands, not `new` or `models`.
+Options are command-scoped, exact, and non-repeatable unless documented otherwise.
+`--agent <name> <workspace>` and `-a` are equivalent repeatable agent declarations.
+Single-value options accept `--option=value`; `--` ends option parsing before
+positional subjects. Message and prompt values must be consumed contextually,
+never scanned for operation keywords or help flags. Attention messages require
+`--message <text>`; positional messages are rejected.
+
+
 Initialize a new multi-agent repository:
 
 ```sh
-abacus --init-new-multi-agent-repo <project-name> <agent-count>
+abacus new <project-name> --agents <agent-count>
 ```
 
 Initialize Abacus in an existing Git/Beads repository:
 
 ```sh
-abacus --init
+abacus init
 ```
 
 Install only the bundled agent skills:
 
 ```sh
-abacus --install-skills
+abacus skills install
 ```
 
 Inspect whether the current repository is ready for Abacus:
 
 ```sh
-abacus --health
+abacus health
 ```
 
 List model IDs exposed by the installed agent harnesses:
 
 ```sh
-abacus --models
+abacus models
 ```
 
 Delete local Abacus branches whose corresponding tickets are closed:
 
 ```sh
-abacus --prune-closed-branches
+abacus branches prune
 ```
 
 List ticket IDs that need user attention:
 
 ```sh
-abacus --list-user-attention
+abacus attention list
 ```
 
 Resolve a user-attention callout from the current Beads project:
 
 ```sh
-abacus --resolve <issue-id> [<message>] [--reopen]
-abacus -r <issue-id> [<message>] [--reopen]
+abacus attention resolve <issue-id> [--message <text>] [--reopen]
 ```
 
 Start agents in an existing tmux session:
 
 ```sh
-abacus --tmux-session <session_name> \
+abacus run --tmux-session <session_name> \
   [--mode <opencode|codex|claude>] \
   [--tmux-window <window_name_or_index>] \
   [--tmux-layout <layout>] \
   --model <model> \
   [--effort <effort>] \
-  [--remote] \
-  [--repo <main-checkout>] [--target-branch <branch>] \
+  [--remote-control] \
+  [--repo <main-checkout>] [--target-filter <branch>] \
   [--label <label>] [--exclude-label <label>] \
   [--type <types>] [--priority <priority>] \
   [--ticket-timeout <duration>] \
   [--latest-comments <count>] \
   [--notify <off|attention|all>] [--notify-sound] \
-  [--once | --drain | --check] \
+  [--once | --drain] \
   [--verbose] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
@@ -182,7 +195,7 @@ abacus --tmux-session <session_name> \
 
 `--mode` defaults to `opencode`. `--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific variant name without whitespace. OpenCode modes require a `provider/model` ID; Codex and Claude accept their native model IDs and aliases. Model and effort availability remain the selected CLI's responsibility. Interactive OpenCode is the exception: OpenCode 1.18.20's TUI entry point does not expose variant selection, so Abacus passes the model unchanged and OpenCode uses its configured or session-selected variant.
 
-`--remote` is valid only with Claude Code. Abacus adds `--remote-control '<issue-id> • <issue-title>'` to the normal interactive command. Codex and both OpenCode modes reject the option.
+`--remote-control` is valid only with Claude Code. Abacus adds `--remote-control '<issue-id> • <issue-title>'` to the normal interactive command. Codex and both OpenCode modes reject the option.
 
 Dispatch filters are optional and apply to every fresh or same-agent resumed ready claim. `--label` and `--exclude-label` are repeatable literal passthroughs to `bd ready`; `--type` accepts one literal Beads type filter, including comma-separated types; and `--priority` accepts priorities 0 through 4. Abacus always excludes `gt:slot` in addition to user filters. Beads priority remains the primary ordering. When multiple candidates share the highest available priority, Abacus prefers the candidate with the newest comment; if none of those candidates has a comment, it preserves the first candidate returned by Beads. Before claiming that candidate, Abacus checks its direct children and skips it when any child is not closed.
 
@@ -204,7 +217,7 @@ their existing workspaces before fresh dispatch begins.
 
 `--notify` controls Abacus-owned desktop notifications and defaults to `off`. `attention` reports newly observed `abacus:needs-user-attention` issues, blocked tickets, and persistent recovery failures. `all` additionally reports every ticket outcome and the final run summary. On macOS Abacus uses `osascript`; on Linux it uses `notify-send` when available. Notification delivery is best effort and never changes orchestration outcomes. `--notify-sound` uses a positive sound for closed tickets and runs with only closed outcomes, and a negative sound for attention, persistent failures, reopened, blocked, or interrupted outcomes and run summaries containing any of those outcomes. It permits a terminal bell fallback if desktop delivery is unavailable and requires `--notify attention` or `--notify all`.
 
-`--resolve <issue-id> [<message>] [--reopen]` (short form `-r`) is a standalone operation. It runs
+`attention resolve <issue-id> [--message <text>] [--reopen]` is a standalone operation. It runs
 `bd update` at the selected main repository root to remove
 `abacus:needs-user-attention`. When the optional message is present, it first
 uses `bd comment` to add the exact supplied message. The label is not removed if
@@ -214,19 +227,19 @@ claimed again. On success it prints a concise confirmation instead of the
 raw Beads JSON. It does not run agent preflight or require normal run options.
 The command fails if Beads cannot perform any requested operation.
 
-`--list-user-attention` is a standalone, read-only operation. It queries every
+`attention list` is a standalone, read-only operation. It queries every
 issue carrying `abacus:needs-user-attention`, including closed issues, and
 prints only issue IDs, one per line. It does not run agent preflight or require
 normal run options.
 
-`--prune-closed-branches` is a standalone repository-maintenance operation. It
+`branches prune` is a standalone repository-maintenance operation. It
 queries all closed Beads tickets and force-deletes matching local
 `abacus/<issue-id>` branches from the selected main Git repository. It does not touch
 non-Abacus branches or remote refs. A matching branch checked out in any
 worktree is skipped and reported rather than causing the rest of the prune to
 fail. It does not run agent preflight or require normal run options.
 
-`--models` is a standalone, read-only operation. It invokes `opencode models`
+`models` is a standalone, read-only operation. It invokes `opencode models`
 and `codex debug models` when those harnesses are installed, then prints their
 available model IDs in separate groups. A missing harness or failed catalog is
 reported within its group without suppressing successful groups. Claude Code
@@ -253,24 +266,24 @@ races. Cleanup never targets a pane other than the ID Abacus recorded at launch.
 To connect the agents to an existing OpenCode server:
 
 ```sh
-abacus --mode opencode-server --model <provider/model> --effort <effort> \
+abacus run --mode opencode-server --model <provider/model> --effort <effort> \
   --opencode-server 127.0.0.1:1234 \
-  [--once | --drain | --check] \
+  [--once | --drain] \
   -a <agent_name> <git_workspace_path> \
   -a <agent_name> <git_workspace_path>
 ```
 
 Without `--tmux-session`, each agent starts as a directly supervised, non-interactive `opencode run --attach` child process connected to the specified server. Direct processes receive their own workspace, prompt, model, and `BEADS_ACTOR`; Abacus drains their output so it does not corrupt the dashboard and stops them when supervision ends. tmux is not looked up or required in this mode.
 
-For backward compatibility, supplying `--opencode-server` without `--mode` implies `opencode-server`. Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`. The server option is rejected for all other explicit modes.
+Server attachment requires explicit `--mode opencode-server` with `--opencode-server <host:port>`; the address alone never changes modes. Supplying both `--opencode-server` and `--tmux-session` keeps the pane-hosted attached behavior: each client runs in a separate tmux pane. `--tmux-window` and `--tmux-layout` remain valid only with `--tmux-session`. The server option is rejected for all other explicit modes.
 
-By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, paused, waiting, idle, syncing, preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. The dashboard starts with new ticket claims enabled. Pressing Shift-Tab toggles new claims on or off for all agents; pausing does not interrupt tickets that are already active. The header shows the current claim state, and agents waiting for permission display a paused state. The up and down arrows select agent and latest-comment rows. Enter opens the selected agent's action panel or the selected comment's complete detail view; long comments scroll with the arrow or Page Up and Page Down keys, and Escape returns to the dashboard. Stop interrupts that agent's hosted process, keeps its current ticket reserved, and parks the loop. Restart interrupts an active process when necessary and relaunches the reserved ticket, or resumes a parked or idle loop. Clean Workspace requires explicit confirmation, safely reopens any active ticket, runs `git reset --hard` followed by `git clean -fd`, and leaves the agent parked until Restart. A successful clean clears that agent's persistent recovery alert. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `--debug` or `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
+By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, paused, waiting, idle, syncing, preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. The dashboard starts with new ticket claims enabled. Pressing Shift-Tab toggles new claims on or off for all agents; pausing does not interrupt tickets that are already active. The header shows the current claim state, and agents waiting for permission display a paused state. The up and down arrows select agent and latest-comment rows. Enter opens the selected agent's action panel or the selected comment's complete detail view; long comments scroll with the arrow or Page Up and Page Down keys, and Escape returns to the dashboard. Stop interrupts that agent's hosted process, keeps its current ticket reserved, and parks the loop. Restart interrupts an active process when necessary and relaunches the reserved ticket, or resumes a parked or idle loop. Clean Workspace requires explicit confirmation, safely reopens any active ticket, runs `git reset --hard` followed by `git clean -fd`, and leaves the agent parked until Restart. A successful clean clears that agent's persistent recovery alert. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
 
-Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `--check` runs the complete non-mutating preflight and exits without changing workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected main repository, target registry and local refs, agent executable, workspace, Beads `no-git-ops` setting, and Dolt configuration, the OpenCode server address when applicable, and any requested tmux session/window target. These three options are mutually exclusive.
+Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `preflight` runs the complete non-mutating preflight and exits without changing workspaces, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected main repository, target registry and local refs, agent executable, workspace, Beads `no-git-ops` setting, and Dolt configuration, the OpenCode server address when applicable, and any requested tmux session/window target. `--once` and `--drain` are mutually exclusive run options; `preflight` is a separate command and rejects both.
 
 ### Repository health
 
-`--health` is a standalone, read-only diagnostic. From the selected main Git
+`health` is a standalone, read-only diagnostic. From the selected main Git
 repository it reports:
 
 - whether target configuration, instruction files, and local target branches are valid;
@@ -336,7 +349,7 @@ no repository ID is required or emitted. When enforcement is off, the default
 must be in the allowlist. An explicitly configured default must be allowed in
 either mode; strict registries may omit an unused default.
 
-`--target-branch <branch>` is a repeatable eligibility filter, never a destination
+`--target-filter <branch>` is a repeatable eligibility filter, never a destination
 override. Apply target eligibility before priority/comment selection. Invalid
 metadata candidates remain eligible for an atomic validation claim. After the
 claim, reread ownership and metadata. A missing target under enforcement, an
@@ -359,14 +372,14 @@ Create new branches explicitly from that commit, never current workspace HEAD.
 Never reset, rebase, or forcibly share another worktree's checked-out issue branch.
 Hold exclusive per-workspace OS ownership in the Git administrative directory
 before runtime claims; release handles on shutdown without deleting lock files.
-The read-only `--check` operation creates no locks.
+The read-only `preflight` operation creates no locks.
 
 Standalone commands:
 
 ```sh
-abacus --check-ticket-targets [<issue-id> ...] [--repo <path>]
-abacus --set-ticket-target <branch> <issue-id> [<issue-id> ...] [--repo <path>]
-abacus --set-ticket-target <branch> <issue-id> --adopt-existing-branch --start-commit <full-commit-id>
+abacus targets check [<issue-id> ...] [--repo <path>]
+abacus targets set <branch> <issue-id> [<issue-id> ...] [--repo <path>]
+abacus targets set <branch> <issue-id> --adopt-existing-branch --start-commit <full-commit-id>
 ```
 
 The check is read-only and audits all tickets, including closed history, when no
@@ -385,7 +398,7 @@ commit contained in both issue and target histories, one inactive unbound ticket
 and an existing issue branch. Record its binding without changing Git. Never
 silently adopt legacy branches or overwrite an existing binding.
 
-`--health [--repo <path>]` checks target configuration, instruction files, and
+`health [--repo <path>]` checks target configuration, instruction files, and
 local branches; invalid targets make readiness fail. It does not audit tickets.
 The new-repository initializer writes and commits a config with `main` allowed,
 and launchers explicitly select it. Planner and doctor must use

@@ -75,7 +75,7 @@ public sealed class RepositoryInitializer(
             catch (TargetException exception)
             {
                 throw new RepositoryInitializationException(
-                    $"{exception.Message}. Create the intended local branch or configure {targetsPath} explicitly before running --init; no branches are created automatically");
+                    $"{exception.Message}. Create the intended local branch or configure {targetsPath} explicitly before running init; no branches are created automatically");
             }
         }
 

@@ -16,7 +16,7 @@ has been added.
 
 ## Configure the controller
 
-Run `abacus --init` in an existing Git/Beads project to install skills and create
+Run `abacus init` in an existing Git/Beads project to install skills and create
 a default `.abacus/targets.json` allowing `main` only if absent. It validates
 Beads and local target branches before installing; it never overwrites existing
 configuration or assigns ticket targets. Alternatively, create the file manually
@@ -72,8 +72,8 @@ adopting the new policy. Stop work and inspect such bindings before an explicit
 manual recovery; the setter does not rewrite existing bindings.
 
 ```sh
-abacus --health
-abacus --health --repo /path/to/main-checkout
+abacus health
+abacus health --repo /path/to/main-checkout
 ```
 
 Health checks presence, schema, instruction files, and local target branches.
@@ -85,8 +85,8 @@ the ticket database; use the dedicated command below for that.
 Read-only audit, with exit code 0 when all selected tickets pass and 1 otherwise:
 
 ```sh
-abacus --check-ticket-targets
-abacus --check-ticket-targets project-123 project-456
+abacus targets check
+abacus targets check project-123 project-456
 ```
 
 Without IDs, audit every ticket, including closed tickets, excluding `gt:slot`.
@@ -97,8 +97,8 @@ normal agent options and does not claim or mutate tickets or workspaces.
 Pause dispatch and stop active work before setting metadata:
 
 ```sh
-abacus --set-ticket-target release/1.2 project-123 project-456
-abacus --check-ticket-targets project-123 project-456
+abacus targets set release/1.2 project-123 project-456
+abacus targets check project-123 project-456
 ```
 
 Both commands accept `--repo <path>` and run Beads at that selected main checkout.
@@ -116,7 +116,7 @@ It does not clear attention or reopen
 blocked tickets. After reviewing and fixing an issue, explicitly resolve it:
 
 ```sh
-abacus --resolve project-123 "Target checked and corrected" --reopen
+abacus attention resolve project-123 --message "Target checked and corrected" --reopen
 ```
 
 Beads does not provide a compare-and-swap for these metadata edits. The requirement
@@ -130,12 +130,12 @@ Normal dispatch handles all configured ticket destinations. Restrict a pool with
 repeatable filters:
 
 ```sh
-abacus --repo /path/to/main-checkout \
-  --target-branch main --target-branch release/1.2 \
+abacus run --repo /path/to/main-checkout \
+  --target-filter main --target-filter release/1.2 \
   --tmux-session workers --model provider/model -a alice /path/to/worktree
 ```
 
-`--target-branch` filters eligibility; it never supplies or overrides ticket
+`--target-filter` filters eligibility; it never supplies or overrides ticket
 metadata. Missing targets participate using the resolved default when enforcement
 is off. Existing label/type/priority filters still apply. Target eligibility is
 evaluated before priority and newest-comment tie-breaking. Direct-child gates
@@ -194,7 +194,7 @@ parks the agent. Operator Stop/Restart likewise revalidates the reserved ticket.
 Abacus holds an OS-backed exclusive lock in each worktree's Git administrative
 directory for the run. Competing runs cannot use that same workspace. Lock files
 remain after exit but their ownership ends when the handle/process exits; do not
-delete a lock file to try to unlock live work. `--check` remains read-only and
+delete a lock file to try to unlock live work. `preflight` remains read-only and
 does not acquire or create ownership files.
 
 ## Adopt existing unbound issue branches
@@ -205,9 +205,9 @@ Stop dispatch and active work, inspect the branch's commits and diff, then selec
 its actual intended starting commit explicitly:
 
 ```sh
-abacus --set-ticket-target release/1.2 project-123 \
+abacus targets set release/1.2 project-123 \
   --adopt-existing-branch --start-commit <full-reviewed-commit-id>
-abacus --check-ticket-targets project-123
+abacus targets check project-123
 ```
 
 Adoption only accepts one inactive, unbound ticket with an existing issue branch.
@@ -221,15 +221,15 @@ the chosen destination and starting point. Adoption cannot overwrite a binding.
 1. Stop existing orchestrators and active agent processes. Replace launcher
    `--config <file>` arguments with `--repo <main-checkout>` (not the JSON path).
    Older launchers with neither argument also need `--repo` when run outside Git.
-2. Run `abacus --init` to install/update skills and create missing configuration.
+2. Run `abacus init` to install/update skills and create missing configuration.
    Beads must already be initialized. Review the allowlist and ensure its local
    branches exist. If there is no local `main`, write a config naming your intended
-   existing branch first; `--init` never guesses from the current checkout.
-3. Run `abacus --health` and `abacus --check-ticket-targets`.
+   existing branch first; `init` never guesses from the current checkout.
+3. Run `abacus health` and `abacus targets check`.
 4. Choose `defaultTarget` and enforcement mode. Set explicit destinations when
    required or different from the default; adopt reviewed legacy branches where needed.
 5. Resolve metadata-related blocks only after the audit passes.
 6. Review and commit configuration and installed skills, and make them available
    to the selected main checkout. Controller configuration is no longer loaded
    from worktree-local or arbitrary external config paths.
-7. Run `abacus --check` with your normal run options, then start the pool.
+7. Run `abacus preflight` with your normal run options, then start the pool.

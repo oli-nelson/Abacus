@@ -140,10 +140,10 @@ During normal orchestration, Abacus does **not**:
   scaling; or
 - support Windows.
 
-The standalone `--init-new-multi-agent-repo` command is the explicit setup
+The standalone `new` command is the explicit setup
 exception: it creates a brand-new repository, shared-server Beads configuration,
 skills, worktrees, and launch scripts. It still does not create tmux sessions.
-The standalone `--init` handles existing Git/Beads repositories: validate setup,
+The standalone `init` handles existing Git/Beads repositories: validate setup,
 install bundled skills with confirmation, and create a missing default targets
 config without changing Beads settings or Git branches.
 

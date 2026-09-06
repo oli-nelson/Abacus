@@ -208,7 +208,7 @@ document.querySelector('#reset').onclick=reset;
 document.querySelector('#resolve').onclick=()=>{
   resolved=true;comments.forEach(c=>c.attention=false);addComment({id:'atlas-d3f',title:'Define retention policy for audit events',author:'onelson',text:'Keep audit events for 90 days, including administrative events. Approved the proposed daily cleanup. Reopening for implementation.'});
   system='User-attention snapshot refreshed';
-  document.querySelector('#notice').textContent='Simulated: abacus --resolve atlas-d3f "Keep audit events for 90 days, including administrative events." --reopen';render();
+  document.querySelector('#notice').textContent='Simulated: abacus attention resolve atlas-d3f --message "Keep audit events for 90 days, including administrative events." --reopen';render();
 };
 reset();setInterval(advance,1000);
 </script>

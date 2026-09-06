@@ -8,7 +8,7 @@ rolling back to the Dolt commit printed by Abacus.
 > [!IMPORTANT]
 > Abacus validates and uses shared Dolt, but normal orchestration does not
 > create, migrate, repair, start, or stop it. The only exception is
-> `abacus --init-new-multi-agent-repo`, which initializes a new local shared
+> `abacus new`, which initializes a new local shared
 > server project.
 
 The commands here target Beads 1.2.2, Abacus's minimum supported version. Check
@@ -17,7 +17,7 @@ and your installed command help before performing destructive maintenance.
 
 Repository-scoped Abacus commands below assume the selected main Git checkout.
 From elsewhere, including an agent worktree, pass `--repo <main-checkout>`.
-After Beads is initialized and readable, run `abacus --init` to install skills
+After Beads is initialized and readable, run `abacus init` to install skills
 and create missing targets config, then review the allowlist and audit tickets.
 A healthy Dolt connection alone is not sufficient for Abacus readiness: target
 configuration, local refs, skills, and supported tools must also pass.
@@ -46,7 +46,7 @@ remote unless you deliberately add one later.
 For a brand-new project, prefer:
 
 ```sh
-abacus --init-new-multi-agent-repo my-project 4
+abacus new my-project --agents 4
 ```
 
 The initializer creates a unique database name, configures shared-server Beads
@@ -88,11 +88,11 @@ bd dolt show --json
 bd dolt status
 bd dolt test
 bd doctor --server
-abacus --health
+abacus health
 ```
 
 `bd dolt show --json` should report `embedded: false`, `connection_ok: true`,
-and the intended host, port, and database. `abacus --health` should report the
+and the intended host, port, and database. `abacus health` should report the
 server-backed database as available for multi-agent use.
 
 ## Attach Git worktrees
@@ -113,7 +113,7 @@ done
 
 All agent workspaces must report the same database, host, and port. An embedded
 result or a different database means the workspace is not ready for the same
-Abacus pool. Run the exact pool configuration with `abacus --check` before
+Abacus pool. Run the exact pool configuration with `abacus preflight` before
 allowing claims.
 
 ## Migrate existing Beads storage to a shared server
@@ -177,12 +177,12 @@ repository's `.beads` directory.
    bd doctor --deep
    bd list --all
    bd merge-slot check
-   abacus --health
+   abacus health
    ```
 
    Create a merge slot with `bd merge-slot create` if the project did not
    already have one. Compare issue counts and representative issues with the
-   audit export, then run `abacus --check` against every intended workspace.
+   audit export, then run `abacus preflight` against every intended workspace.
 
 Keep the native backup and archived `.beads` directory until the new shared
 database has been exercised and independently backed up. Review and commit any
@@ -208,8 +208,8 @@ Schedule a maintenance window:
    ```
 
 5. Restart the shared server if the Beads upgrade requires it, validate every
-   database hosted by that server, then run `abacus --health` and
-   `abacus --check` before resuming claims.
+   database hosted by that server, then run `abacus health` and
+   `abacus preflight` before resuming claims.
 
 For a database replicated to multiple clones, only one designated clone should
 migrate and publish the new schema. Other clones adopt the migrated database;
@@ -227,7 +227,7 @@ bd dolt test              # direct connection test
 bd vc status --json       # branch, full HEAD commit, and working-set state
 bd doctor --server        # server-specific checks
 bd doctor --deep          # graph and data-integrity checks
-abacus --health           # Abacus readiness classification
+abacus health           # Abacus readiness classification
 ```
 
 Before planned maintenance:
@@ -428,7 +428,7 @@ bd vc status --json
 bd doctor --deep
 bd list --all
 bd ready --json
-abacus --health
+abacus health
 ```
 
 The current commit must equal the Abacus baseline and the working set must be

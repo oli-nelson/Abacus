@@ -112,7 +112,11 @@ public sealed class MultiAgentRepositoryInitializerTests
 
             Assert.True(launch.Succeeded, launch.StandardError);
             var launchedArguments = await File.ReadAllLinesAsync(abacusLog);
-            Assert.Equal(3, launchedArguments.Count(static argument => argument == "-a"));
+            Assert.Equal(3, launchedArguments.Count(static argument => argument == "--agent"));
+            Assert.Equal("run", launchedArguments[0]);
+            var parsedLaunch = Options.Parse(launchedArguments).Value!;
+            Assert.Equal(AgentMode.Codex, parsedLaunch.AgentMode);
+            Assert.Equal(3, parsedLaunch.Agents.Count);
             Assert.Contains("codex", launchedArguments);
             Assert.Equal(result.RepositoryPath, launchedArguments[Array.IndexOf(launchedArguments, "--repo") + 1]);
             Assert.Contains("test-session", launchedArguments);
@@ -121,6 +125,18 @@ public sealed class MultiAgentRepositoryInitializerTests
                 Assert.Contains(Path.Combine(result.WorktreesPath, index.ToString()), launchedArguments);
             }
 
+            foreach (var launcher in result.LauncherPaths)
+            {
+                var invocation = await new CommandRunner(TextWriter.Null).RunAsync(new CommandSpec(
+                    launcher, ["provider/override", "xhigh"], root.FullName,
+                    new Dictionary<string, string?> { ["ABACUS_BIN"] = fakeAbacus }));
+                Assert.True(invocation.Succeeded, invocation.StandardError);
+                var parsed = Options.Parse(await File.ReadAllLinesAsync(abacusLog)).Value!;
+                Assert.Equal(result.RepositoryPath, parsed.RepositoryPath);
+                Assert.Equal("provider/override", parsed.Model);
+                Assert.Equal("xhigh", parsed.Effort);
+                Assert.Equal(3, parsed.Agents.Count);
+            }
             Assert.Equal(string.Empty, await RunGitAsync(result.RepositoryPath, "status", "--porcelain"));
         }
         finally
