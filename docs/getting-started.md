@@ -55,7 +55,8 @@ worktree, or a separate clone. Two agents may never share the same directory.
 > Abacus preserves dirty workspaces. When the current branch is
 > `abacus/<issue-id>`, it resumes that exact open issue before normal dispatch.
 > Other dirty workspaces stop the affected agent with a persistent alert and
-> remain untouched for operator recovery.
+> remain untouched for operator recovery. Clean agents wait at startup until
+> interrupted workspaces have reserved their tickets.
 
 ## Path A: create a new multi-agent project
 

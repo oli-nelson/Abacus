@@ -147,6 +147,79 @@ public sealed class ClaimCoordinatorTests
     }
 
     [Fact]
+    public async Task CleanAgentsWaitForInterruptedWorkspacesToClaimBeforeReadyLookup()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var barrier = new InitialClaimBarrier(2);
+        using var cleanFixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            initialClaimBarrier: barrier);
+        using var interruptedFixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            initiallyDirty: true,
+            initialClaimBarrier: barrier);
+
+        var cleanClaimTask = cleanFixture.Coordinator.WaitForPreparedClaimAsync(
+            cleanFixture.Agent(hasRemote: false),
+            singleAgentMode: false,
+            CancellationToken.None);
+        await CoordinatorFixture.WaitUntilAsync(
+            async () => await cleanFixture.ReadAsync("status-count") == "1");
+
+        Assert.False(cleanClaimTask.IsCompleted);
+        Assert.Equal("0", await cleanFixture.ReadAsync("ready-count"));
+
+        var interruptedClaimTask = interruptedFixture.Coordinator.WaitForPreparedClaimAsync(
+            interruptedFixture.Agent(hasRemote: false),
+            singleAgentMode: false,
+            CancellationToken.None);
+        var claims = await Task.WhenAll(cleanClaimTask, interruptedClaimTask);
+
+        Assert.Contains(claims, claim => claim.Issue.Id == "abc-resume");
+        Assert.Contains(claims, claim => claim.Issue.Id == "abc-good");
+        Assert.Equal("0", await interruptedFixture.ReadAsync("ready-count"));
+    }
+
+    [Fact]
+    public async Task UnsafeDirtyWorkspaceDoesNotHoldCleanAgentsAtStartupBarrier()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var barrier = new InitialClaimBarrier(2);
+        using var cleanFixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            initialClaimBarrier: barrier);
+        using var unsafeFixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            initiallyDirty: true,
+            initialBranch: "feature/manual-work",
+            initialClaimBarrier: barrier);
+
+        var cleanClaimTask = cleanFixture.Coordinator.WaitForPreparedClaimAsync(
+            cleanFixture.Agent(hasRemote: false),
+            singleAgentMode: false,
+            CancellationToken.None);
+        await CoordinatorFixture.WaitUntilAsync(
+            async () => await cleanFixture.ReadAsync("status-count") == "1");
+
+        var unsafeClaimTask = unsafeFixture.Coordinator.WaitForPreparedClaimAsync(
+            unsafeFixture.Agent(hasRemote: false),
+            singleAgentMode: false,
+            CancellationToken.None);
+
+        await Assert.ThrowsAsync<AgentHaltedException>(() => unsafeClaimTask);
+        var cleanClaim = await cleanClaimTask;
+        Assert.Equal("abc-good", cleanClaim.Issue.Id);
+    }
+
+    [Fact]
     public async Task FiniteModeReturnsImmediatelyWhenNoWorkIsReady()
     {
         if (OperatingSystem.IsWindows())
@@ -219,7 +292,12 @@ public sealed class ClaimCoordinatorTests
         private readonly string bd;
         private readonly string git;
 
-        private CoordinatorFixture(DirectoryInfo root, string workspace, string bd, string git)
+        private CoordinatorFixture(
+            DirectoryInfo root,
+            string workspace,
+            string bd,
+            string git,
+            InitialClaimBarrier? initialClaimBarrier)
         {
             this.root = root;
             this.workspace = workspace;
@@ -236,7 +314,8 @@ public sealed class ClaimCoordinatorTests
                 recovery,
                 Log,
                 TimeSpan.FromMilliseconds(1),
-                claimGate: ClaimGate);
+                claimGate: ClaimGate,
+                initialClaimBarrier: initialClaimBarrier);
         }
 
         public ClaimCoordinator Coordinator { get; }
@@ -248,7 +327,8 @@ public sealed class ClaimCoordinatorTests
             bool initiallyDirty = false,
             string initialBranch = "abacus/abc-resume",
             string resumeIssueStatus = "open",
-            string? resumeIssueAssignee = null)
+            string? resumeIssueAssignee = null,
+            InitialClaimBarrier? initialClaimBarrier = null)
         {
             if (OperatingSystem.IsWindows())
             {
@@ -351,7 +431,7 @@ public sealed class ClaimCoordinatorTests
             var mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
             File.SetUnixFileMode(bd, mode);
             File.SetUnixFileMode(git, mode);
-            return new CoordinatorFixture(root, workspace, bd, git);
+            return new CoordinatorFixture(root, workspace, bd, git, initialClaimBarrier);
         }
 
         public ValidatedAgent Agent(bool hasRemote) => new(
@@ -367,6 +447,15 @@ public sealed class ClaimCoordinatorTests
 
         private static string Q(string value) =>
             $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";
+
+        public static async Task WaitUntilAsync(Func<Task<bool>> condition)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            while (!await condition())
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
+            }
+        }
 
         public void Dispose() => root.Delete(recursive: true);
     }

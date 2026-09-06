@@ -41,6 +41,7 @@ public sealed class AbacusApplication(
 
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var claimGate = new ClaimGate();
+        var initialClaimBarrier = new InitialClaimBarrier(preflight.Agents.Count);
         var inputMonitor = log is ConsoleOutput consoleOutput
             ? consoleOutput.MonitorClaimToggleAsync(claimGate, linkedCancellation.Token)
             : Task.CompletedTask;
@@ -78,7 +79,8 @@ public sealed class AbacusApplication(
                     summary: summary,
                     dispatchFilters: preflight.Options.DispatchFilters,
                     notifier: notifier,
-                    claimGate: claimGate);
+                    claimGate: claimGate,
+                    initialClaimBarrier: initialClaimBarrier);
                 var supervisor = new TicketSupervisor(
                     beads,
                     agentHost,

@@ -142,6 +142,12 @@ dispatch filters. Abacus never automatically resets or cleans a dirty workspace.
 If the issue is no longer open, belongs to another agent, or cannot be claimed,
 the files remain in place and that agent stops for operator attention.
 
+On multi-agent startup, clean workspaces wait at a shared recovery barrier.
+Abacus releases normal ready lookup only after every configured workspace has
+been inspected and every resumable dirty workspace has claimed its exact issue.
+An unsafe dirty workspace contributes to the barrier before its agent parks, so
+it does not prevent the remaining agents from starting.
+
 Abacus never dispatches a candidate with an unclosed direct child and always
 excludes the `gt:slot` coordination bead. Optional filters and newest-comment
 tie-breaking are described in the [CLI reference](cli-reference.md#dispatch-and-supervision).

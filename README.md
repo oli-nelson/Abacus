@@ -19,7 +19,9 @@ already use rather than replacing Git, Beads, tmux, or your agent harness.
 > [!IMPORTANT]
 > Abacus preserves dirty workspaces. A dirty `abacus/<issue-id>` branch resumes
 > that exact open issue before normal dispatch. Any other dirty workspace stops
-> the affected agent with a persistent alert so an operator can resolve it.
+> the affected agent with a persistent alert so an operator can resolve it. At
+> startup, clean agents wait until all interrupted workspaces have reserved their
+> tickets before querying the ready queue.
 
 ## Why Abacus?
 

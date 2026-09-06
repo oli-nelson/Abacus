@@ -79,7 +79,7 @@ multi-agent shared server, record its live commit without pulling. A failure
 aborts before any ticket is claimed. Keep the full commit in memory for the
 final summary; do not create a checkpoint commit or persistent Abacus state.
 
-1. Inspect the workspace before looking for work. A dirty `abacus/<issue-id>` branch resumes that exact open issue without changing its files. Any dirty workspace that cannot be tied safely to a resumable issue stops that agent and remains untouched.
+1. Inspect the workspace before looking for work. A dirty `abacus/<issue-id>` branch resumes that exact open issue without changing its files. Any dirty workspace that cannot be tied safely to a resumable issue stops that agent and remains untouched. A shared one-shot startup barrier holds every clean agent before ready lookup until all configured workspaces complete this recovery pass.
 2. In single-agent mode, pull Beads before looking for work when a Dolt remote exists.
 3. List matching work with `bd ready --unassigned --exclude-label gt:slot --limit 0 --json`, preserve Beads priority, use the newest comment to break a highest-priority tie, skip each selected candidate when `bd show <id> --children --json` reports any unclosed direct child, and atomically claim the eligible issue with `bd update <id> --claim --json`, all with `BEADS_ACTOR=<agent name>`.
 4. If no issue is ready, sleep for a small fixed interval and try again.
@@ -262,6 +262,7 @@ All checks happen before any ticket is claimed or agent run is created.
 
 - In single-agent mode only, run `bd dolt pull` immediately before each claim attempt when a remote exists. A pull failure should log and delay the next attempt rather than claim against stale data.
 - Check workspace cleanliness before every claim. If a workspace is dirty, require its current branch to be a valid `abacus/<issue-id>` branch, read that exact issue, and atomically claim it when it is open and unassigned or already assigned to the configured agent. Resume it without switching branches or changing tracked or untracked files. This recovery takes precedence over normal dispatch and ignores dispatch filters.
+- At multi-agent startup, use one shared in-memory barrier so all workspaces finish their initial recovery inspection and resumable dirty workspaces complete their exact claims before any clean workspace performs a ready lookup. Release the barrier contribution for an agent that halts during recovery so other agents can continue.
 - If a dirty workspace is not on a valid Abacus issue branch, its issue is not open, it belongs to another agent, or its exact claim fails, preserve the workspace, stop that agent, and raise a persistent alert. Never reset or clean a dirty workspace automatically.
 - Treat “no ready issue” as idle, not as an error. Use one fixed polling interval (for example, five seconds) to avoid adding tuning options prematurely.
 - After a claim, use Git CLI commands to:
@@ -338,6 +339,7 @@ All checks happen before any ticket is claimed or agent run is created.
   - no ready work followed by a claim;
   - two agents claiming concurrently;
   - exact-ticket recovery for a dirty issue workspace without reset or clean;
+  - a clean agent cannot query ready work until another agent's interrupted workspace has reserved its issue;
   - preservation and halt for ambiguous or unsafe dirty workspaces;
   - mismatched Dolt databases rejection;
   - required and malformed model option handling;

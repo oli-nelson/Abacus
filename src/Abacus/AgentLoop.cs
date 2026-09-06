@@ -11,10 +11,13 @@ public sealed class ClaimCoordinator(
     RunSummary? summary = null,
     DispatchFilters? dispatchFilters = null,
     DesktopNotifier? notifier = null,
-    ClaimGate? claimGate = null)
+    ClaimGate? claimGate = null,
+    InitialClaimBarrier? initialClaimBarrier = null)
 {
     private readonly DispatchFilters filters = dispatchFilters ?? DispatchFilters.Empty;
     private readonly ClaimGate claimsAllowed = claimGate ?? new ClaimGate();
+    private readonly InitialClaimBarrier initialRecovery = initialClaimBarrier ?? new InitialClaimBarrier(1);
+    private bool initialRecoveryPending = true;
     public TimeSpan PollingInterval { get; } = pollingInterval ?? TimeSpan.FromSeconds(5);
 
     public async Task<PreparedClaim> WaitForPreparedClaimAsync(
@@ -42,6 +45,7 @@ public sealed class ClaimCoordinator(
             await log.SetAgentAsync(agent.Name, AgentActivity.Waiting, "Looking for a ready ticket");
             if (!Directory.Exists(agent.WorkspacePath))
             {
+                LeaveInitialRecoveryPhase();
                 throw new StartupInvariantException(
                     $"[{agent.Name}] workspace disappeared: '{agent.WorkspacePath}'");
             }
@@ -62,6 +66,7 @@ public sealed class ClaimCoordinator(
                         cancellationToken);
                     if (!Git.TryGetIssueId(currentBranch, out interruptedIssueId))
                     {
+                        LeaveInitialRecoveryPhase();
                         await HaltAsync(
                             agent.Name,
                             $"Workspace '{agent.WorkspacePath}' has uncommitted changes on branch " +
@@ -76,8 +81,14 @@ public sealed class ClaimCoordinator(
             }
             catch (WorkspacePreparationException exception)
             {
+                LeaveInitialRecoveryPhase();
                 throw new StartupInvariantException(
                     $"[{agent.Name}] could not inspect workspace '{agent.WorkspacePath}': {exception.Message}");
+            }
+
+            if (workspaceIsClean)
+            {
+                await WaitForInitialRecoveryPhaseAsync(agent.Name, cancellationToken);
             }
 
             if (singleAgentMode && agent.HasRemote)
@@ -113,6 +124,7 @@ public sealed class ClaimCoordinator(
                     await WarnAsync(
                         agent.Name,
                         $"resuming {interruptedIssueId} with its uncommitted workspace changes preserved");
+                    await WaitForInitialRecoveryPhaseAsync(agent.Name, cancellationToken);
                 }
                 else
                 {
@@ -127,6 +139,7 @@ public sealed class ClaimCoordinator(
             {
                 if (interruptedIssueId is not null)
                 {
+                    LeaveInitialRecoveryPhase();
                     await HaltAsync(
                         agent.Name,
                         $"Could not safely resume {interruptedIssueId}: {exception.Message}. " +
@@ -216,6 +229,35 @@ public sealed class ClaimCoordinator(
         }
 
         await claimsAllowed.WaitUntilEnabledAsync(cancellationToken);
+    }
+
+    private async Task WaitForInitialRecoveryPhaseAsync(
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        if (!initialRecoveryPending)
+        {
+            return;
+        }
+
+        initialRecoveryPending = false;
+        await log.SetAgentAsync(
+            agentName,
+            AgentActivity.Waiting,
+            "Waiting for interrupted workspaces to reserve their tickets");
+        initialRecovery.Arrive();
+        await initialRecovery.WaitAsync(cancellationToken);
+    }
+
+    private void LeaveInitialRecoveryPhase()
+    {
+        if (!initialRecoveryPending)
+        {
+            return;
+        }
+
+        initialRecoveryPending = false;
+        initialRecovery.Arrive();
     }
 
     private Task WarnAsync(string agentName, string message) =>

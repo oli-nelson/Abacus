@@ -72,3 +72,31 @@ public sealed class ClaimGate
         return signal;
     }
 }
+
+public sealed class InitialClaimBarrier
+{
+    private readonly TaskCompletionSource completed = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+    private int remaining;
+
+    public InitialClaimBarrier(int participantCount)
+    {
+        if (participantCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(participantCount));
+        }
+
+        remaining = participantCount;
+    }
+
+    public void Arrive()
+    {
+        if (Interlocked.Decrement(ref remaining) == 0)
+        {
+            completed.TrySetResult();
+        }
+    }
+
+    public Task WaitAsync(CancellationToken cancellationToken) =>
+        completed.Task.WaitAsync(cancellationToken);
+}

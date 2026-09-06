@@ -162,7 +162,10 @@ the agent without changing the workspace. Dispatch filters do not apply to this
 recovery. If the current branch is not a valid Abacus issue branch, the issue is
 not open, it belongs to another agent, or the exact claim fails, Abacus preserves
 the workspace and stops that agent with a persistent alert. It never resets or
-cleans a dirty workspace automatically.
+cleans a dirty workspace automatically. At multi-agent startup, every agent
+finishes this interrupted-workspace pass before any clean workspace can query
+the normal ready queue. This reserves resumable tickets for the agents that own
+their existing workspaces before fresh dispatch begins.
 
 `--ticket-timeout` is an optional positive integer duration with an `s`, `m`, or `h` suffix. The guard starts when the agent CLI starts. At the limit, Abacus attempts to stop and clean the hosted agent run, reopens the ticket only if it is still `in_progress`, verifies the result, and pushes when a Dolt remote is configured. A terminal ticket update that races with the timeout is preserved. Recovery or push failure stops that agent, keeps a persistent alert visible, and makes finite runs fail.
 
@@ -276,7 +279,7 @@ commit without pulling it.
 
 Each Abacus agent follows this loop:
 
-1. Inspect the workspace. If it is dirty on `abacus/<issue_id>`, preserve its files and attempt to resume that exact open ticket before normal dispatch. Stop that agent without changing the workspace when its branch or ticket cannot be recovered safely.
+1. Inspect the workspace. If it is dirty on `abacus/<issue_id>`, preserve its files and attempt to resume that exact open ticket before normal dispatch. Stop that agent without changing the workspace when its branch or ticket cannot be recovered safely. On the first pass after startup, clean agents wait until every configured workspace has completed this recovery step.
 2. In single-agent mode, pull the latest Beads data if a remote is configured. Agents using a shared database already see the latest data.
 3. When no interrupted workspace needs recovery, Abacus lists every unassigned ready task using the agent name as the actor:
 
