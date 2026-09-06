@@ -45,10 +45,18 @@ Surface missing or contradictory context instead of guessing. Put the highest-im
 
 Reporting does not authorize issue mutation. Do not remove the label, add notes, close, reopen, reassign, or otherwise update an issue unless the user explicitly asks after reviewing the report.
 
+Never close a ticket unless the user explicitly asks to close that ticket. Treat words such as "resolve," "resolved," "handle," or "address" as referring to the attention request, not the ticket itself. Resolving an attention request authorizes removing the attention label; it does not authorize `bd close`. If the ticket is blocked, removing the attention label must also reopen it by setting its status to `open`, because the blocker has been resolved. Preserve any other ticket status unless the user separately gives an explicit status-changing instruction.
+
 When the user confirms that an attention request is resolved, preserve any useful resolution context in the issue if requested, then remove the label with:
 
 ```sh
 bd update <id> --remove-label abacus:needs-user-attention --json
+```
+
+For a blocked ticket, remove the label and reopen it in the same update:
+
+```sh
+bd update <id> --remove-label abacus:needs-user-attention --status open --json
 ```
 
 Read the issue back after any approved change and follow the repository's Beads synchronization policy.
