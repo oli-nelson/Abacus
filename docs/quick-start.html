@@ -1110,7 +1110,7 @@ and distinguish local commit or merge limits from legitimate push limits.</code>
         </div>
 
         <ol class="steps">
-          <li><strong>Choose the tmux target.</strong> Omit the names for an automatically managed project session and <code>Abacus Agents</code> window, or supply explicit names that Abacus will create when missing and leave running.</li>
+          <li><strong>Choose the tmux target.</strong> Omit the names for an automatically managed project session and <code>Abacus Agents</code> window, or supply explicit names that Abacus will create when missing and leave running. Pane-hosted runs use the <code>tiled</code> layout by default.</li>
           <li><strong>Choose the agent workspace.</strong> Use the Alice worktree or the primary checkout for a one-agent run.</li>
           <li><strong>Start Abacus.</strong> The model is required; effort defaults to <code>high</code>.</li>
         </ol>
@@ -1133,7 +1133,6 @@ abacus run --repo "$REPO" \
   --mode claude \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
-  --tmux-layout tiled \
   --model "$MODEL" \
   --effort high \
   --notify attention \
@@ -1201,7 +1200,6 @@ abacus health --repo "$REPO"</code></pre>
   --mode claude \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
-  --tmux-layout tiled \
   --model "$MODEL" \
   --effort high \
   --notify all \

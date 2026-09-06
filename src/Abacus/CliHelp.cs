@@ -52,6 +52,7 @@ internal static class CliHelp
           --tmux-window <name-or-index>  Window to use or create. Default: Abacus Agents.
           --tmux-layout <layout>         Choices: even-horizontal,
                                         even-vertical, main-horizontal, main-vertical, tiled.
+                                        Default for pane hosting: tiled.
           --opencode-server <host:port>  Requires explicit --mode opencode-server.
                                         Server mode can run without tmux as direct children.
 

@@ -139,6 +139,8 @@ public sealed class MultiAgentRepositoryInitializerTests
                 Assert.Equal(3, parsed.Agents.Count);
                 Assert.Null(parsed.TmuxSession);
                 Assert.True(parsed.UsesTmux);
+                Assert.Null(parsed.TmuxLayout);
+                Assert.Equal("tiled", parsed.EffectiveTmuxLayout);
             }
             Assert.Equal(string.Empty, await RunGitAsync(result.RepositoryPath, "status", "--porcelain"));
         }

@@ -98,6 +98,8 @@ public sealed class OptionsTests
         Assert.Equal(NotificationMode.Off, result.Value.NotificationMode);
         Assert.False(result.Value.NotificationSound);
         Assert.Equal(8, result.Value.LatestCommentCount);
+        Assert.Null(result.Value.TmuxLayout);
+        Assert.Equal("tiled", result.Value.EffectiveTmuxLayout);
     }
 
     [Fact]
@@ -552,6 +554,22 @@ public sealed class OptionsTests
         Assert.Null(result.Value!.TmuxSession);
         Assert.Equal("agents", result.Value.TmuxWindow);
         Assert.True(result.Value.UsesTmux);
+        Assert.Equal("tiled", result.Value.EffectiveTmuxLayout);
+    }
+
+    [Fact]
+    public void DirectServerModeDoesNotApplyTheDefaultTmuxLayout()
+    {
+        var result = Options.Parse([
+            "run",
+            "--model", "provider/model",
+            "--mode", "opencode-server", "--opencode-server", "127.0.0.1:1234",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.False(result.Value!.UsesTmux);
+        Assert.Null(result.Value.TmuxLayout);
+        Assert.Null(result.Value.EffectiveTmuxLayout);
     }
 
     [Fact]

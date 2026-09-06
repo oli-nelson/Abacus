@@ -64,11 +64,17 @@ public sealed record Options(
     bool StartPaused = false,
     bool DisownTmuxSession = false)
 {
+    public const string DefaultTmuxLayout = "tiled";
+
     public bool UsesTmux => AgentMode is not AgentMode.OpenCodeServer
         || TmuxSession is not null
         || TmuxWindow is not null
         || TmuxLayout is not null
         || DisownTmuxSession;
+
+    public string? EffectiveTmuxLayout => UsesTmux
+        ? TmuxLayout ?? DefaultTmuxLayout
+        : null;
 
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {

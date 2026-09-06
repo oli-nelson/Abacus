@@ -320,7 +320,6 @@ abacus run \
   --mode codex \
   --tmux-session abacus-work \
   --tmux-window agents \
-  --tmux-layout tiled \
   --model gpt-5.6-terra \
   --effort high \
   -a alice "$WORKTREES/alice" \
@@ -328,6 +327,9 @@ abacus run \
   -a carol "$WORKTREES/carol" \
   -a dave "$WORKTREES/dave"
 ```
+
+Pane-hosted runs use the `tiled` tmux layout by default. Pass
+`--tmux-layout <layout>` only when you want a different supported arrangement.
 
 Each loop claims atomically, so agents do not intentionally receive the same
 issue.

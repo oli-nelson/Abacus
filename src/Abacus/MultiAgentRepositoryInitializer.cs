@@ -205,7 +205,7 @@ public sealed partial class MultiAgentRepositoryInitializer(
 
             run_args=(run --repo "$root/repo" --mode {{{mode}}})
             [[ -z "$tmux_session" ]] || run_args+=(--tmux-session "$tmux_session")
-            run_args+=(--tmux-layout tiled --model "$model" --effort "$effort")
+            run_args+=(--model "$model" --effort "$effort")
 
             exec "$abacus_bin" "${run_args[@]}" "${agent_args[@]}"
             """;

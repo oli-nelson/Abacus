@@ -248,11 +248,11 @@ IDs or aliases. Harnesses remain responsible for validating model availability.
 | `--tmux-session <name>` | Session to use or create. Interactive modes default to `abacus - <safe-project-id>`. |
 | `--disown-tmux-session` | Preserve an automatically created implicit session after Abacus exits; rejected with an explicit session. |
 | `--tmux-window <name-or-index>` | Window to use or create. Defaults to `Abacus Agents`. |
-| `--tmux-layout <layout>` | Reapplies a built-in layout after each pane is created. |
+| `--tmux-layout <layout>` | Reapplies a built-in layout after each pane starts. Defaults to `tiled` for pane-hosted runs. |
 | `--opencode-server <host:port>` | Existing server used by `opencode-server` mode. |
 
 Layouts: `even-horizontal`, `even-vertical`, `main-horizontal`,
-`main-vertical`, and `tiled`.
+`main-vertical`, and `tiled`. When omitted, pane-hosted runs use `tiled`.
 
 OpenCode Server mode uses direct child-process hosting when every tmux-related
 option is omitted. Any tmux-related option requests pane hosting and may use the

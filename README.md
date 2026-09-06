@@ -18,13 +18,6 @@ Beads backlog ──► atomic claim ──► abacus/<issue-id> ──► codin
 Abacus stays deliberately thin: it coordinates the command-line tools you
 already use rather than replacing Git, Beads, tmux, or your agent harness.
 
-> [!IMPORTANT]
-> Abacus preserves dirty workspaces. A dirty `abacus/<issue-id>` branch resumes
-> that exact open issue before normal dispatch. Any other dirty workspace stops
-> the affected agent with a persistent alert so an operator can resolve it. At
-> startup, clean agents wait until all interrupted workspaces have reserved their
-> tickets before querying the ready queue.
-
 ## Why Abacus?
 
 - **Parallel without double work.** Beads provides atomic claims; every agent
@@ -37,8 +30,8 @@ already use rather than replacing Git, Beads, tmux, or your agent harness.
   restart, or explicitly clean one agent workspace.
 - **Failure-aware.** Unexpected exits and timeouts safely reopen work instead of
   pretending it completed.
-- **Automation-friendly.** `--once`, `--drain`, and `preflight` make the same
-  workflow useful in scripts and CI.
+- **Automation-friendly.** JSONL events and stdio controls let another agent
+  operate Abacus, while `--once`, `--drain`, and `preflight` support scripts and CI.
 - **Small by design.** One dependency-free .NET console application shells out
   to documented CLI contracts.
 
@@ -57,127 +50,6 @@ Choose the path that matches your repository:
 | Understand the safety model | [Architecture and boundaries](docs/architecture.md) |
 
 The [documentation index](docs/README.md) maps the rest of the project docs.
-
-## Existing Git/Beads repository
-
-From the main Git checkout, run `abacus init` to install/update bundled skills and create a missing
-`.abacus/targets.json` allowing `main`. Beads must already be initialized;
-existing configuration is preserved. Then run `abacus health` and
-`abacus targets check`, and review default routing versus explicit ticket destinations.
-From elsewhere (including linked worktrees), pass `--repo /path/to/main-checkout`.
-`--repo` replaces `--config`; target configuration lives in that repo's `.abacus`
-directory. See [setup and migration](docs/targets.md#upgrade-checklist).
-
-## Quickest path: a new multi-agent project
-
-First [build Abacus](#build-and-install), then run the standalone initializer
-from the directory that should contain your new project:
-
-```sh
-abacus new my-project --agents 4
-```
-
-It creates a Git repository, a shared-server Beads database, four detached
-worktrees, a committed `.abacus/targets.json` allowing `main`, the bundled skills,
-and ready-to-use launch scripts that pass `--repo "$root/repo"`:
-
-```text
-my-project/
-├── repo/                     # main checkout and shared Beads project
-├── worktrees/{0,1,2,3}/      # persistent agent workspaces
-├── run_abacus_opencode.sh
-├── run_abacus_codex.sh
-└── run_abacus_claude.sh
-```
-
-Create some ready Beads issues and launch the pool; Abacus creates its default
-detached tmux session and `Abacus Agents` window automatically:
-
-```sh
-cd my-project/repo
-bd create "Add the first feature" \
-  --description "Describe the work and relevant context." \
-  --acceptance "State the observable definition of done." \
-  --json
-# Optional explicit target (required only under enforcement or for a non-default destination):
-# Replace <returned-id> with the ID from bd create:
-abacus targets set main <returned-id>
-abacus targets check <returned-id>
-
-cd ..
-./run_abacus_codex.sh gpt-5.6-sol high
-```
-
-The initializer is the **only** Abacus operation that creates repositories,
-worktrees, or Beads configuration. Normal orchestration expects those resources
-to exist already. See the [generated project walkthrough](docs/getting-started.md#path-a-create-a-new-multi-agent-project)
-for launcher overrides and the complete setup contract.
-
-## Agent modes
-
-Abacus supports exactly four execution modes:
-
-| Mode | Hosting | Model format | Notes |
-| --- | --- | --- | --- |
-| `opencode` | Interactive tmux pane | `provider/model` | Default mode; uses OpenCode's configured or selected variant. |
-| `codex` | Interactive tmux pane | Native Codex ID or alias | Receives `--effort` through Codex configuration. |
-| `claude` | Interactive tmux pane | Native Claude ID or alias | Supports `--remote-control` for Claude Remote Control. |
-| `opencode-server` | Direct process or tmux pane | `provider/model` | Attaches to an existing server and passes `--variant`. |
-
-Example with two existing worktrees:
-
-```sh
-abacus run --mode codex \
-  --tmux-session work \
-  --tmux-window agents \
-  --tmux-layout tiled \
-  --model gpt-5.6-terra \
-  --effort high \
-  -a alice /work/repo-a \
-  -a bob /work/repo-b
-```
-
-Every local mode launches the full interactive agent interface with a real TTY.
-Abacus does not substitute `codex exec` or `claude --print`.
-When tmux names are omitted, the dashboard shows the derived session name and
-the default `Abacus Agents` window so you can attach from another shell.
-
-## What happens to a ticket?
-
-Each configured agent repeats one focused loop:
-
-1. Clean its assigned workspace.
-2. Find eligible ready work and atomically claim one issue.
-3. Create or reuse `abacus/<issue-id>`.
-4. Start the selected coding agent with the issue context and Git instructions.
-5. Watch both the Beads status and the hosted process.
-6. Stop the session when the issue becomes `closed`, `open`, or `blocked`.
-7. Reopen work left `in_progress` by an unexpected exit or timeout.
-8. Synchronize Beads when a Dolt remote is configured, then continue.
-
-Explore the [visual agent-loop guide](docs/agent-loop-flow.html), or read the
-[operations guide](docs/operations.md) for detailed recovery and shutdown rules.
-
-## Commands at a glance
-
-| Command | Purpose |
-| --- | --- |
-| `abacus new <name> --agents <count>` | Create a complete new multi-agent project layout. |
-| `abacus init` | Install skills and create missing target config in an existing Git/Beads project. |
-| `abacus skills install` | Install only the four bundled skills into the selected main checkout. |
-| `abacus targets check [<id> ...]` | Audit resolved ticket targets, bindings, and branch history. |
-| `abacus targets set <branch> <id> ...` | Set or repair inactive ticket target metadata. |
-| `abacus health` | Report whether the current repository is ready. |
-| `abacus models` | List model IDs discoverable from installed harnesses. |
-| `abacus attention list` | Print issue IDs that need a decision or outside action. |
-| `abacus attention resolve <id> [--message <text>] [--reopen]` | Respond to and clear an attention request. |
-| `abacus branches prune` | Remove local Abacus branches for closed issues. |
-| `abacus preflight [run options]` | Validate a specific run without claims or workspace changes. |
-| `abacus run [run options] -a <name> <workspace> [-a ...]` | Start one or more agent loops. |
-
-Bare `abacus` prints help; use explicit commands. Old flag-based operations are
-not accepted. Run `abacus --help` for the built-in summary and see the
-[CLI reference](docs/cli-reference.md) for every mode and option.
 
 ## Prerequisites
 
@@ -227,6 +99,140 @@ dotnet publish src/Abacus -c Release -r osx-arm64 \
 ```
 
 Copy or symlink `artifacts/publish/abacus` to a directory on `PATH` if desired.
+
+## Set up a project
+
+### Create a new multi-agent project
+
+First [build Abacus](#build-and-install), then run the standalone initializer
+from the directory that should contain your new project:
+
+```sh
+abacus new my-project --agents 4
+```
+
+It creates a Git repository, a shared-server Beads database, four detached
+worktrees, a committed `.abacus/targets.json` allowing `main`, the bundled skills,
+and ready-to-use launch scripts that pass `--repo "$root/repo"`:
+
+```text
+my-project/
+├── repo/                     # main checkout and shared Beads project
+├── worktrees/{0,1,2,3}/      # persistent agent workspaces
+├── run_abacus_opencode.sh
+├── run_abacus_codex.sh
+└── run_abacus_claude.sh
+```
+
+Create some ready Beads issues and launch the pool; Abacus creates its default
+detached tmux session and `Abacus Agents` window automatically:
+
+```sh
+cd my-project/repo
+bd create "Add the first feature" \
+  --description "Describe the work and relevant context." \
+  --acceptance "State the observable definition of done." \
+  --json
+# Optional explicit target (required only under enforcement or for a non-default destination):
+# Replace <returned-id> with the ID from bd create:
+abacus targets set main <returned-id>
+abacus targets check <returned-id>
+
+cd ..
+./run_abacus_codex.sh gpt-5.6-sol high
+```
+
+The initializer is the **only** Abacus operation that creates repositories,
+worktrees, or Beads configuration. Normal orchestration expects those resources
+to exist already. See the [generated project walkthrough](docs/getting-started.md#path-a-create-a-new-multi-agent-project)
+for launcher overrides and the complete setup contract.
+
+### Use an existing Git/Beads repository
+
+From the main Git checkout, run `abacus init` to install or update the bundled
+skills and create a missing `.abacus/targets.json` allowing `main`. Beads must
+already be initialized; existing configuration is preserved. Then run
+`abacus health` and `abacus targets check`, and review default routing versus
+explicit ticket destinations.
+
+From elsewhere, including linked worktrees, pass
+`--repo /path/to/main-checkout`. Target configuration lives in that repository's
+`.abacus` directory. See [setup and migration](docs/targets.md#upgrade-checklist).
+
+## Agent modes
+
+Abacus supports exactly four execution modes:
+
+| Mode | Hosting | Model format | Notes |
+| --- | --- | --- | --- |
+| `opencode` | Interactive tmux pane | `provider/model` | Default mode; uses OpenCode's configured or selected variant. |
+| `codex` | Interactive tmux pane | Native Codex ID or alias | Receives `--effort` through Codex configuration. |
+| `claude` | Interactive tmux pane | Native Claude ID or alias | Supports `--remote-control` for Claude Remote Control. |
+| `opencode-server` | Direct process or tmux pane | `provider/model` | Attaches to an existing server and passes `--variant`. |
+
+Example with two existing worktrees:
+
+```sh
+abacus run --mode codex \
+  --tmux-session work \
+  --tmux-window agents \
+  --model gpt-5.6-terra \
+  --effort high \
+  -a alice /work/repo-a \
+  -a bob /work/repo-b
+```
+
+Every local mode launches the full interactive agent interface with a real TTY.
+Abacus does not substitute `codex exec` or `claude --print`.
+Pane-hosted runs use tmux's `tiled` layout unless `--tmux-layout` overrides it.
+When tmux names are omitted, the dashboard shows the derived session name and
+the default `Abacus Agents` window so you can attach from another shell.
+
+## What happens to a ticket?
+
+Each configured agent repeats one focused loop:
+
+1. Inspect its assigned workspace and recover resumable interrupted work.
+2. Find eligible ready work and atomically claim one issue.
+3. Create or reuse `abacus/<issue-id>`.
+4. Start the selected coding agent with the issue context and Git instructions.
+5. Watch both the Beads status and the hosted process.
+6. Stop the session when the issue becomes `closed`, `open`, or `blocked`.
+7. Reopen work left `in_progress` by an unexpected exit or timeout.
+8. Synchronize Beads when a Dolt remote is configured, then continue.
+
+### Interrupted workspaces
+
+> [!IMPORTANT]
+> Abacus preserves dirty workspaces. A dirty `abacus/<issue-id>` branch resumes
+> that exact open issue before normal dispatch. Any other dirty workspace stops
+> the affected agent with a persistent alert so an operator can resolve it. At
+> startup, clean agents wait until all interrupted workspaces have reserved their
+> tickets before querying the ready queue.
+
+Explore the [visual agent-loop guide](docs/agent-loop-flow.html), or read the
+[operations guide](docs/operations.md) for detailed recovery and shutdown rules.
+
+## Commands at a glance
+
+| Command | Purpose |
+| --- | --- |
+| `abacus new <name> --agents <count>` | Create a complete new multi-agent project layout. |
+| `abacus init` | Install skills and create missing target config in an existing Git/Beads project. |
+| `abacus skills install` | Install only the four bundled skills into the selected main checkout. |
+| `abacus targets check [<id> ...]` | Audit resolved ticket targets, bindings, and branch history. |
+| `abacus targets set <branch> <id> ...` | Set or repair inactive ticket target metadata. |
+| `abacus health` | Report whether the current repository is ready. |
+| `abacus models` | List model IDs discoverable from installed harnesses. |
+| `abacus attention list` | Print issue IDs that need a decision or outside action. |
+| `abacus attention resolve <id> [--message <text>] [--reopen]` | Respond to and clear an attention request. |
+| `abacus branches prune` | Remove local Abacus branches for closed issues. |
+| `abacus preflight [run options]` | Validate a specific run without claims or workspace changes. |
+| `abacus run [run options] -a <name> <workspace> [-a ...]` | Start one or more agent loops. |
+
+Bare `abacus` prints help; use explicit commands. Old flag-based operations are
+not accepted. Run `abacus --help` for the built-in summary and see the
+[CLI reference](docs/cli-reference.md) for every mode and option.
 
 ## Safety and ownership
 

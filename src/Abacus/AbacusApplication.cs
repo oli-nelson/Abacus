@@ -86,7 +86,7 @@ public sealed class AbacusApplication(
                     preflight.Options.AgentMode,
                     tmuxSessionLease!.SessionName,
                     temporaryRoot,
-                    tmuxLayout: preflight.Options.TmuxLayout,
+                    tmuxLayout: preflight.Options.EffectiveTmuxLayout,
                     remote: preflight.Options.Remote,
                     tmuxWindowId: tmuxSessionLease.WindowId,
                     projectId: tmuxSessionLease.ProjectId);

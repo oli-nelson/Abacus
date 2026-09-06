@@ -236,8 +236,6 @@ public sealed partial class EndToEndTests
             startInfo.ArgumentList.Add("workers");
             startInfo.ArgumentList.Add("--tmux-window");
             startInfo.ArgumentList.Add("agents");
-            startInfo.ArgumentList.Add("--tmux-layout");
-            startInfo.ArgumentList.Add("tiled");
             startInfo.ArgumentList.Add("--model");
             startInfo.ArgumentList.Add("provider/exact-model");
             startInfo.ArgumentList.Add("-a");
