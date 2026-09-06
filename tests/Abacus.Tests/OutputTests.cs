@@ -274,6 +274,82 @@ public sealed class OutputTests
     }
 
     [Fact]
+    public async Task EnterOnSelectedCommentShowsItsCompleteWrappedText()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: false,
+            interactive: true,
+            color: false);
+        var message = "This comment is deliberately long enough to exceed the two-line dashboard preview. " +
+            "The detail view keeps wrapping instead of truncating it, including this final phrase.";
+        await output.SetLatestCommentsAsync([
+            Comment("comment-1", "abc-1", "Review the complete comment", "reviewer", message),
+        ]);
+        var claimGate = new ClaimGate();
+
+        output.HandleDashboardKey(Key(ConsoleKey.DownArrow), claimGate);
+        output.HandleDashboardKey(Key(ConsoleKey.DownArrow), claimGate);
+        Assert.Contains("›• abc-1", writer.ToString(), StringComparison.Ordinal);
+
+        Assert.True(output.HandleDashboardKey(Key(ConsoleKey.Enter), claimGate));
+        output.HandleDashboardKey(Key(ConsoleKey.PageDown), claimGate);
+
+        var text = writer.ToString();
+        Assert.Contains("COMMENT — abc-1", text, StringComparison.Ordinal);
+        Assert.Contains("Review the complete comment", text, StringComparison.Ordinal);
+        Assert.Contains("reviewer", text, StringComparison.Ordinal);
+        Assert.Contains("phrase.", text, StringComparison.Ordinal);
+        Assert.Contains("Esc close", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CommentDetailSupportsScrollingThroughLongMessages()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: false,
+            interactive: true,
+            color: false);
+        var message = string.Join('\n', Enumerable.Range(1, 100).Select(line => $"comment line {line}"));
+        await output.SetLatestCommentsAsync([
+            Comment("comment-1", "abc-1", "Long comment", "reviewer", message),
+        ]);
+        var claimGate = new ClaimGate();
+        output.HandleDashboardKey(Key(ConsoleKey.UpArrow), claimGate);
+        output.HandleDashboardKey(Key(ConsoleKey.Enter), claimGate);
+
+        for (var page = 0; page < 10; page++)
+        {
+            output.HandleDashboardKey(Key(ConsoleKey.PageDown), claimGate);
+        }
+
+        Assert.Contains("comment line 100", writer.ToString(), StringComparison.Ordinal);
+        Assert.True(output.HandleDashboardKey(Key(ConsoleKey.Escape), claimGate));
+        Assert.Contains("LATEST COMMENTS (1)", writer.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FullCommentWrappingPreservesEveryLogicalLine()
+    {
+        var lines = ConsoleOutput.WrapCommentText(
+            "first paragraph with several words\n\nsecond paragraph ends here",
+            12);
+
+        Assert.Contains(string.Empty, lines);
+        Assert.Equal(
+            "first paragraph with several words second paragraph ends here",
+            string.Join(' ', lines.Where(static line => line.Length > 0)));
+        Assert.All(lines, line => Assert.True(line.Length <= 12));
+    }
+
+    [Fact]
     public async Task RedirectedOutputReportsAttentionChangesWithoutRepeatingThem()
     {
         var writer = new StringWriter();

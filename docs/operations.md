@@ -48,8 +48,8 @@ remain visible, while idle polling is visually distinct from failure retries.
 Press **Shift-Tab** to pause or resume new claims for every agent. Active work
 continues; an agent pauses only when it next reaches the claim boundary.
 
-Use the **Up** and **Down** arrows to select an agent, then press **Enter** to
-open its action panel:
+Use the **Up** and **Down** arrows to select a row. Press **Enter** on an agent
+to open its action panel:
 
 - **Stop Agent** interrupts its pane or process and parks that loop. An active
   ticket remains `in_progress` and reserved for the same agent, and workspace
@@ -65,6 +65,12 @@ Escape closes the action panel. Clean removes tracked modifications and
 untracked files and directories permanently; ignored files are unaffected
 because Abacus uses `git clean -fd` exactly. A cleanup failure remains visible
 as a persistent alert.
+
+The same selection continues through the latest-comments rows. Press **Enter**
+on a comment to open its complete text with the issue title, author, and
+timestamp. The detail view wraps without truncating the message. Use **Up**,
+**Down**, **Page Up**, or **Page Down** to scroll a long comment, then press
+**Escape** to return to the dashboard.
 
 ### Latest comments
 

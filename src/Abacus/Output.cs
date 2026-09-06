@@ -185,7 +185,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private bool rendered;
     private bool dashboardFrozen;
     private int selectedAgentIndex = -1;
-    private AgentActionPanel actionPanel;
+    private int selectedCommentIndex = -1;
+    private int commentScrollOffset;
+    private BeadsComment? openComment;
+    private DashboardPanel panel;
     private bool disposed;
 
     public ConsoleOutput(
@@ -294,7 +297,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         AgentControlAction? requestedAction = null;
         lock (gate)
         {
-            if (!HandleAgentSelectionKey(key, out selectedAgent, out requestedAction))
+            if (!HandleSelectionKey(key, out selectedAgent, out requestedAction))
             {
                 return false;
             }
@@ -439,6 +442,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             }
 
             latestComments = snapshot;
+            if (selectedCommentIndex >= latestComments.Count)
+            {
+                selectedCommentIndex = latestComments.Count - 1;
+            }
+
             if (interactive)
             {
                 RenderDashboard();
@@ -630,11 +638,21 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         builder.Append(Color(Dim, $"  {agents.Count} agent{(agents.Count == 1 ? string.Empty : "s")}  •  {model}  •  "));
         builder.Append(Color(claimingEnabled ? Green : Yellow, claimingEnabled ? "CLAIMS ON" : "CLAIMS PAUSED"));
         builder.Append("\u001b[K\n");
-        builder.Append(Color(Dim, Truncate(
-            " ↑↓ select • Enter • Shift-Tab • Ctrl-C all",
-            width)));
+        builder.Append(Color(Dim, Truncate(" ↑↓ select • Enter open", width)));
+        builder.Append("\u001b[K\n");
+        builder.Append(Color(Dim, Truncate(" Shift-Tab claims on/off • Ctrl-C stop all", width)));
         builder.Append("\u001b[K\n");
         builder.Append(Color(Dim, line)).Append("\u001b[K\n");
+
+        if (panel is DashboardPanel.CommentDetail && openComment is not null)
+        {
+            RenderCommentDetail(builder, openComment, width, line);
+            builder.Append("\u001b[J");
+            writer.Write(builder.ToString());
+            writer.Flush();
+            rendered = true;
+            return;
+        }
 
         var nameWidth = Math.Clamp(agents.Keys.DefaultIfEmpty(string.Empty).Max(static name => name.Length), 8, 20);
         var rowIndex = 0;
@@ -670,7 +688,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             rowIndex++;
         }
 
-        if (actionPanel is not AgentActionPanel.Closed && SelectedAgent() is { } selected)
+        if (panel is DashboardPanel.AgentMenu or DashboardPanel.ConfirmClean
+            && SelectedAgent() is { } selected)
         {
             builder.Append(Color(Bold + Cyan, Truncate($" AGENT ACTIONS — {selected.Name}", width)));
             builder.Append("\u001b[K\n");
@@ -684,7 +703,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 builder.Append("\u001b[K\n");
             }
 
-            if (actionPanel is AgentActionPanel.ConfirmClean)
+            if (panel is DashboardPanel.ConfirmClean)
             {
                 builder.Append(Color(Red, Truncate(
                     "   Permanently discard tracked and untracked workspace changes?",
@@ -745,13 +764,17 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         }
         else
         {
-            foreach (var comment in latestComments)
+            for (var commentIndex = 0; commentIndex < latestComments.Count; commentIndex++)
             {
+                var comment = latestComments[commentIndex];
                 var commentColor = comment.NeedsUserAttention
                     ? Red
                     : agents.ContainsKey(comment.Author) ? Green : Cyan;
                 var lines = FormatLatestCommentLines(comment, width);
-                builder.Append(Color(commentColor, lines.Header));
+                var header = commentIndex == selectedCommentIndex
+                    ? "›" + lines.Header[1..]
+                    : lines.Header;
+                builder.Append(Color(commentColor, header));
                 builder.Append("\u001b[K\n");
                 foreach (var commentLine in lines.Comments)
                 {
@@ -769,39 +792,66 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
     private string Color(string ansi, string value) => color ? ansi + value + Reset : value;
 
-    private bool HandleAgentSelectionKey(
+    private bool HandleSelectionKey(
         ConsoleKeyInfo key,
         out string? selectedAgent,
         out AgentControlAction? requestedAction)
     {
         selectedAgent = null;
         requestedAction = null;
-        if (agents.Count == 0)
+        if (agents.Count + latestComments.Count == 0)
         {
             return false;
         }
 
-        if (actionPanel is AgentActionPanel.ConfirmClean)
+        if (panel is DashboardPanel.CommentDetail)
+        {
+            if (key.Key is ConsoleKey.Escape)
+            {
+                panel = DashboardPanel.Closed;
+                openComment = null;
+                commentScrollOffset = 0;
+                return true;
+            }
+
+            if (key.Key is ConsoleKey.UpArrow or ConsoleKey.PageUp)
+            {
+                var amount = key.Key is ConsoleKey.PageUp ? CommentViewportHeight() : 1;
+                commentScrollOffset = Math.Max(0, commentScrollOffset - amount);
+                return true;
+            }
+
+            if (key.Key is ConsoleKey.DownArrow or ConsoleKey.PageDown)
+            {
+                var amount = key.Key is ConsoleKey.PageDown ? CommentViewportHeight() : 1;
+                commentScrollOffset = Math.Min(CommentMaximumScrollOffset(), commentScrollOffset + amount);
+                return true;
+            }
+
+            return false;
+        }
+
+        if (panel is DashboardPanel.ConfirmClean)
         {
             if (key.Key is ConsoleKey.Y)
             {
                 selectedAgent = SelectedAgent()!.Name;
                 requestedAction = AgentControlAction.CleanWorkspace;
-                actionPanel = AgentActionPanel.Closed;
+                panel = DashboardPanel.Closed;
                 systemStatus = $"Cleaning {selectedAgent}'s workspace";
                 return true;
             }
 
             if (key.Key is ConsoleKey.N or ConsoleKey.Escape)
             {
-                actionPanel = AgentActionPanel.Menu;
+                panel = DashboardPanel.AgentMenu;
                 return true;
             }
 
             return false;
         }
 
-        if (actionPanel is AgentActionPanel.Menu)
+        if (panel is DashboardPanel.AgentMenu)
         {
             var action = key.Key switch
             {
@@ -813,7 +863,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             {
                 selectedAgent = SelectedAgent()!.Name;
                 requestedAction = action;
-                actionPanel = AgentActionPanel.Closed;
+                panel = DashboardPanel.Closed;
                 systemStatus = action is AgentControlAction.Stop
                     ? $"Stopping {selectedAgent}"
                     : $"Restarting {selectedAgent}";
@@ -822,13 +872,13 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
             if (key.Key is ConsoleKey.C)
             {
-                actionPanel = AgentActionPanel.ConfirmClean;
+                panel = DashboardPanel.ConfirmClean;
                 return true;
             }
 
             if (key.Key is ConsoleKey.Escape)
             {
-                actionPanel = AgentActionPanel.Closed;
+                panel = DashboardPanel.Closed;
                 return true;
             }
 
@@ -838,26 +888,56 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         if (key.Key is ConsoleKey.UpArrow or ConsoleKey.DownArrow)
         {
             var direction = key.Key is ConsoleKey.UpArrow ? -1 : 1;
-            selectedAgentIndex = selectedAgentIndex < 0
-                ? direction < 0 ? agents.Count - 1 : 0
-                : (selectedAgentIndex + direction + agents.Count) % agents.Count;
+            var selectableCount = agents.Count + latestComments.Count;
+            var current = selectedAgentIndex >= 0
+                ? selectedAgentIndex
+                : selectedCommentIndex >= 0 ? agents.Count + selectedCommentIndex : -1;
+            var next = current < 0
+                ? direction < 0 ? selectableCount - 1 : 0
+                : (current + direction + selectableCount) % selectableCount;
+            if (next < agents.Count)
+            {
+                selectedAgentIndex = next;
+                selectedCommentIndex = -1;
+            }
+            else
+            {
+                selectedAgentIndex = -1;
+                selectedCommentIndex = next - agents.Count;
+            }
+
             return true;
         }
 
         if (key.Key is ConsoleKey.Enter)
         {
-            if (selectedAgentIndex < 0)
+            if (selectedCommentIndex >= 0)
+            {
+                openComment = latestComments[selectedCommentIndex];
+                commentScrollOffset = 0;
+                panel = DashboardPanel.CommentDetail;
+                return true;
+            }
+
+            if (selectedAgentIndex < 0 && agents.Count > 0)
             {
                 selectedAgentIndex = 0;
             }
 
-            actionPanel = AgentActionPanel.Menu;
-            return true;
+            if (selectedAgentIndex >= 0)
+            {
+                panel = DashboardPanel.AgentMenu;
+                return true;
+            }
+
+            return false;
         }
 
-        if (key.Key is ConsoleKey.Escape && selectedAgentIndex >= 0)
+        if (key.Key is ConsoleKey.Escape
+            && (selectedAgentIndex >= 0 || selectedCommentIndex >= 0))
         {
             selectedAgentIndex = -1;
+            selectedCommentIndex = -1;
             return true;
         }
 
@@ -867,6 +947,65 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private AgentRow? SelectedAgent() => selectedAgentIndex >= 0
         ? agents.Values.ElementAt(selectedAgentIndex)
         : null;
+
+    private int CommentViewportHeight() => Math.Max(3, GetHeight() - 11);
+
+    private int CommentMaximumScrollOffset()
+    {
+        if (openComment is null)
+        {
+            return 0;
+        }
+
+        return Math.Max(
+            0,
+            WrapCommentText(openComment.Text, Math.Max(1, GetWidth() - 3)).Count
+                - CommentViewportHeight());
+    }
+
+    private void RenderCommentDetail(
+        StringBuilder builder,
+        BeadsComment comment,
+        int width,
+        string line)
+    {
+        builder.Append(Color(Bold + Cyan, Truncate($" COMMENT — {SingleLine(comment.IssueId)}", width)));
+        builder.Append("\u001b[K\n");
+        builder.Append(Truncate($"   {SingleLine(comment.IssueTitle ?? "(untitled)")}", width));
+        builder.Append("\u001b[K\n");
+        builder.Append(Color(
+            Dim,
+            Truncate($"   {SingleLine(comment.Author)} • {comment.CreatedAt:u}", width)));
+        builder.Append("\u001b[K\n");
+        builder.Append(Color(Dim, line)).Append("\u001b[K\n");
+
+        var wrapped = WrapCommentText(comment.Text, Math.Max(1, width - 3));
+        var viewportHeight = CommentViewportHeight();
+        var maximumOffset = Math.Max(0, wrapped.Count - viewportHeight);
+        commentScrollOffset = Math.Clamp(commentScrollOffset, 0, maximumOffset);
+        foreach (var messageLine in wrapped
+            .Skip(commentScrollOffset)
+            .Take(viewportHeight))
+        {
+            builder.Append("   ").Append(messageLine).Append("\u001b[K\n");
+        }
+
+        builder.Append(Color(Dim, line)).Append("\u001b[K\n");
+        var visibleEnd = Math.Min(wrapped.Count, commentScrollOffset + viewportHeight);
+        builder.Append(Color(
+            Dim,
+            Truncate(" ↑↓ scroll • PgUp/PgDn • Esc close", width)));
+        builder.Append("\u001b[K\n");
+        if (wrapped.Count > viewportHeight)
+        {
+            builder.Append(Color(
+                Dim,
+                Truncate(
+                    $" Lines {commentScrollOffset + 1}-{visibleEnd} of {wrapped.Count}",
+                    width)));
+            builder.Append("\u001b[K\n");
+        }
+    }
 
     private Task UpdateRowAsync(string agentName, Func<AgentRow, AgentRow> update)
     {
@@ -982,6 +1121,52 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private static string SingleLine(string value) =>
         string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
+    internal static IReadOnlyList<string> WrapCommentText(string value, int width)
+    {
+        if (width <= 0)
+        {
+            return [];
+        }
+
+        var sanitized = new string(value.Select(static character => character switch
+        {
+            '\n' or '\r' => character,
+            '\t' => ' ',
+            _ when char.IsControl(character) => '�',
+            _ => character,
+        }).ToArray());
+        var result = new List<string>();
+        foreach (var logicalLine in sanitized
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n'))
+        {
+            var remaining = logicalLine;
+            if (remaining.Length == 0)
+            {
+                result.Add(string.Empty);
+                continue;
+            }
+
+            while (remaining.Length > width)
+            {
+                var segmentLength = width;
+                var wordBreak = remaining.LastIndexOf(' ', width - 1, width);
+                if (wordBreak > 0)
+                {
+                    segmentLength = wordBreak;
+                }
+
+                result.Add(remaining[..segmentLength].TrimEnd());
+                remaining = remaining[segmentLength..].TrimStart();
+            }
+
+            result.Add(remaining);
+        }
+
+        return result;
+    }
+
     internal static string Truncate(string value, int width)
     {
         if (width <= 0)
@@ -1003,6 +1188,18 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         catch (IOException)
         {
             return 80;
+        }
+    }
+
+    private static int GetHeight()
+    {
+        try
+        {
+            return Math.Clamp(Console.WindowHeight, 12, 80);
+        }
+        catch (IOException)
+        {
+            return 24;
         }
     }
 
@@ -1033,10 +1230,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             0);
     }
 
-    private enum AgentActionPanel
+    private enum DashboardPanel
     {
         Closed,
-        Menu,
+        AgentMenu,
         ConfirmClean,
+        CommentDetail,
     }
 }
