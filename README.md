@@ -17,9 +17,9 @@ Abacus stays deliberately thin: it coordinates the command-line tools you
 already use rather than replacing Git, Beads, tmux, or your agent harness.
 
 > [!IMPORTANT]
-> Agent workspaces are disposable. Before every claim, Abacus resets tracked
-> changes and removes untracked, non-ignored files. Never assign a workspace
-> that contains work you have not committed or moved elsewhere.
+> Abacus preserves dirty workspaces. A dirty `abacus/<issue-id>` branch resumes
+> that exact open issue before normal dispatch. Any other dirty workspace stops
+> the affected agent with a persistent alert so an operator can resolve it.
 
 ## Why Abacus?
 
@@ -68,7 +68,7 @@ worktrees, the bundled skills, and ready-to-use launch scripts:
 ```text
 my-project/
 ├── repo/                     # main checkout and shared Beads project
-├── worktrees/{0,1,2,3}/      # disposable agent workspaces
+├── worktrees/{0,1,2,3}/      # persistent agent workspaces
 ├── run_abacus_opencode.sh
 ├── run_abacus_codex.sh
 └── run_abacus_claude.sh

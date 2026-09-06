@@ -51,13 +51,11 @@ The examples below assume the resulting `abacus` executable is on `PATH`.
 Every agent needs a different Git workspace: the main checkout, a linked
 worktree, or a separate clone. Two agents may never share the same directory.
 
-> [!CAUTION]
-> Abacus treats assigned workspaces as disposable. Before each claim it runs
-> `git reset --hard HEAD` and `git clean -fd`. This discards tracked changes and
-> untracked, non-ignored files and directories. Commit or move anything you need
-> before starting Abacus.
-
-Ignored files remain because Abacus does not use `git clean -x`.
+> [!NOTE]
+> Abacus preserves dirty workspaces. When the current branch is
+> `abacus/<issue-id>`, it resumes that exact open issue before normal dispatch.
+> Other dirty workspaces stop the affected agent with a persistent alert and
+> remain untouched for operator recovery.
 
 ## Path A: create a new multi-agent project
 
@@ -221,7 +219,7 @@ yourself when you are finished.
 
 Multiple agents need both isolated Git workspaces and one shared, server-backed
 Dolt database. This example keeps the primary checkout for administration and
-creates four disposable agent worktrees.
+creates four persistent agent worktrees.
 
 For existing-data migration, backup and recovery procedures, see
 [Managing Shared Dolt for Abacus](shared-dolt.md). Do not switch an embedded

@@ -46,10 +46,10 @@ public sealed class PromptTests
                `bd merge-slot release --holder "$BEADS_ACTOR"`. Always release it, including
                when the merge fails. Only close the ticket after the merge and release succeed.
 
-            You might not be the first agent to work on this ticket, there might be commits
-            in this branch that are already contributing to the ticket. Make sure you
-            understand the current state of the branch before you make changes. If you think
-            the original commits are incorrect, you can fix/remove them.
+            You might not be the first agent to work on this ticket. The branch can contain
+            commits or uncommitted changes preserved from an interrupted run. Inspect the
+            branch history, `git status`, and `git diff` before making changes so you preserve
+            useful existing work. If earlier work is incorrect, you can fix or remove it.
 
             If the issue needs user awareness, a decision, or outside action, bring it to the
             user's attention with:

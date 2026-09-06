@@ -237,7 +237,7 @@ suitable for scripts and CI.
 Examples:
 
 ```sh
-# Validate without claiming or cleaning a workspace.
+# Validate without claiming or changing a workspace.
 abacus --check --mode opencode-server \
   --model provider/model \
   --opencode-server 127.0.0.1:4096 \

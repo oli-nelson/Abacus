@@ -20,6 +20,7 @@ public sealed class BeadsFixtureTests
         Assert.Equal("abc-123", issue.Id);
         Assert.Equal(IssueStatus.InProgress, issue.Status);
         Assert.Equal("Contract fixture", issue.Title);
+        Assert.Equal("alice", issue.Assignee);
     }
 
     [Theory]

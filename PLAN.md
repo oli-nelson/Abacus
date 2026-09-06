@@ -79,12 +79,12 @@ multi-agent shared server, record its live commit without pulling. A failure
 aborts before any ticket is claimed. Keep the full commit in memory for the
 final summary; do not create a checkpoint commit or persistent Abacus state.
 
-1. Clean the workspace with `git reset --hard HEAD` and `git clean -fd` before looking for work.
+1. Inspect the workspace before looking for work. A dirty `abacus/<issue-id>` branch resumes that exact open issue without changing its files. Any dirty workspace that cannot be tied safely to a resumable issue stops that agent and remains untouched.
 2. In single-agent mode, pull Beads before looking for work when a Dolt remote exists.
 3. List matching work with `bd ready --unassigned --exclude-label gt:slot --limit 0 --json`, preserve Beads priority, use the newest comment to break a highest-priority tie, skip each selected candidate when `bd show <id> --children --json` reports any unclosed direct child, and atomically claim the eligible issue with `bd update <id> --claim --json`, all with `BEADS_ACTOR=<agent name>`.
 4. If no issue is ready, sleep for a small fixed interval and try again.
 5. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
-6. Verify that the workspace is clean before the agent CLI starts.
+6. Verify that a normal newly selected workspace is clean before the agent CLI starts. Preserve existing changes when resuming an interrupted issue workspace.
 7. Render the SPEC.md prompt and launch the selected mode. OpenCode, Codex, and Claude use a new interactive pane in the requested tmux target. OpenCode Server uses `opencode run` and is directly supervised unless tmux was explicitly supplied.
 8. Poll `bd show <issue_id> --json` while also watching the hosted agent run for exit.
 9. When the ticket leaves `in_progress`, interrupt the agent CLI if it is still running and clean up its pane or direct process.
@@ -240,7 +240,7 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Exit criteria
 
-- Missing tmux for local mode, invalid explicit tmux targets, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and cleaned by the agent loop before claiming.
+- Missing tmux for local mode, invalid explicit tmux targets, duplicate workspaces, missing Beads projects, and unsafe multi-agent database configurations all fail before claims. Dirty workspaces are accepted here and recovered or preserved by the agent loop before normal dispatch.
 - A valid single-agent local setup and a valid multi-agent shared-Dolt setup pass.
 - Preflight never mutates Git, Beads, tmux, or agent CLI state.
 - `--check` reports success immediately after this boundary and never claims work or starts an agent CLI.
@@ -261,8 +261,8 @@ All checks happen before any ticket is claimed or agent run is created.
 - Append configured `--label`, `--exclude-label`, `--type`, and `--priority` values literally to both the unassigned ready lookup and the same-agent assigned-ready fallback. Keep the built-in `gt:slot` exclusion. Respect the priority ordering returned by Beads, then use the newest comment only to break a tie within the highest-priority group. If none of the tied issues has comments, select the first result. Before claiming, inspect that candidate's direct children and skip it when any child status is not `closed`; failed or malformed child data must not permit a claim. Claim an eligible selected ID atomically and refresh selection after a lost claim race or Dolt serialization conflict.
 
 - In single-agent mode only, run `bd dolt pull` immediately before each claim attempt when a remote exists. A pull failure should log and delay the next attempt rather than claim against stale data.
-- Check workspace cleanliness before every claim. If a workspace is dirty, warn, discard tracked changes with `git reset --hard HEAD`, remove untracked non-ignored files and directories with `git clean -fd`, and verify the result is clean before claiming.
-- If automatic cleanup fails or leaves the workspace dirty, stop Abacus with a clear startup-invariant error rather than repeatedly claiming and reopening work.
+- Check workspace cleanliness before every claim. If a workspace is dirty, require its current branch to be a valid `abacus/<issue-id>` branch, read that exact issue, and atomically claim it when it is open and unassigned or already assigned to the configured agent. Resume it without switching branches or changing tracked or untracked files. This recovery takes precedence over normal dispatch and ignores dispatch filters.
+- If a dirty workspace is not on a valid Abacus issue branch, its issue is not open, it belongs to another agent, or its exact claim fails, preserve the workspace, stop that agent, and raise a persistent alert. Never reset or clean a dirty workspace automatically.
 - Treat “no ready issue” as idle, not as an error. Use one fixed polling interval (for example, five seconds) to avoid adding tuning options prematurely.
 - After a claim, use Git CLI commands to:
   - verify the workspace is still clean;
@@ -277,7 +277,7 @@ All checks happen before any ticket is claimed or agent run is created.
 - Parallel fake-agent tests prove each atomic claim is handled by only one loop.
 - A ready parent with an unclosed direct child is skipped without any claim attempt, while parents with no children or only closed children remain eligible.
 - Existing and new issue branches both work.
-- Dirty or unusable workspaces never start an agent CLI and do not leave the issue claimed.
+- Resumable dirty issue workspaces start the agent without losing changes. Ambiguous or unsafe dirty workspaces remain unchanged, never start an agent CLI, and raise a persistent alert.
 
 ## Phase 5 - Agent processes, panes, and prompt delivery
 
@@ -337,7 +337,8 @@ All checks happen before any ticket is claimed or agent run is created.
 - Cover at least:
   - no ready work followed by a claim;
   - two agents claiming concurrently;
-  - dirty workspace cleanup before claiming;
+  - exact-ticket recovery for a dirty issue workspace without reset or clean;
+  - preservation and halt for ambiguous or unsafe dirty workspaces;
   - mismatched Dolt databases rejection;
   - required and malformed model option handling;
   - exact OpenCode, Codex, Claude, pane-attached server, and direct-attached server command construction with the same requested model for every agent;
@@ -401,7 +402,7 @@ All checks happen before any ticket is claimed or agent run is created.
 - Every agent uses a unique validated workspace and either a dedicated Abacus-owned tmux pane or directly supervised attached process.
 - Multi-agent execution is impossible unless all workspaces resolve to the same shared Dolt database.
 - Claims are atomic and attributed with `BEADS_ACTOR`.
-- Git branch preparation and clean-workspace enforcement happen before the agent CLI starts.
+- Git branch preparation and clean-workspace enforcement happen before normal agent starts; interrupted issue recovery preserves and reuses the dirty workspace.
 - Every agent is launched only through its CLI; OpenCode Server attachment remains the only direct non-tmux host.
 - Ticket transitions control session lifetime exactly as specified.
 - Unexpected exits reopen rather than complete work.

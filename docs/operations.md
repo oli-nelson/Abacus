@@ -35,7 +35,6 @@ An interactive terminal shows one row per configured agent. Rows move through:
 | `PAUSED` | New claims are disabled at the claim boundary. |
 | `WAITING` / `IDLE` | The agent is looking for eligible work or sleeping between polls. |
 | `SYNCING` | Beads/Dolt state is being synchronized. |
-| `CLEANING` | Disposable workspace changes are being removed. |
 | `PREPARING` | The issue branch and launch inputs are being prepared. |
 | `WORKING` | The selected coding agent is running. |
 | `FINALIZING` | Abacus is reading the terminal issue state and cleaning the host. |
@@ -132,11 +131,16 @@ Before agents start, Abacus establishes a Beads baseline:
 
 Each loop then:
 
-1. Resets and cleans its assigned workspace.
+1. Inspects its assigned workspace. A dirty `abacus/<issue-id>` branch is preserved and resumes that exact open issue; any unsafe dirty state stops that agent with a persistent alert.
 2. Pulls before the claim in single-agent remote mode.
 3. Selects eligible ready work and claims it atomically as `BEADS_ACTOR`.
 4. Creates or reuses `abacus/<issue-id>`.
-5. Starts the harness only after re-verifying a clean workspace.
+5. Starts the harness after verifying a normal claim is clean, or directly in the preserved workspace for an interrupted issue recovery.
+
+Interrupted-workspace recovery takes precedence over the ready queue and ignores
+dispatch filters. Abacus never automatically resets or cleans a dirty workspace.
+If the issue is no longer open, belongs to another agent, or cannot be claimed,
+the files remain in place and that agent stops for operator attention.
 
 Abacus never dispatches a candidate with an unclosed direct child and always
 excludes the `gt:slot` coordination bead. Optional filters and newest-comment

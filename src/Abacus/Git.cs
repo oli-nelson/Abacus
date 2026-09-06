@@ -100,6 +100,44 @@ public sealed class Git(CommandRunner runner, string executable = "git")
         return branch;
     }
 
+    public async Task<string> GetCurrentBranchAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        var current = await RunAsync(
+            workspace,
+            agentName,
+            ["-C", workspace, "branch", "--show-current"],
+            cancellationToken);
+        if (!current.Succeeded || string.IsNullOrWhiteSpace(current.StandardOutput))
+        {
+            throw new WorkspacePreparationException(
+                $"could not identify the current branch: {FailureDetail(current)}");
+        }
+
+        return current.StandardOutput.Trim();
+    }
+
+    public static bool TryGetIssueId(string branch, out string issueId)
+    {
+        const string prefix = "abacus/";
+        if (!branch.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            issueId = string.Empty;
+            return false;
+        }
+
+        issueId = branch[prefix.Length..];
+        if (IsValidIssueId(issueId))
+        {
+            return true;
+        }
+
+        issueId = string.Empty;
+        return false;
+    }
+
     public async Task<BranchPruneResult> PruneClosedIssueBranchesAsync(
         string workspace,
         IEnumerable<string> closedIssueIds,
@@ -176,37 +214,6 @@ public sealed class Git(CommandRunner runner, string executable = "git")
         }
 
         return string.IsNullOrEmpty(status.StandardOutput);
-    }
-
-    public async Task CleanWorkspaceAsync(
-        string workspace,
-        string agentName,
-        CancellationToken cancellationToken)
-    {
-        var reset = await RunAsync(
-            workspace,
-            agentName,
-            ["-C", workspace, "reset", "--hard", "HEAD"],
-            cancellationToken);
-        if (!reset.Succeeded)
-        {
-            throw new WorkspacePreparationException($"could not reset tracked changes: {FailureDetail(reset)}");
-        }
-
-        var clean = await RunAsync(
-            workspace,
-            agentName,
-            ["-C", workspace, "clean", "-fd"],
-            cancellationToken);
-        if (!clean.Succeeded)
-        {
-            throw new WorkspacePreparationException($"could not remove untracked files: {FailureDetail(clean)}");
-        }
-
-        if (!await IsWorkspaceCleanAsync(workspace, agentName, cancellationToken))
-        {
-            throw new WorkspacePreparationException("workspace remained dirty after cleanup");
-        }
     }
 
     private async Task EnsureCleanAsync(

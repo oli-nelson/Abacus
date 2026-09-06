@@ -47,7 +47,7 @@ public sealed class ClaimCoordinatorTests
     }
 
     [Fact]
-    public async Task DirtyWorkspaceIsCleanedBeforeClaiming()
+    public async Task DirtyIssueWorkspaceResumesExactTicketWithoutCleaning()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -62,14 +62,88 @@ public sealed class ClaimCoordinatorTests
             singleAgentMode: true,
             CancellationToken.None);
 
-        Assert.Equal("abc-good", claim.Issue.Id);
-        Assert.Equal("2", await fixture.ReadAsync("ready-count"));
+        Assert.Equal("abc-resume", claim.Issue.Id);
+        Assert.Equal("abacus/abc-resume", claim.Branch);
+        Assert.Equal("0", await fixture.ReadAsync("ready-count"));
         Assert.False(File.Exists(fixture.PathOf("updates")));
         var gitCalls = await fixture.ReadAsync("git-calls");
-        Assert.Contains("reset --hard HEAD", gitCalls, StringComparison.Ordinal);
-        Assert.Contains("clean -fd", gitCalls, StringComparison.Ordinal);
-        Assert.Contains("workspace is dirty; discarding local changes", fixture.Log.ToString(), StringComparison.Ordinal);
-        Assert.Contains("workspace cleaned; continuing claims", fixture.Log.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("reset --hard HEAD", gitCalls, StringComparison.Ordinal);
+        Assert.DoesNotContain("clean -fd", gitCalls, StringComparison.Ordinal);
+        Assert.Contains("uncommitted workspace changes preserved", fixture.Log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DirtyNonIssueWorkspaceIsPreservedAndAgentHalts()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            initiallyDirty: true,
+            initialBranch: "feature/manual-work");
+
+        await Assert.ThrowsAsync<AgentHaltedException>(() =>
+            fixture.Coordinator.WaitForPreparedClaimAsync(
+                fixture.Agent(hasRemote: false),
+                singleAgentMode: true,
+                CancellationToken.None));
+
+        Assert.Equal("0", await fixture.ReadAsync("ready-count"));
+        var gitCalls = await fixture.ReadAsync("git-calls");
+        Assert.DoesNotContain("reset --hard HEAD", gitCalls, StringComparison.Ordinal);
+        Assert.DoesNotContain("clean -fd", gitCalls, StringComparison.Ordinal);
+        Assert.Contains("changes were preserved", fixture.Log.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task DirtyIssueWorkspaceIsPreservedWhenTicketCannotBeResumed()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            initiallyDirty: true,
+            resumeIssueStatus: "blocked");
+
+        await Assert.ThrowsAsync<AgentHaltedException>(() =>
+            fixture.Coordinator.WaitForPreparedClaimAsync(
+                fixture.Agent(hasRemote: false),
+                singleAgentMode: true,
+                CancellationToken.None));
+
+        Assert.Equal("0", await fixture.ReadAsync("ready-count"));
+        Assert.Contains("not open for recovery", fixture.Log.ToString(), StringComparison.Ordinal);
+        Assert.Contains("workspace changes were preserved", fixture.Log.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task DirtyIssueWorkspaceIsPreservedWhenTicketBelongsToAnotherAgent()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            initiallyDirty: true,
+            resumeIssueAssignee: "bob");
+
+        await Assert.ThrowsAsync<AgentHaltedException>(() =>
+            fixture.Coordinator.WaitForPreparedClaimAsync(
+                fixture.Agent(hasRemote: false),
+                singleAgentMode: false,
+                CancellationToken.None));
+
+        Assert.Equal("0", await fixture.ReadAsync("ready-count"));
+        Assert.Contains("assigned to 'bob'", fixture.Log.ToString(), StringComparison.Ordinal);
+        Assert.Contains("workspace changes were preserved", fixture.Log.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -171,7 +245,10 @@ public sealed class ClaimCoordinatorTests
 
         public static async Task<CoordinatorFixture> CreateAsync(
             bool recoverFirstClaim,
-            bool initiallyDirty = false)
+            bool initiallyDirty = false,
+            string initialBranch = "abacus/abc-resume",
+            string resumeIssueStatus = "open",
+            string? resumeIssueAssignee = null)
         {
             if (OperatingSystem.IsWindows())
             {
@@ -191,6 +268,13 @@ public sealed class ClaimCoordinatorTests
             await File.WriteAllTextAsync(Path.Combine(root.FullName, "ready-count"), "0");
             await File.WriteAllTextAsync(Path.Combine(root.FullName, "push-count"), "0");
             await File.WriteAllTextAsync(Path.Combine(root.FullName, "status-count"), "0");
+            if (initiallyDirty)
+            {
+                await File.WriteAllTextAsync(Path.Combine(root.FullName, "branch"), initialBranch);
+            }
+            var resumeAssigneeJson = resumeIssueAssignee is null
+                ? string.Empty
+                : $",\"assignee\":\"{resumeIssueAssignee}\"";
             await File.WriteAllTextAsync(bd, $$"""
                 #!/bin/sh
                 root={{Q(root.FullName)}}
@@ -216,7 +300,7 @@ public sealed class ClaimCoordinatorTests
                   fi
                 elif test "$1" = update; then
                   if test "$3" = --claim; then
-                    printf '[{"id":"%s","status":"in_progress"}]\n' "$2"
+                    printf '[{"id":"%s","status":"in_progress","assignee":"%s"}]\n' "$2" "$BEADS_ACTOR"
                   else
                     printf '%s\n' "$*" >> "$root/updates"
                     touch "$root/recovered"
@@ -225,6 +309,8 @@ public sealed class ClaimCoordinatorTests
                 elif test "$1" = show; then
                   if test "$3" = --children; then
                     printf '{"schema_version":1,"%s":[]}\n' "$2"
+                  elif test {{(initiallyDirty ? "1" : "0")}} -eq 1; then
+                    printf '[{"id":"abc-resume","status":"{{resumeIssueStatus}}","title":"Resume interrupted work"{{resumeAssigneeJson}}}]\n'
                   elif test -f "$root/recovered"; then
                     printf '[{"id":"abc-bad","status":"open"}]\n'
                   else
@@ -243,7 +329,7 @@ public sealed class ClaimCoordinatorTests
                 printf '%s\n' "$*" >> "$root/git-calls"
                 if test "$3" = status; then
                   count=$(cat "$root/status-count"); count=$((count + 1)); printf '%s' "$count" > "$root/status-count"
-                  if test {{(initiallyDirty ? "1" : "0")}} -eq 1 && ! test -f "$root/cleaned"; then
+                  if test {{(initiallyDirty ? "1" : "0")}} -eq 1; then
                     printf ' M dirty\n'
                   elif test {{(recoverFirstClaim ? "1" : "0")}} -eq 1 && test "$count" -eq 2 && ! test -f "$root/recovered"; then
                     printf ' M dirty\n'

@@ -46,20 +46,38 @@ public sealed class ClaimCoordinator(
                     $"[{agent.Name}] workspace disappeared: '{agent.WorkspacePath}'");
             }
 
+            bool workspaceIsClean;
+            string? interruptedIssueId = null;
             try
             {
-                if (!await git.IsWorkspaceCleanAsync(agent.WorkspacePath, agent.Name, cancellationToken))
+                workspaceIsClean = await git.IsWorkspaceCleanAsync(
+                    agent.WorkspacePath,
+                    agent.Name,
+                    cancellationToken);
+                if (!workspaceIsClean)
                 {
-                    await log.SetAgentAsync(agent.Name, AgentActivity.Cleaning, "Discarding workspace changes");
-                    await WarnAsync(agent.Name, "workspace is dirty; discarding local changes before claiming work");
-                    await git.CleanWorkspaceAsync(agent.WorkspacePath, agent.Name, cancellationToken);
-                    await log.SetAgentAsync(agent.Name, AgentActivity.Waiting, "workspace cleaned; continuing claims");
+                    var currentBranch = await git.GetCurrentBranchAsync(
+                        agent.WorkspacePath,
+                        agent.Name,
+                        cancellationToken);
+                    if (!Git.TryGetIssueId(currentBranch, out interruptedIssueId))
+                    {
+                        await HaltAsync(
+                            agent.Name,
+                            $"Workspace '{agent.WorkspacePath}' has uncommitted changes on branch " +
+                            $"'{currentBranch}'. The changes were preserved; resolve them before restarting this agent.");
+                    }
+
+                    await log.SetAgentAsync(
+                        agent.Name,
+                        AgentActivity.Recovering,
+                        $"{interruptedIssueId} • preserving interrupted workspace");
                 }
             }
             catch (WorkspacePreparationException exception)
             {
                 throw new StartupInvariantException(
-                    $"[{agent.Name}] could not clean workspace '{agent.WorkspacePath}': {exception.Message}");
+                    $"[{agent.Name}] could not inspect workspace '{agent.WorkspacePath}': {exception.Message}");
             }
 
             if (singleAgentMode && agent.HasRemote)
@@ -85,14 +103,36 @@ public sealed class ClaimCoordinator(
             try
             {
                 await WaitForClaimPermissionAsync(agent.Name, cancellationToken);
-                issue = await beads.TryClaimReadyAsync(
-                    agent.WorkspacePath,
-                    agent.Name,
-                    filters,
-                    cancellationToken);
+                if (interruptedIssueId is not null)
+                {
+                    issue = await beads.ResumeOpenIssueAsync(
+                        agent.WorkspacePath,
+                        agent.Name,
+                        interruptedIssueId,
+                        cancellationToken);
+                    await WarnAsync(
+                        agent.Name,
+                        $"resuming {interruptedIssueId} with its uncommitted workspace changes preserved");
+                }
+                else
+                {
+                    issue = await beads.TryClaimReadyAsync(
+                        agent.WorkspacePath,
+                        agent.Name,
+                        filters,
+                        cancellationToken);
+                }
             }
             catch (BeadsException exception)
             {
+                if (interruptedIssueId is not null)
+                {
+                    await HaltAsync(
+                        agent.Name,
+                        $"Could not safely resume {interruptedIssueId}: {exception.Message}. " +
+                        "The workspace changes were preserved.");
+                }
+
                 await WarnAsync(agent.Name, exception.Message);
                 if (executionMode is not ExecutionMode.Continuous)
                 {
@@ -126,11 +166,13 @@ public sealed class ClaimCoordinator(
                     agent.Name,
                     AgentActivity.Preparing,
                     $"{issue.Id} • preparing workspace and branch");
-                var branch = await git.PrepareIssueBranchAsync(
-                    agent.WorkspacePath,
-                    agent.Name,
-                    issue.Id,
-                    cancellationToken);
+                var branch = interruptedIssueId is not null
+                    ? $"abacus/{interruptedIssueId}"
+                    : await git.PrepareIssueBranchAsync(
+                        agent.WorkspacePath,
+                        agent.Name,
+                        issue.Id,
+                        cancellationToken);
                 return new PreparedClaim(issue, branch);
             }
             catch (OperationCanceledException)

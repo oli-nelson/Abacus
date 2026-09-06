@@ -277,7 +277,7 @@
       <div>
         <p class="eyebrow">Implementation map · one configured agent</p>
         <h1>The Abacus agent loop</h1>
-        <p class="lede">From a clean workspace to an atomic Beads claim, a supervised coding session, and a safe return to the queue.</p>
+        <p class="lede">From workspace inspection or interrupted-work recovery to an atomic Beads claim, a supervised coding session, and a safe return to the queue.</p>
       </div>
       <aside class="stamp" aria-label="Document scope">
         <strong>Scope</strong> single <code>AgentLoop</code><br>
@@ -300,7 +300,7 @@
     <section class="chart-shell" aria-label="Flowchart of a single Abacus agent loop">
       <svg id="flowchart" viewBox="0 0 1480 2850" role="img" aria-labelledby="chart-title chart-desc">
         <title id="chart-title">Flowchart of a single Abacus agent loop</title>
-        <desc id="chart-desc">The loop checks and cleans a workspace, optionally pulls Beads data, selects a ready ticket without unclosed children, claims it, prepares a branch, starts an agent, supervises ticket status and process state, recovers failures, cleans up, pushes Beads data, and either repeats or stops.</desc>
+        <desc id="chart-desc">The loop inspects a workspace, preserves and resumes interrupted issue work when present, optionally pulls Beads data, otherwise selects a ready ticket without unclosed children, claims it, prepares a branch, starts an agent, supervises ticket status and process state, recovers failures, cleans up the host, pushes Beads data, and either repeats or stops.</desc>
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/>
@@ -403,8 +403,8 @@
 
         <g class="node action flow-item" data-path="happy idle crash shutdown">
           <rect class="body" x="92" y="435" width="322" height="66" rx="11"/>
-          <text class="node-kicker" x="114" y="461">CLEANING</text>
-          <text class="node-code" x="114" y="485">git reset --hard HEAD · git clean -fd</text>
+          <text class="node-kicker" x="114" y="461">INTERRUPTED WORK</text>
+          <text class="node-code" x="114" y="485">Preserve abacus/&lt;issue-id&gt; changes</text>
         </g>
 
         <g class="node decision flow-item" data-path="happy idle crash shutdown">
@@ -421,9 +421,9 @@
 
         <g class="node action flow-item" data-path="happy idle crash shutdown">
           <rect class="body" x="520" y="610" width="440" height="94" rx="12"/>
-          <text class="node-kicker" x="544" y="636">SELECT + ATOMIC CLAIM</text>
-          <text class="node-code" x="544" y="662">bd ready … · bd show &lt;id&gt; --children</text>
-          <text class="node-copy" x="544" y="684">Skip unclosed children · bd update &lt;id&gt; --claim</text>
+          <text class="node-kicker" x="544" y="636">RESUME OR SELECT + CLAIM</text>
+          <text class="node-code" x="544" y="662">Exact branch issue · or bd ready …</text>
+          <text class="node-copy" x="544" y="684">Preserve interrupted work · otherwise skip unclosed children</text>
           <text class="node-copy" x="544" y="700">Serialization conflicts retry internally with capped backoff + jitter.</text>
         </g>
 
@@ -457,14 +457,14 @@
           <rect class="body" x="520" y="994" width="440" height="90" rx="12"/>
           <text class="node-kicker" x="544" y="1020">PREPARING</text>
           <text class="node-title" x="544" y="1046">Select <tspan class="node-code">abacus/&lt;issue-id&gt;</tspan></text>
-          <text class="node-copy" x="544" y="1070">Validate ID · switch/create branch · verify branch + clean tree</text>
+          <text class="node-copy" x="544" y="1070">Normal: switch/create + verify clean · resume: preserve current tree</text>
         </g>
 
         <g class="node recovery flow-item" data-path="happy idle crash shutdown">
           <rect class="body" x="1082" y="373" width="324" height="92" rx="11"/>
           <text class="node-kicker" x="1104" y="399">STOPPED · INVARIANT</text>
           <text class="node-copy" x="1104" y="424">Workspace missing, uninspectable,</text>
-          <text class="node-copy" x="1104" y="445">or cannot be made clean</text>
+          <text class="node-copy" x="1104" y="445">or dirty state cannot be resumed safely</text>
         </g>
 
         <g class="node recovery flow-item" data-path="happy idle crash shutdown">
@@ -754,7 +754,7 @@
         <dl class="state-table">
           <dt>STARTING</dt><dd>Application initialized; loop not yet claiming.</dd>
           <dt>WAITING / IDLE</dt><dd>Checking for work / confirmed empty queue.</dd>
-          <dt>SYNCING / CLEANING</dt><dd>Pre-claim Beads pull / destructive workspace reset.</dd>
+          <dt>SYNCING</dt><dd>Pre-claim Beads pull.</dd>
           <dt>PREPARING</dt><dd>Claim held; issue branch is being selected.</dd>
           <dt>WORKING</dt><dd>Agent host is live and supervised.</dd>
           <dt>FINALIZING</dt><dd>Terminal ticket observed; run is ending.</dd>
@@ -766,7 +766,7 @@
       <article class="card">
         <h2>Safety invariants</h2>
         <ul>
-          <li>No ticket is claimed until the assigned Git workspace is present and clean. Cleanup intentionally discards tracked and untracked non-ignored changes.</li>
+          <li>Dirty issue workspaces resume their exact open ticket with every file preserved. Ambiguous dirty state stops the affected agent without changing the workspace.</li>
           <li>A ready candidate is never claimed while any direct child is unclosed; failed or malformed child data also prevents the claim.</li>
           <li>Any failure after a successful claim attempts to return the ticket to <code>open</code>, clears its assignee, verifies the result, and pushes when configured.</li>
           <li>Host cleanup is idempotent and targets only the tmux pane or direct child created by Abacus.</li>

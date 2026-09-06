@@ -797,8 +797,8 @@ abacus --help</code></pre>
         <div class="section-heading">
           <span class="section-number">02</span>
           <div>
-            <h2>Create a clean Git repository</h2>
-            <p class="section-intro">Abacus treats assigned workspaces as disposable execution areas. Begin with a committed baseline and keep the primary checkout for administration.</p>
+            <h2>Create a Git repository</h2>
+            <p class="section-intro">Abacus uses the current issue branch as recovery state. Begin with a committed baseline and keep the primary checkout for administration.</p>
           </div>
         </div>
 
@@ -817,9 +817,9 @@ export WORKTREES="$HOME/work/acme-widget-agents"
 git status --short</code></pre>
         </div>
 
-        <div class="callout danger">
-          <span class="icon">!</span>
-          <p><strong>Assigned worktrees must contain nothing precious.</strong> Before each claim, Abacus runs <code>git reset --hard HEAD</code> and <code>git clean -fd</code> when a workspace is dirty. Tracked edits and untracked, non-ignored files are discarded. Commit or move anything you need first.</p>
+        <div class="callout info">
+          <span class="icon">i</span>
+          <p><strong>Dirty worktrees are preserved.</strong> A dirty <code>abacus/&lt;issue-id&gt;</code> branch resumes that exact open issue before normal dispatch. Other dirty worktrees stop the affected agent for operator attention without changing their files.</p>
         </div>
 
         <ul class="checklist">
@@ -843,7 +843,7 @@ git status --short</code></pre>
           <section class="card">
             <p class="kicker">Topology</p>
             <h3>Keep main out of the pool</h3>
-            <p>Use <code>$REPO</code> to create issues, inspect health, and coordinate merges. Put disposable agent checkouts under <code>$WORKTREES</code>.</p>
+            <p>Use <code>$REPO</code> to create issues, inspect health, and coordinate merges. Put persistent agent checkouts under <code>$WORKTREES</code>.</p>
           </section>
           <section class="card">
             <p class="kicker">Branch ownership</p>
@@ -1095,7 +1095,7 @@ and distinguish local commit or merge limits from legitimate push limits.</code>
 
         <ol class="steps">
           <li><strong>Create the tmux target.</strong> Abacus verifies an existing session and optional window; it never creates either.</li>
-          <li><strong>Check the disposable workspace.</strong> Use the Alice worktree or the clean primary checkout for a one-agent run.</li>
+          <li><strong>Choose the agent workspace.</strong> Use the Alice worktree or the primary checkout for a one-agent run.</li>
           <li><strong>Start Abacus.</strong> The model is required; effort defaults to <code>high</code>.</li>
         </ol>
 
@@ -1335,7 +1335,6 @@ abacus --latest-comments 12 \
           <div class="state"><strong class="t-cyan">WAITING</strong>Looking for a ready ticket.</div>
           <div class="state"><strong class="t-cyan">IDLE</strong>No ready work; not a failure.</div>
           <div class="state"><strong class="t-yellow">SYNCING</strong>Pulling remote Beads data.</div>
-          <div class="state"><strong class="t-yellow">CLEANING</strong>Discarding workspace changes.</div>
           <div class="state"><strong class="t-yellow">PREPARING</strong>Selecting the issue branch.</div>
           <div class="state"><strong class="t-green">WORKING</strong>Agent CLI is supervised.</div>
           <div class="state"><strong class="t-yellow">FINALIZING</strong>Ticket terminal; cleaning up.</div>
@@ -1634,7 +1633,7 @@ abacus --notify all --notify-sound ...</code></pre>
           <section class="card accent-yellow">
             <p class="kicker">Validation</p>
             <h3><code>--check</code></h3>
-            <p class="small">Run preflight without cleaning, claiming, creating panes, or printing a run summary.</p>
+            <p class="small">Run preflight without changing workspaces, claiming, creating panes, or printing a run summary.</p>
           </section>
         </div>
 

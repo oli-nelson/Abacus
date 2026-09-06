@@ -35,7 +35,11 @@ public enum IssueStatus
     Unknown,
 }
 
-public sealed record BeadsIssue(string Id, IssueStatus Status, string? Title = null);
+public sealed record BeadsIssue(
+    string Id,
+    IssueStatus Status,
+    string? Title = null,
+    string? Assignee = null);
 
 public sealed record BeadsComment(
     string Id,
@@ -339,6 +343,53 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         string agentName,
         CancellationToken cancellationToken) =>
         TryClaimReadyAsync(workspace, agentName, DispatchFilters.Empty, cancellationToken);
+
+    public async Task<BeadsIssue> ResumeOpenIssueAsync(
+        string workspace,
+        string agentName,
+        string issueId,
+        CancellationToken cancellationToken)
+    {
+        var current = await GetIssueAsync(workspace, agentName, issueId, cancellationToken)
+            ?? throw new BeadsException($"issue '{issueId}' no longer exists");
+        if (current.Status is not IssueStatus.Open)
+        {
+            throw new BeadsException(
+                $"issue '{issueId}' is {StatusName(current.Status)}, not open for recovery");
+        }
+
+        if (!string.IsNullOrWhiteSpace(current.Assignee)
+            && !string.Equals(current.Assignee, agentName, StringComparison.Ordinal))
+        {
+            throw new BeadsException(
+                $"issue '{issueId}' is assigned to '{current.Assignee}', not '{agentName}'");
+        }
+
+        var claimResult = await RunWithActorAsync(
+            workspace,
+            agentName,
+            ["update", issueId, "--claim", "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(claimResult, $"resume interrupted issue '{issueId}'");
+        var claimed = ParseSingleClaim(claimResult.StandardOutput, "resume claim result")
+            ?? throw new BeadsException($"bd update --claim returned no issue for '{issueId}'");
+        if (!string.Equals(claimed.Id, issueId, StringComparison.Ordinal))
+        {
+            throw new BeadsException($"bd update --claim returned unexpected issue '{claimed.Id}'");
+        }
+
+        if (!string.Equals(claimed.Assignee, agentName, StringComparison.Ordinal))
+        {
+            throw new BeadsException(
+                $"resumed issue '{issueId}' was not assigned to '{agentName}'");
+        }
+
+        return claimed with
+        {
+            Title = claimed.Title ?? current.Title,
+            Assignee = claimed.Assignee ?? current.Assignee,
+        };
+    }
 
     private static IReadOnlyList<string> ReadyArguments(
         DispatchFilters filters,
@@ -646,12 +697,16 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
                 var title = element.TryGetProperty("title", out var titleElement)
                     ? titleElement.GetString()
                     : null;
+                var assignee = element.TryGetProperty("assignee", out var assigneeElement)
+                    && assigneeElement.ValueKind is not JsonValueKind.Null
+                    ? assigneeElement.GetString()
+                    : null;
                 if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(status))
                 {
                     throw new JsonException("issue id or status is missing");
                 }
 
-                issues.Add(new BeadsIssue(id, ParseStatus(status), title));
+                issues.Add(new BeadsIssue(id, ParseStatus(status), title, assignee));
             }
 
             return issues;
@@ -661,6 +716,12 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             throw new BeadsException($"Beads returned invalid {context} JSON: {exception.Message}");
         }
     }
+
+    private static string StatusName(IssueStatus status) => status switch
+    {
+        IssueStatus.InProgress => "in_progress",
+        _ => status.ToString().ToLowerInvariant(),
+    };
 
     private static IReadOnlyList<ReadyCandidate> ParseReadyCandidates(string json, string context)
     {
