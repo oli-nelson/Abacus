@@ -90,7 +90,9 @@ public sealed class TmuxAgentHost(
                     issue.Id,
                     agent.WorkspacePath,
                     agent.AppendedPrompt,
-                    agent.MergeInstructionsOverride),
+                    agent.MergeInstructionsOverride,
+                    agent.Targets?.Validate(issue).Branch ?? issue.TargetBranch
+                        ?? throw new TargetException("cannot launch a ticket without a resolved target")),
                 cancellationToken);
             await File.WriteAllTextAsync(
                 wrapperPath,

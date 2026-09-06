@@ -17,6 +17,25 @@ Create a durable Beads graph that another agent can execute without having to re
 
 Clarify only decisions that materially change scope, architecture, sequencing, or the definition of done. Inspect the repository before asking questions that the repository can answer. Do not invent product decisions; represent unresolved decisions as explicit decision or investigation issues when that makes the graph executable.
 
+## Destination Policy
+
+Read the controller's `.abacus/targets.json` in the main checkout selected by `--repo <path>` when supplied.
+`enforceTargetBranch` defaults to false: tickets without `metadata.abacus_target`
+use `defaultTarget` (default `main`). When enforcement is true, every ticket,
+including epics and decisions, requires an explicit target naming an allowed
+local branch. Explicit destinations override the default in either mode. Ask
+when the intended destination is unclear; do not infer it from parents or labels.
+Include the resolved destination in the proposed graph. A backport or forward-port is a
+separate linked ticket with its own destination and acceptance criteria.
+
+After creation, while dispatch is paused, stamp targets when enforcement requires
+them or work is intended for a non-default branch, using
+`abacus --set-ticket-target <branch> <id> ...` and verify with
+`abacus --check-ticket-targets <id> ...`. Pass `--repo <path>` to both commands
+when outside the main checkout. Never use a linked worktree as `--repo`. Defaulted tickets need no metadata backfill. If required stamping fails, report the incomplete graph rather than declaring
+it execution-ready. Never create or modify `abacus_execution` yourself; Abacus
+records that binding before it prepares an issue branch.
+
 ## Design the Graph
 
 Use an epic for the overall concept when it has multiple independently deliverable pieces. Give the epic the problem, intended outcome, boundaries, and concept-level completion criteria.

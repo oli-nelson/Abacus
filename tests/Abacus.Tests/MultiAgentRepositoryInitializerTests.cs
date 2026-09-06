@@ -37,12 +37,21 @@ public sealed class MultiAgentRepositoryInitializerTests
             Assert.Equal("main", await RunGitAsync(result.RepositoryPath, "branch", "--show-current"));
             Assert.Equal("# sample-project\n", await File.ReadAllTextAsync(Path.Combine(result.RepositoryPath, "README.md")));
             Assert.False(File.Exists(Path.Combine(result.RepositoryPath, ".gitignore")));
+            var targetConfig = await TargetRegistry.LoadAsync(
+                Path.Combine(result.RepositoryPath, ".abacus", "targets.json"), CancellationToken.None);
+            Assert.DoesNotContain("repositoryId", await File.ReadAllTextAsync(Path.Combine(result.RepositoryPath, ".abacus", "targets.json")));
+            Assert.Single(targetConfig.Targets);
+            Assert.False(targetConfig.EnforceTargetBranch);
+            Assert.Equal("main", targetConfig.DefaultTarget);
+            Assert.Contains("main", targetConfig.Targets.Keys);
+            Assert.Equal(".abacus/targets.json", await RunGitAsync(result.RepositoryPath, "ls-files", ".abacus/targets.json"));
 
             for (var index = 0; index < 3; index++)
             {
                 var worktree = Path.Combine(result.WorktreesPath, index.ToString());
                 Assert.True(Directory.Exists(worktree));
                 Assert.True(File.Exists(Path.Combine(worktree, ".git")));
+                Assert.True(File.Exists(Path.Combine(worktree, ".abacus", "targets.json")));
                 Assert.True(File.Exists(Path.Combine(
                     worktree,
                     ".agents",
@@ -73,6 +82,8 @@ public sealed class MultiAgentRepositoryInitializerTests
             {
                 Assert.Equal(result.ProjectRoot, Path.GetDirectoryName(launcher));
                 Assert.True(File.Exists(launcher));
+                Assert.Contains("--repo \"$root/repo\"", await File.ReadAllTextAsync(launcher));
+                Assert.DoesNotContain("--config", await File.ReadAllTextAsync(launcher));
                 Assert.True((File.GetUnixFileMode(launcher) & UnixFileMode.UserExecute) != 0);
             }
 
@@ -103,6 +114,7 @@ public sealed class MultiAgentRepositoryInitializerTests
             var launchedArguments = await File.ReadAllLinesAsync(abacusLog);
             Assert.Equal(3, launchedArguments.Count(static argument => argument == "-a"));
             Assert.Contains("codex", launchedArguments);
+            Assert.Equal(result.RepositoryPath, launchedArguments[Array.IndexOf(launchedArguments, "--repo") + 1]);
             Assert.Contains("test-session", launchedArguments);
             for (var index = 0; index < 3; index++)
             {

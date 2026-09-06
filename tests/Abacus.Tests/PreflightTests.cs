@@ -205,7 +205,7 @@ public sealed class PreflightTests
             Assert.Single(result.Agents).AppendedPrompt);
         Assert.Equal(
             "Use the repository merge queue.",
-            Assert.Single(result.Agents).MergeInstructionsOverride);
+            Assert.Single(result.Agents).Targets!.Targets["main"].MergeInstructions);
     }
 
     [Theory]
@@ -360,7 +360,9 @@ public sealed class PreflightTests
                 case "$3" in
                   rev-parse)
                     test -f "$workspace/.git-invalid" && exit 1
-                    test "$4" = --show-toplevel && { cd "$workspace" && pwd -P; } || printf 'true\n'
+                    if test "$4" = --verify; then printf '1111111111111111111111111111111111111111\n'
+                    elif test "$4" = --absolute-git-dir || test "$4" = --path-format=absolute; then printf '%s/.git\n' "$workspace"
+                    else test "$4" = --show-toplevel && { cd "$workspace" && pwd -P; } || printf 'true\n'; fi
                     ;;
                   status)
                     test -f "$workspace/.git-status" && cat "$workspace/.git-status"
@@ -407,9 +409,15 @@ public sealed class PreflightTests
             return workspace;
         }
 
-        public Task<PreflightResult> RunAsync(Options options) =>
-            new Preflight(new CommandRunner(TextWriter.Null), bin)
-                .RunAsync(options, CancellationToken.None);
+        public async Task<PreflightResult> RunAsync(Options options)
+        {
+            var directory = Path.Combine(Directory.Exists(options.Agents[0].WorkspacePath) ? options.Agents[0].WorkspacePath : root.FullName, ".abacus");
+            Directory.CreateDirectory(directory);
+            var config = Path.Combine(directory, "targets.json");
+            await File.WriteAllTextAsync(config, """{"version":1,"targets":{"main":{}}}""");
+            return await new Preflight(new CommandRunner(TextWriter.Null), bin)
+                .RunAsync(options with { RepositoryPath = options.RepositoryPath ?? Path.GetDirectoryName(directory)! }, CancellationToken.None);
+        }
 
         public void DeleteTool(string name) => File.Delete(Path.Combine(bin, name));
 

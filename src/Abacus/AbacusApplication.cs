@@ -7,6 +7,8 @@ public sealed class AbacusApplication(
 {
     public async Task RunAsync(PreflightResult preflight, CancellationToken cancellationToken)
     {
+        using var ownership = await WorkspaceOwnership.AcquireAsync(
+            new Git(runner, preflight.Tools.Git), preflight.Agents, cancellationToken);
         var beads = new Beads(runner, preflight.Tools.Bd);
         var baselineAgent = preflight.Agents[0];
         if (preflight.Agents.Count == 1 && baselineAgent.HasRemote)

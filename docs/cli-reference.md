@@ -1,5 +1,8 @@
 # Abacus CLI Reference
 
+> **Ticket targets:** Configure the target allowlist and default destination.
+> Missing ticket metadata is allowed unless `enforceTargetBranch` is enabled. See [target setup, audit, and recovery](targets.md).
+
 This page is the lookup reference for Abacus commands and run options. Use
 `abacus --help` for a compact terminal summary and [Getting started](getting-started.md)
 for complete setup examples.
@@ -15,6 +18,20 @@ Abacus has two command families:
 Standalone operations do not start preflight or agent loops unless their own
 description says otherwise.
 
+## Repository selection
+
+`--repo <path>` selects the main Git checkout for orchestration and all
+repository-scoped standalone commands. Without it, run inside the main checkout
+(subdirectories are normalized to its root). Linked worktrees cannot be the
+controller root; from a worktree or non-repo folder, pass the main checkout
+explicitly. Agent `-a` paths may still be linked worktrees.
+
+Configuration always loads from `<repo>/.abacus/targets.json`. `--config` has
+been removed; update old launchers to `--repo <main-checkout>` rather than a
+JSON file path. Relative `--repo` paths resolve against the invocation directory.
+Help, model listing, and new-repository creation remain usable outside Git;
+`--repo` is not accepted with model listing or new-repository creation.
+
 ## Standalone operations
 
 ### Create a new multi-agent project
@@ -25,8 +42,29 @@ abacus --init-new-multi-agent-repo <project-name> <agent-count>
 
 Creates `<project-name>/repo`, shared-server Beads configuration, bundled
 skills, detached worktrees under `<project-name>/worktrees`, and launch scripts
-for OpenCode, Codex, and Claude. The destination must not already exist. See
+for OpenCode, Codex, and Claude. Launchers explicitly pass `--repo "$root/repo"`.
+The destination must not already exist. See
 [Path A](getting-started.md#path-a-create-a-new-multi-agent-project).
+
+### Initialize an existing Git/Beads project
+
+```sh
+abacus --init
+```
+
+Validates an existing, readable Beads project belonging to this Git repository,
+installs the bundled skills, and creates `.abacus/targets.json` allowing `main`
+only if absent, with `enforceTargetBranch: false` and `defaultTarget: "main"`.
+Existing configuration is never overwritten. All configured
+local branches must exist; without a local `main`, supply your own config first.
+Existing bundled skills require replacement confirmation; declining changes
+nothing. Main-checkout subdirectories are supported; linked worktrees require
+`--repo <main-checkout>` and installation goes to that main checkout.
+
+Accepts `--repo <path>` and needs no harness, model, or tmux. It does not initialize
+Beads, change Beads settings, create branches, assign targets to tickets, stage,
+or commit. Run `--health` and `--check-ticket-targets` afterwards; successful init
+is not proof of agent readiness. Review and commit the installed files.
 
 ### Install bundled skills
 
@@ -38,7 +76,8 @@ Installs the four bundled skills under `.agents/skills` at the current Git root.
 Existing bundled directories require confirmation before complete replacement;
 declining leaves every skill unchanged. Unrelated skills are preserved.
 
-The command requires Git and a working directory inside a repository. It does
+The command requires Git and either a working directory inside the main checkout
+or an explicit `--repo <main-checkout>`. It does
 not require Beads, tmux, a model, or an agent harness.
 
 ### Check repository health
@@ -205,7 +244,7 @@ only after the queue reports success.
 MERGE
 ```
 
-When `<workspace>/.abacus/merge-instructions.md` exists, its trimmed contents
+When `merge-instructions.md` exists beside the controller target configuration, its trimmed contents
 replace the complete built-in merge section for agents using that workspace.
 The default merge instructions are not included elsewhere in the prompt. An
 empty file intentionally suppresses the default section without replacing it.

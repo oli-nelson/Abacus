@@ -39,7 +39,13 @@ public sealed record BeadsIssue(
     string Id,
     IssueStatus Status,
     string? Title = null,
-    string? Assignee = null);
+    string? Assignee = null,
+    string? TargetBranch = null,
+    ExecutionBinding? Binding = null,
+    string? MetadataError = null,
+    string? DispatchTarget = null,
+    bool HasDispatchSnapshot = false,
+    bool HasInvalidTargetMetadata = false);
 
 public sealed record BeadsComment(
     string Id,
@@ -50,7 +56,7 @@ public sealed record BeadsComment(
     DateTimeOffset CreatedAt,
     bool NeedsUserAttention);
 
-public sealed class Beads(CommandRunner runner, string executable = "bd")
+public sealed partial class Beads(CommandRunner runner, string executable = "bd")
 {
     private sealed record ReadyCandidate(BeadsIssue Issue, int? Priority, bool HasComments);
 
@@ -145,14 +151,15 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         string workspace,
         string agentName,
         DispatchFilters filters,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<BeadsIssue, bool>? eligible = null)
     {
         var claim = await TryClaimPreferredReadyAsync(
             workspace,
             agentName,
             filters,
             assignee: null,
-            cancellationToken);
+            cancellationToken, eligible);
         if (claim is not null)
         {
             return claim;
@@ -166,7 +173,7 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             agentName,
             filters,
             agentName,
-            cancellationToken);
+            cancellationToken, eligible);
     }
 
     private async Task<BeadsIssue?> TryClaimPreferredReadyAsync(
@@ -174,7 +181,8 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
         string agentName,
         DispatchFilters filters,
         string? assignee,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<BeadsIssue, bool>? eligible)
     {
         for (var attempt = 1; ; attempt++)
         {
@@ -196,6 +204,18 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
             }
 
             var remainingCandidates = candidates.ToList();
+            if (eligible is not null)
+            {
+                remainingCandidates.Clear();
+                foreach (var candidate in candidates)
+                {
+                    var current = await GetIssueAsync(workspace, agentName, candidate.Issue.Id, cancellationToken);
+                    if (current is { Status: IssueStatus.Open }
+                        && (string.IsNullOrWhiteSpace(current.Assignee) || current.Assignee == agentName)
+                        && eligible(current))
+                        remainingCandidates.Add(candidate with { Issue = current });
+                }
+            }
             ReadyCandidate? selected = null;
             while (remainingCandidates.Count > 0)
             {
@@ -234,9 +254,12 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
                 cancellationToken);
             if (claimResult.Succeeded)
             {
-                return ParseSingleClaim(claimResult.StandardOutput, "claim result")
+                var claimed = ParseSingleClaim(claimResult.StandardOutput, "claim result")
                     ?? throw new BeadsException(
                         $"bd update --claim returned no issue for '{selected.Issue.Id}'");
+                if (claimed.Id != selected.Issue.Id)
+                    throw new BeadsException("claim returned an unexpected issue ID");
+                return claimed with { DispatchTarget = selected.Issue.TargetBranch, HasDispatchSnapshot = eligible is not null };
             }
 
             if (!IsClaimContention(claimResult))
@@ -706,7 +729,7 @@ public sealed class Beads(CommandRunner runner, string executable = "bd")
                     throw new JsonException("issue id or status is missing");
                 }
 
-                issues.Add(new BeadsIssue(id, ParseStatus(status), title, assignee));
+                issues.Add(ReadRoutingMetadata(new BeadsIssue(id, ParseStatus(status), title, assignee), element));
             }
 
             return issues;

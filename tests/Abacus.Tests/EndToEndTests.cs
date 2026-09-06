@@ -446,9 +446,14 @@ public sealed class EndToEndTests
 
     private static async Task WriteFakeToolsAsync(string root, string bin)
     {
-        await WriteExecutableAsync(Path.Combine(bin, "bd"), $$"""
+        Directory.CreateDirectory(Path.Combine(root, ".abacus"));
+        await File.WriteAllTextAsync(Path.Combine(root, ".abacus", "targets.json"),
+            """{"version":1,"targets":{"main":{}}}""");
+        await File.WriteAllTextAsync(Path.Combine(root, "status"), "open");
+        Directory.CreateDirectory(Path.Combine(root, "git-dir"));
+        await WriteExecutableAsync(Path.Combine(bin, "bd"), $$$"""
             #!/bin/sh
-            root={{Q(root)}}
+            root={{{Q(root)}}}
             printf '%s actor=%s\n' "$*" "$BEADS_ACTOR" >> "$root/bd-calls"
             if test "$1" = config && test "$2" = get && test "$3" = no-git-ops; then
               test "$ABACUS_TEST_NO_GIT_OPS" = 1 && value=true || value=false
@@ -478,12 +483,19 @@ public sealed class EndToEndTests
                 printf '{"schema_version":1,"abc-1":[]}\n'
               else
                 status=$(cat "$root/status")
-                printf '[{"id":"abc-1","title":"Implement remote control","status":"%s"}]\n' "$status"
+                binding=
+                test -f "$root/binding" && binding=",\"abacus_execution\":$(cat "$root/binding")"
+                assignee=
+                test -f "$root/claimed" && assignee=alice
+                printf '[{"id":"abc-1","title":"Implement remote control","status":"%s","assignee":"%s","metadata":{"abacus_target":"main"%s}}]\n' "$status" "$assignee" "$binding"
               fi
             elif test "$1" = update; then
               if test "$3" = --claim; then
                 touch "$root/claimed"; printf 'in_progress' > "$root/status"
                 printf '[{"id":"abc-1","title":"Implement remote control","status":"in_progress"}]\n'
+              elif test "$3" = --metadata; then
+                printf '%s' "$4" | sed 's/^{"abacus_execution"://;s/}$//' > "$root/binding"
+                printf '[]\n'
               else
                 printf 'open' > "$root/status"
                 printf '[{"id":"abc-1","status":"open"}]\n'
@@ -497,13 +509,17 @@ public sealed class EndToEndTests
               exit 2
             fi
             """);
-        await WriteExecutableAsync(Path.Combine(bin, "git"), $$"""
+        await WriteExecutableAsync(Path.Combine(bin, "git"), $$$"""
             #!/bin/sh
-            root={{Q(root)}}
+            root={{{Q(root)}}}
             printf '%s\n' "$*" >> "$root/git-calls"
             if test "$3" = rev-parse; then
-              test "$4" = --show-toplevel && printf '%s\n' "$2" || printf 'true\n'
+              if test "$4" = --verify; then printf '1111111111111111111111111111111111111111\n'
+              elif test "$4" = --absolute-git-dir || test "$4" = --path-format=absolute; then printf '%s/git-dir\n' "$root"
+              else test "$4" = --show-toplevel && printf '%s\n' "$2" || printf 'true\n'; fi
             elif test "$3" = status; then
+              exit 0
+            elif test "$3" = merge-base; then
               exit 0
             elif test "$3" = show-ref; then
               exit 1
@@ -515,9 +531,9 @@ public sealed class EndToEndTests
               exit 2
             fi
             """);
-        await WriteExecutableAsync(Path.Combine(bin, "opencode"), $$"""
+        await WriteExecutableAsync(Path.Combine(bin, "opencode"), $$$"""
             #!/bin/sh
-            root={{Q(root)}}
+            root={{{Q(root)}}}
             direct=0
             if test "$1" = --prompt; then
               shift
@@ -539,10 +555,10 @@ public sealed class EndToEndTests
             """);
         foreach (var agentCli in new[] { "codex", "claude" })
         {
-            await WriteExecutableAsync(Path.Combine(bin, agentCli), $$"""
+            await WriteExecutableAsync(Path.Combine(bin, agentCli), $$$"""
                 #!/bin/sh
-                root={{Q(root)}}
-                cli={{Q(agentCli)}}
+                root={{{Q(root)}}}
+                cli={{{Q(agentCli)}}}
                 printf '%s\n' "$@" > "$root/$cli-arguments"
                 prompt=
                 for argument do prompt=$argument; done
@@ -553,9 +569,9 @@ public sealed class EndToEndTests
                 exit 0
                 """);
         }
-        await WriteExecutableAsync(Path.Combine(bin, "tmux"), $$"""
+        await WriteExecutableAsync(Path.Combine(bin, "tmux"), $$$"""
             #!/bin/sh
-            root={{Q(root)}}
+            root={{{Q(root)}}}
             printf '%s\n' "$*" >> "$root/tmux-calls"
             if test "$1" = has-session; then
               exit 0

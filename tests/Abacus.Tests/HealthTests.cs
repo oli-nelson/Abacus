@@ -170,6 +170,23 @@ public sealed class HealthTests
         Assert.Null(worktrees[1].Branch);
     }
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("not json", true)]
+    [InlineData("valid", false)]
+    public async Task MissingInvalidOrUnresolvableTargetConfigurationFailsHealth(string? config, bool targetExists)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var environment = await HealthEnvironment.CreateAsync(true, 1,
+            new Dictionary<string, string> { ["opencode"] = "1.18.20" },
+            targetConfiguration: config, targetExists: targetExists);
+        var report = await environment.CheckAsync();
+        Assert.False(report.IsHealthy);
+        Assert.False(report.SingleAgentReady);
+        Assert.False(report.TargetConfiguration!.IsReady);
+        Assert.Contains("Target configuration", report.Render());
+    }
+
     private sealed class HealthEnvironment : IDisposable
     {
         private readonly DirectoryInfo root;
@@ -190,12 +207,18 @@ public sealed class HealthTests
             IReadOnlyDictionary<string, string> tools,
             bool mergeSlotExists = false,
             string? mergeSlotHolder = null,
-            bool noGitOps = false)
+            bool noGitOps = false,
+            string? targetConfiguration = "valid",
+            bool targetExists = true)
         {
             var root = Directory.CreateTempSubdirectory("abacus-health-");
             var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
             var nested = Directory.CreateDirectory(Path.Combine(root.FullName, "repo", "src")).FullName;
             var repository = Directory.GetParent(nested)!.FullName;
+            Directory.CreateDirectory(Path.Combine(repository, ".abacus"));
+            if (targetConfiguration is not null)
+                await File.WriteAllTextAsync(Path.Combine(repository, ".abacus", "targets.json"),
+                    targetConfiguration == "valid" ? """{"version":1,"targets":{"main":{}}}""" : targetConfiguration);
             var worktrees = new List<string>();
             if (worktreeCount > 0)
             {
@@ -210,7 +233,9 @@ public sealed class HealthTests
                 if [ "$1" = "--version" ]; then
                   printf 'git version 2.55.0\n'
                 elif [ "$3" = "rev-parse" ]; then
-                  printf '%s\n' '{{repository}}'
+                  if [ "$4" = "--verify" ]; then
+                    {{(targetExists ? "printf '1111111111111111111111111111111111111111\\n'" : "exit 1")}}
+                  else printf '%s\n' '{{repository}}'; fi
                 elif [ "$3" = "worktree" ]; then
                   printf '%s\n' '{{string.Join("\n", worktrees)}}'
                 else

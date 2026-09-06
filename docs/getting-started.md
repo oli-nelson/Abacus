@@ -1,5 +1,8 @@
 # Getting Started with Abacus
 
+> **Ticket targets:** Configure the target allowlist and default destination.
+> Missing ticket metadata is allowed unless `enforceTargetBranch` is enabled. See [target setup, audit, and recovery](targets.md).
+
 This guide takes you from an installed binary to a running agent. Choose one
 setup path; you do not need to perform every walkthrough.
 
@@ -147,14 +150,34 @@ bd dolt remote list --json
 
 A single agent may use the default embedded Dolt database. Make sure repository
 instructions define how an agent should serialize and merge its branch into
-`main`; Abacus supplies a basic merge-slot-aware fallback, but does not merge
+the ticket's bound target branch; Abacus supplies a basic merge-slot-aware fallback, but does not merge
 branches itself.
 
-### B3. Install the optional skills
+### B3. Initialize Abacus configuration and skills
+
+After Beads setup, run from inside the main checkout (not a linked worktree):
 
 ```sh
-abacus --install-skills
+abacus --init
 ```
+
+From outside the main checkout, use `abacus --init --repo /path/to/main-checkout`.
+The same `--repo` option is supported by health and ticket-maintenance commands.
+
+This installs the bundled skills and creates `.abacus/targets.json` allowing
+`main` only if the config is absent. Existing configuration is preserved and
+existing bundled skill replacements require confirmation. Beads must belong to
+this Git repository and be readable; configured local branches must exist.
+If your repository has no local `main`, create a config naming its intended
+existing `defaultTarget` and include that branch in `targets` first. No branches, tickets, Beads settings, or commits are changed.
+Review and commit the configuration and skills.
+
+The generated config sets `enforceTargetBranch: false` and `defaultTarget: "main"`.
+Tickets without target metadata use `main`; explicit targets override it. Enable
+enforcement to require target metadata on every ticket. See [target operations](targets.md) for release
+branches, main-checkout selection with `--repo`, and migration of existing issue branches.
+`abacus --install-skills` remains available for skill-only installation without
+requiring Beads or a targets config.
 
 This installs:
 
@@ -176,6 +199,9 @@ bd create "Add a hello-world file" \
   --description "Create HELLO.md with a short hello-world message and verify it." \
   --acceptance "HELLO.md is committed and merged into main." \
   --json
+# Use the issue ID returned above:
+abacus --set-ticket-target main <returned-id>
+abacus --check-ticket-targets <returned-id>
 
 bd ready --json
 git status --porcelain

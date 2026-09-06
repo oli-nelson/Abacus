@@ -4,8 +4,10 @@ namespace Abacus.Tests;
 
 public sealed class DirectOpenCodeServerHostTests
 {
-    [Fact]
-    public async Task AttachedProcessReceivesPromptModelServerDirectoryAndActor()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AttachedProcessReceivesPromptModelServerDirectoryAndActor(bool useDefault)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -18,10 +20,12 @@ public sealed class DirectOpenCodeServerHostTests
         {
             AppendedPrompt = "Command-line prompt\n\nRepository prompt",
             MergeInstructionsOverride = "Use the repository merge queue.",
+            Targets = useDefault ? new TargetRegistry(new Dictionary<string, TargetPolicy>
+            { ["release/1.2"] = new("release/1.2", null, "test") }, defaultTarget: "release/1.2") : null,
         };
         var run = await host.StartAgentAsync(
             agent,
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: useDefault ? null : "main"),
             "provider/exact-model",
             "xhigh",
             "http://127.0.0.1:4096",
@@ -42,7 +46,7 @@ public sealed class DirectOpenCodeServerHostTests
                 "abc-1",
                 fixture.Workspace,
                 "Command-line prompt\n\nRepository prompt",
-                "Use the repository merge queue."),
+                "Use the repository merge queue.", targetBranch: useDefault ? "release/1.2" : "main"),
             await fixture.ReadAsync("prompt"));
         Assert.Equal(
             ["--model", "provider/exact-model", "--variant", "xhigh", "--attach", "http://127.0.0.1:4096", "--dir", fixture.Workspace],
@@ -63,7 +67,7 @@ public sealed class DirectOpenCodeServerHostTests
         var host = fixture.CreateHost();
         var run = await host.StartAgentAsync(
             fixture.Agent,
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model",
             "high",
             "http://server:1234",

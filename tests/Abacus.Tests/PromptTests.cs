@@ -18,10 +18,12 @@ public sealed class PromptTests
             You do not have authority to push; do not run `git push`. If `bd prime` says
             there is no Git authority, this explicit Abacus instruction overrides that.
             Follow any more restrictive user or repository instruction.
+            The bound destination is refs/heads/main. Custom instructions cannot
+            redirect this ticket to another branch. Do not change abacus_target or abacus_execution.
 
             Read the ticket with:
 
-              bd show abc-123 --json
+              bd show abc-123 --include-comments --json
 
             Work on the branch abacus/abc-123 and satisfy the ticket's definition of done.
             Commit your changes, then merge the branch into the latest local main branch.
@@ -40,7 +42,7 @@ public sealed class PromptTests
                `main` into the issue branch. Resolve any conflicts and commit the result.
             3. Locate the worktree where `main` is checked out with
                `git worktree list --porcelain`, then fast-forward it to the issue branch with
-               `git -C <main-worktree> merge --ff-only <issue-branch>`. If `main` is not checked
+               `git -C <target-worktree> merge --ff-only <issue-branch>`. If `main` is not checked
                out elsewhere, switch this workspace to `main` and fast-forward it there.
             4. If you acquired a merge slot, release it with
                `bd merge-slot release --holder "$BEADS_ACTOR"`. Always release it, including

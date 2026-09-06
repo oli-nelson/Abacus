@@ -124,7 +124,7 @@ The wrapper ran a child command, atomically renamed a temporary marker containin
 
 ## Git 2.55.0
 
-Abacus uses only argument-list invocations: `git -C <workspace> rev-parse`, `status --porcelain`, `show-ref --verify --quiet refs/heads/<branch>`, `switch <branch>`, `switch -c <branch>`, and `branch --show-current`. Exit codes are authoritative; branch names and workspace paths are never interpolated into a shell command.
+Abacus uses only argument-list invocations: `git -C <workspace> rev-parse`, `status --porcelain`, `show-ref --verify --quiet refs/heads/<branch>`, `switch --no-guess <branch>`, `switch -c <branch> <recorded-start-commit>`, and `branch --show-current`. Exit codes are authoritative; branch names and workspace paths are never interpolated into a shell command.
 
 The standalone repository initializer additionally uses
 `git -C <repo> init --initial-branch=main`, `add`, and `commit --no-gpg-sign` to
@@ -132,3 +132,42 @@ create a usable initial revision, followed by
 `git -C <repo> worktree add --detach <project>/worktrees/<index> main` once per
 requested agent. The initializer supplies a commit-only Abacus author through
 Git `-c` options without persisting repository identity settings.
+
+
+## Ticket target metadata and Git preparation
+
+Target routing uses the installed Beads 1.2.2 `bd update --metadata <JSON-object>`
+merge contract and structured metadata from `bd show <id> --json`. Values are serialized
+as typed JSON. `--set-metadata` is unsuitable: in 1.2.2 it treats object/quoted-string
+values as literal strings rather than parsing them as JSON.
+Unrelated keys are preserved. See the upstream
+[update implementation](https://github.com/gastownhall/beads/blob/v1.2.2/cmd/bd/update.go)
+and local `bd update --help`; metadata edits are not a compare-and-swap API.
+
+- Audit: `bd list --all --limit 0 --exclude-label gt:slot --json`, or exact issue reads.
+- Set destination: `bd update <id> --metadata '{"abacus_target":"<branch>"}' --json`.
+- Bind: `bd update <id> --metadata '{"abacus_execution":<JSON object>}' --json`.
+- Quarantine after atomic ownership: `bd update <id> --status blocked --assignee "" --add-label abacus:needs-user-attention --append-notes <reason> --json`; reread and verify status, label, notes, and assignee.
+- Target tip: `git -C <workspace> rev-parse --verify refs/heads/<target>^{commit}`.
+- New branch: `git -C <workspace> switch -c abacus/<id> <recorded-full-commit>`.
+- Existing branch: `git -C <workspace> switch --no-guess abacus/<id>`; never `--ignore-other-worktrees`.
+- Recorded history: `git -C <workspace> merge-base --is-ancestor <recorded-full-commit> refs/heads/<branch>`.
+- Workspace ownership directory: `git -C <workspace> rev-parse --absolute-git-dir`.
+
+All values are passed through `ProcessStartInfo.ArgumentList`. Target files are
+controller-owned snapshots; `--check` and metadata audits do not acquire locks or
+mutate Git/Beads. No landing or completion-verification CLI is introduced.
+
+### Existing-project initialization discovery
+
+`abacus --init` uses `bd where --json` (`path`, optional `redirected_from`) to
+locate the existing project and `bd list --limit 1 --json` to verify it is readable.
+Git `rev-parse --path-format=absolute --git-common-dir` verifies that the Beads
+source and target checkout belong to the same repository, allowing linked
+worktrees and explicit Beads redirects for Beads association. Controller selection
+separately compares `rev-parse --absolute-git-dir` with
+`rev-parse --path-format=absolute --git-common-dir` and rejects linked worktrees.
+`--repo` selects the main checkout; config and standalone Beads commands use it.
+These commands do not set up Beads or
+change its settings. The where contract is defined by
+[Beads v1.2.2 where.go](https://github.com/gastownhall/beads/blob/v1.2.2/cmd/bd/where.go).

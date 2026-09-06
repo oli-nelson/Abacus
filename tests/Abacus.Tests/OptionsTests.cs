@@ -629,9 +629,11 @@ public sealed class OptionsTests
     }
 
     [Fact]
-    public void OldInitOptionIsRejected()
+    public void InitDoesNotRequireAgentOptions()
     {
-        Assert.Throws<OptionsException>(() => Options.Parse(["--init"]));
+        var result = Options.Parse(["--init"]);
+        Assert.True(result.InitializeRepository);
+        Assert.Null(result.Value);
     }
 
     [Fact]

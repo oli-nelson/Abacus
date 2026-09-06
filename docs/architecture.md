@@ -1,5 +1,8 @@
 # Architecture and Boundaries
 
+> **Ticket targets:** Configure the target allowlist and default destination.
+> Missing ticket metadata is allowed unless `enforceTargetBranch` is enabled. See [target setup, audit, and recovery](targets.md).
+
 Abacus is intentionally an orchestrator, not an agent platform. Its job is to
 connect durable work state, isolated source workspaces, and existing coding-agent
 interfaces with the smallest practical amount of machinery.
@@ -96,7 +99,7 @@ workspace. It:
 - defines the user-attention label protocol; and
 - makes the agent responsible for choosing `closed`, `open`, or `blocked`.
 
-When `.abacus/merge-instructions.md` exists in an agent workspace, its trimmed
+When `merge-instructions.md` exists beside the controller target configuration, its trimmed
 contents replace the complete default merge section; an empty file suppresses
 the section. Other repository-specific instructions may be appended from the
 CLI and `.abacus/append-prompt.md`. More restrictive user or repository
@@ -108,7 +111,7 @@ The exact prompt is maintained once, in
 
 ## State and observability
 
-Abacus keeps runtime state in memory. Temporary prompt, wrapper, and marker files
+Abacus keeps transient runtime state in memory and durable execution bindings in Beads metadata. Temporary prompt, wrapper, and marker files
 live under a per-process system-temporary directory and are removed after use.
 It has no database, persistent queue, or durable scheduler.
 
@@ -136,6 +139,9 @@ During normal orchestration, Abacus does **not**:
 The standalone `--init-new-multi-agent-repo` command is the explicit setup
 exception: it creates a brand-new repository, shared-server Beads configuration,
 skills, worktrees, and launch scripts. It still does not create tmux sessions.
+The standalone `--init` handles existing Git/Beads repositories: validate setup,
+install bundled skills with confirmation, and create a missing default targets
+config without changing Beads settings or Git branches.
 
 ## Design constraints
 

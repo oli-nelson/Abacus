@@ -5,8 +5,10 @@ namespace Abacus.Tests;
 
 public sealed class TmuxAgentHostTests
 {
-    [Fact]
-    public async Task WrapperPassesPromptModelAttachDirectoryAndActorAndWritesMarker()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WrapperPassesPromptModelAttachDirectoryAndActorAndWritesMarker(bool useDefault)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -19,12 +21,14 @@ public sealed class TmuxAgentHostTests
         {
             AppendedPrompt = "Command-line prompt\n\nRepository prompt",
             MergeInstructionsOverride = "Use the repository merge queue.",
+            Targets = useDefault ? new TargetRegistry(new Dictionary<string, TargetPolicy>
+            { ["release/1.2"] = new("release/1.2", null, "test") }, defaultTarget: "release/1.2") : null,
         };
         var tmux = fixture.CreateTmux(mode: AgentMode.OpenCodeServer);
 
         var run = await tmux.StartAgentAsync(
             agent,
-            new BeadsIssue("abc-123", IssueStatus.InProgress),
+            new BeadsIssue("abc-123", IssueStatus.InProgress, TargetBranch: useDefault ? null : "main"),
             "provider/model",
             "xhigh",
             "http://127.0.0.1:1234",
@@ -46,7 +50,7 @@ public sealed class TmuxAgentHostTests
                 "abc-123",
                 workspace,
                 "Command-line prompt\n\nRepository prompt",
-                "Use the repository merge queue."),
+                "Use the repository merge queue.", targetBranch: useDefault ? "release/1.2" : "main"),
             await File.ReadAllTextAsync(Path.Combine(workspace, "received-prompt")));
         Assert.Equal("alice", await File.ReadAllTextAsync(Path.Combine(workspace, "received-actor")));
         Assert.Equal(workspace, await File.ReadAllTextAsync(Path.Combine(workspace, "received-directory")));
@@ -75,11 +79,11 @@ public sealed class TmuxAgentHostTests
 
         var local = await localTmux.StartAgentAsync(
             Agent("alice", firstWorkspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/exact-model", "high", null, CancellationToken.None);
         var attached = await attachedTmux.StartAgentAsync(
             Agent("bob", secondWorkspace),
-            new BeadsIssue("abc-2", IssueStatus.InProgress),
+            new BeadsIssue("abc-2", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/exact-model", "high", "http://server:1234", CancellationToken.None);
 
         Assert.NotEqual(local.PaneId, attached.PaneId);
@@ -109,7 +113,7 @@ public sealed class TmuxAgentHostTests
 
         var run = await tmux.StartAgentAsync(
             Agent("alice", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "gpt-5.6-terra",
             "high",
             null,
@@ -137,7 +141,7 @@ public sealed class TmuxAgentHostTests
 
         var run = await tmux.StartAgentAsync(
             Agent("alice", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "sonnet",
             "high",
             null,
@@ -165,7 +169,7 @@ public sealed class TmuxAgentHostTests
 
         var run = await tmux.StartAgentAsync(
             Agent("alice", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress, "  Add   remote\ncontrol  "),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, "  Add   remote\ncontrol  ", TargetBranch: "main"),
             "opus",
             "high",
             null,
@@ -192,7 +196,7 @@ public sealed class TmuxAgentHostTests
 
         await tmux.StartAgentAsync(
             Agent("alice", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model", "high", null, CancellationToken.None);
 
         Assert.Contains(
@@ -214,7 +218,7 @@ public sealed class TmuxAgentHostTests
 
         var run = await tmux.StartAgentAsync(
             Agent("alice #{pane_id}", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model", "high", null, CancellationToken.None);
 
         var calls = await File.ReadAllLinesAsync(fixture.CallsPath);
@@ -236,7 +240,7 @@ public sealed class TmuxAgentHostTests
 
         await tmux.StartAgentAsync(
             Agent("alice", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model", "high", null, CancellationToken.None);
 
         Assert.Contains(
@@ -257,7 +261,7 @@ public sealed class TmuxAgentHostTests
         var tmux = fixture.CreateTmux(TimeSpan.Zero);
         var run = await tmux.StartAgentAsync(
             Agent("alice", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model", "high", null, CancellationToken.None);
 
         await File.WriteAllTextAsync(run.MarkerPath, "1\n");
@@ -286,7 +290,7 @@ public sealed class TmuxAgentHostTests
         var tmux = fixture.CreateTmux(TimeSpan.Zero);
         var run = await tmux.StartAgentAsync(
             Agent("alice", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model", "high", null, CancellationToken.None);
         await File.WriteAllTextAsync(Path.Combine(fixture.Root, "keep-pane"), string.Empty);
 
@@ -315,7 +319,7 @@ public sealed class TmuxAgentHostTests
 
         await Assert.ThrowsAsync<TmuxException>(() => tmux.StartAgentAsync(
             Agent("alice", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model", "high", null, CancellationToken.None));
 
         Assert.Contains("kill-pane -t %1", await File.ReadAllTextAsync(fixture.CallsPath), StringComparison.Ordinal);
@@ -337,7 +341,7 @@ public sealed class TmuxAgentHostTests
             cleanupTimeout: TimeSpan.FromMilliseconds(100));
         var run = await tmux.StartAgentAsync(
             Agent("alice", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model", "high", null, CancellationToken.None);
         await File.WriteAllTextAsync(Path.Combine(fixture.Root, "hang-kill"), string.Empty);
 
@@ -361,7 +365,7 @@ public sealed class TmuxAgentHostTests
         var tmux = fixture.CreateTmux(TimeSpan.Zero);
         var run = await tmux.StartAgentAsync(
             Agent("alice", workspace),
-            new BeadsIssue("abc-1", IssueStatus.InProgress),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
             "provider/model", "high", null, CancellationToken.None);
         await File.WriteAllTextAsync(Path.Combine(fixture.Root, "probe-error"), string.Empty);
 

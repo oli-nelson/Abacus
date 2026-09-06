@@ -444,6 +444,8 @@ public sealed class ClaimCoordinatorTests
                   exit 0
                 elif test "$3" = clean; then
                   touch "$root/cleaned"
+                elif test "$3" = rev-parse; then
+                  printf '1111111111111111111111111111111111111111\n'
                 elif test "$3" = show-ref; then
                   exit 1
                 elif test "$3" = switch; then

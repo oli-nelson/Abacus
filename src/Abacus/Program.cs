@@ -13,12 +13,25 @@ public static class Program
                 return 0;
             }
 
+            var workingDirectory = Environment.CurrentDirectory;
+            if (parsed.Value is null && parsed.NewMultiAgentRepository is null
+                && !parsed.ShowModels && !parsed.ShowHealth && parsed.TargetCommand is null)
+                workingDirectory = await new Git(new CommandRunner(TextWriter.Null))
+                    .ResolveMainRepositoryAsync(workingDirectory, parsed.RepositoryPath, CancellationToken.None);
+
+            if (parsed.TargetCommand is { } targetCommand)
+            {
+                var runner = new CommandRunner(TextWriter.Null);
+                return await new TicketTargets(new Beads(runner), new Git(runner))
+                    .RunAsync(workingDirectory, targetCommand, Console.Out, CancellationToken.None);
+            }
+
             if (parsed.NewMultiAgentRepository is { } repositoryOptions)
             {
                 var result = await new MultiAgentRepositoryInitializer(
                         new CommandRunner(TextWriter.Null))
                     .InitializeAsync(
-                        Environment.CurrentDirectory,
+                        workingDirectory,
                         repositoryOptions,
                         CancellationToken.None);
                 Console.Out.WriteLine($"Initialized '{repositoryOptions.ProjectName}' at {result.ProjectRoot}");
@@ -32,11 +45,27 @@ public static class Program
                 return 0;
             }
 
+            if (parsed.InitializeRepository)
+            {
+                var result = await new RepositoryInitializer(new CommandRunner(TextWriter.Null))
+                    .InitializeAsync(workingDirectory, ConfirmSkillOverwrite, CancellationToken.None);
+                if (result.Skills.Cancelled)
+                {
+                    Console.Out.WriteLine("Initialization cancelled; no files were changed.");
+                    return 0;
+                }
+                Console.Out.WriteLine($"Installed bundled skills in {result.Skills.SkillsRoot}");
+                Console.Out.WriteLine($"{(result.CreatedTargets ? "Created" : "Preserved")} target configuration: {result.TargetsPath}");
+                Console.Out.WriteLine("Next: review and commit .abacus/targets.json and .agents/skills; run abacus --health and abacus --check-ticket-targets.");
+                Console.Out.WriteLine("Missing ticket targets use defaultTarget unless enforceTargetBranch is true. Set explicit targets with abacus --set-ticket-target <branch> <issue-id> [...]. No Beads settings, tickets, branches, or commits were changed.");
+                return 0;
+            }
+
             if (parsed.InstallSkills)
             {
                 var installer = new SkillInstaller(new CommandRunner(TextWriter.Null));
                 var result = await installer.InstallAsync(
-                    Environment.CurrentDirectory,
+                    workingDirectory,
                     ConfirmSkillOverwrite,
                     CancellationToken.None);
                 if (result.Cancelled)
@@ -53,7 +82,7 @@ public static class Program
             if (parsed.ShowHealth)
             {
                 var health = await new HealthChecker(new CommandRunner(TextWriter.Null))
-                    .RunAsync(Environment.CurrentDirectory, CancellationToken.None);
+                    .RunAsync(workingDirectory, CancellationToken.None, parsed.RepositoryPath);
                 Console.Out.Write(health.Render());
                 return health.IsHealthy ? 0 : 1;
             }
@@ -61,7 +90,7 @@ public static class Program
             if (parsed.ShowModels)
             {
                 var catalog = await new ModelCatalog(new CommandRunner(TextWriter.Null))
-                    .CollectAsync(Environment.CurrentDirectory, CancellationToken.None);
+                    .CollectAsync(workingDirectory, CancellationToken.None);
                 Console.Out.Write(catalog.Render());
                 return catalog.HasModels ? 0 : 1;
             }
@@ -70,7 +99,7 @@ public static class Program
             {
                 var issues = await new Beads(new CommandRunner(TextWriter.Null))
                     .GetIssuesNeedingUserAttentionAsync(
-                        Environment.CurrentDirectory,
+                        workingDirectory,
                         CancellationToken.None);
                 foreach (var issueId in issues
                     .Select(static issue => issue.Id)
@@ -86,10 +115,10 @@ public static class Program
             {
                 var runner = new CommandRunner(TextWriter.Null);
                 var closedIssues = await new Beads(runner)
-                    .GetClosedIssuesAsync(Environment.CurrentDirectory, CancellationToken.None);
+                    .GetClosedIssuesAsync(workingDirectory, CancellationToken.None);
                 var result = await new Git(runner)
                     .PruneClosedIssueBranchesAsync(
-                        Environment.CurrentDirectory,
+                        workingDirectory,
                         closedIssues.Select(static issue => issue.Id),
                         CancellationToken.None);
                 Console.Out.WriteLine(result.DeletedBranches.Count == 0
@@ -108,7 +137,7 @@ public static class Program
             {
                 await new Beads(new CommandRunner(TextWriter.Null))
                     .ResolveUserAttentionAsync(
-                        Environment.CurrentDirectory,
+                        workingDirectory,
                         attentionResolution.IssueId,
                         attentionResolution.Message,
                         attentionResolution.Reopen,

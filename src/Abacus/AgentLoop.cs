@@ -2,7 +2,7 @@ namespace Abacus;
 
 public sealed record PreparedClaim(BeadsIssue Issue, string Branch);
 
-public sealed class ClaimCoordinator(
+public sealed partial class ClaimCoordinator(
     Beads beads,
     Git git,
     TicketRecovery recovery,
@@ -132,7 +132,8 @@ public sealed class ClaimCoordinator(
                         agent.WorkspacePath,
                         agent.Name,
                         filters,
-                        cancellationToken);
+                        cancellationToken,
+                        agent.Targets is null ? null : candidate => IsTargetEligible(agent, candidate));
                 }
             }
             catch (BeadsException exception)
@@ -174,6 +175,8 @@ public sealed class ClaimCoordinator(
 
             try
             {
+                if (agent.Targets is not null)
+                    issue = await BindTargetAsync(agent, issue, interruptedIssueId is not null, cancellationToken);
                 await log.SetTicketAsync(agent.Name, issue.Id, issue.Title);
                 await log.SetAgentAsync(
                     agent.Name,
@@ -185,8 +188,30 @@ public sealed class ClaimCoordinator(
                         agent.WorkspacePath,
                         agent.Name,
                         issue.Id,
-                        cancellationToken);
+                        cancellationToken,
+                        issue.Binding?.StartCommit);
+                if (agent.Targets is not null)
+                {
+                    var verified = await beads.GetIssueAsync(agent.WorkspacePath, agent.Name, issue.Id, cancellationToken)
+                        ?? throw new TargetException("ticket disappeared after branch preparation");
+                    agent.Targets.Validate(verified);
+                    if (verified.Status != IssueStatus.InProgress || verified.Assignee != agent.Name
+                        || verified.Binding != issue.Binding || verified.TargetBranch != issue.TargetBranch)
+                        throw new TargetException("ticket target, binding, or ownership changed during branch preparation");
+                    await git.VerifyBoundHistoryAsync(agent.WorkspacePath, agent.Name,
+                        issue.Binding!.StartCommit, branch, cancellationToken);
+                    issue = verified;
+                }
                 return new PreparedClaim(issue, branch);
+            }
+            catch (AgentHaltedException) { throw; }
+            catch (TargetException exception)
+            {
+                await RejectTargetAsync(agent, issue, exception.Message, cancellationToken);
+                if (interruptedIssueId is not null)
+                    await HaltAsync(agent.Name, $"{issue.Id}: {exception.Message}. Workspace preserved.");
+                await log.ClearTicketAsync(agent.Name);
+                if (executionMode is ExecutionMode.Once) return null;
             }
             catch (OperationCanceledException)
             {
@@ -295,6 +320,15 @@ public sealed class ClaimCoordinator(
             return null;
         }
 
+        if (agent.Targets is not null)
+        {
+            try { resumed = await BindTargetAsync(agent, resumed, requireExisting: true, cancellationToken); }
+            catch (TargetException exception)
+            {
+                await RejectTargetAsync(agent, resumed, exception.Message, cancellationToken);
+                await HaltAsync(agent.Name, $"{resumed.Id}: {exception.Message}. Workspace preserved.");
+            }
+        }
         return new PreparedClaim(
             resumed with { Title = resumed.Title ?? reservedIssue.Title },
             expectedBranch);
@@ -503,7 +537,7 @@ public sealed class AgentLoop(
                     }
 
                     var detail = executionMode is ExecutionMode.Once
-                        ? "No ready ticket; once complete"
+                        ? "No executable ticket; once complete"
                         : "No ready tickets; drain complete";
                     await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, detail);
                     return;
@@ -521,8 +555,12 @@ public sealed class AgentLoop(
                 IAgentRun run;
                 try
                 {
+                    var launchAgent = agent.Targets is null ? agent : agent with
+                    {
+                        MergeInstructionsOverride = agent.Targets.Validate(claim.Issue).MergeInstructions,
+                    };
                     run = await agentHost.StartAgentAsync(
-                        agent,
+                        launchAgent,
                         claim.Issue,
                         model,
                         effort,

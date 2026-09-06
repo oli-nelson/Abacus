@@ -9,6 +9,7 @@ complete rather than reading every page in order.
 | --- | --- |
 | [Quick start](quick-start.html) | A visual, end-to-end tour of setup and daily use |
 | [Getting started](getting-started.md) | Copyable setup paths for new and existing repositories |
+| [Ticket targets](targets.md) | Configuring release tracks, auditing metadata, and recovering bound branches |
 | [CLI reference](cli-reference.md) | Looking up commands, modes, and option behavior |
 | [Operations guide](operations.md) | Running, observing, pausing, recovering, and stopping agents |
 | [Shared Dolt operations](shared-dolt.md) | Creating, migrating, troubleshooting, backing up, and rolling back shared Beads storage |

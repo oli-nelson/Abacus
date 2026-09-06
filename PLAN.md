@@ -35,7 +35,7 @@ Abacus should own only the orchestration state machine. It should not reimplemen
 - Require one `--model <model>` value per Abacus invocation. Accept one provider-specific `--effort <effort>` value, default it to `high`, and translate model and effort into the selected CLI's native arguments where supported. Preserve OpenCode's `provider/model` validation while allowing native Codex and Claude model identifiers. Interactive OpenCode 1.18.20 has no TUI variant option, so keep its model ID unchanged and let OpenCode use its configured or session-selected variant.
 - Parse only the small amount of JSON/JSONL emitted by `bd` that Abacus needs: issue ID, issue title and status, direct-child status, Dolt identity, remote presence, and the comment fields and labels needed by the dashboard. Query Beads by label rather than importing its issue model when the dashboard needs attention alerts; use read-only `bd export` for the latest-comment snapshot so embedded and server-backed modes share one path.
 - Pass ordinary command arguments through `ProcessStartInfo.ArgumentList`, not interpolated shell strings. Use a generated shell wrapper only where tmux needs a pane command and process-exit marker.
-- Keep state in memory. A temporary per-run directory may contain prompt files, pane wrapper scripts, and exit markers; there is no Abacus database.
+- Keep transient runtime state in memory; persist ticket execution bindings in Beads metadata. A temporary per-run directory may contain prompt files, pane wrapper scripts, and exit markers; there is no Abacus database.
 - Run one asynchronous loop per configured agent. Do not introduce a scheduler, message bus, dependency-injection container, plugin model, web UI, or daemon.
 - Target macOS/Linux only. tmux and POSIX shell behavior are explicit prerequisites for OpenCode, Codex, Claude, and pane-hosted OpenCode Server modes; direct OpenCode Server mode can supervise a child without tmux.
 - Prefer clear failure and retry behavior over automatic repair of repositories, Beads configuration, or OpenCode servers.
@@ -85,13 +85,30 @@ final summary; do not create a checkpoint commit or persistent Abacus state.
 4. If no issue is ready, sleep for a small fixed interval and try again.
 5. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
 6. Verify that a normal newly selected workspace is clean before the agent CLI starts. Preserve existing changes when resuming an interrupted issue workspace.
-7. Render the SPEC.md prompt, replacing its default merge section with `.abacus/merge-instructions.md` when that file exists, and launch the selected mode. OpenCode, Codex, and Claude use a new interactive pane in the requested tmux target. OpenCode Server uses `opencode run` and is directly supervised unless tmux was explicitly supplied.
+7. Render the target-aware SPEC.md prompt, replacing its default merge section with controller-snapshotted target instructions when present, and launch the selected mode. OpenCode, Codex, and Claude use a new interactive pane in the requested tmux target. OpenCode Server uses `opencode run` and is directly supervised unless tmux was explicitly supplied.
 8. Poll `bd show <issue_id> --json` while also watching the hosted agent run for exit.
 9. When the ticket leaves `in_progress`, interrupt the agent CLI if it is still running and clean up its pane or direct process.
 10. When the agent CLI exits while the ticket is still `in_progress`, warn, reopen the issue with a useful note, and clean up its hosted run.
 11. After every agent exit, run `bd dolt push` when a remote is configured, then return to waiting.
 
 Any failure after a successful claim but before the agent changes ticket state must attempt to return the issue to `open` with an appended reason. This prevents an orchestration error from stranding work in `in_progress`.
+
+## Required target routing and bindings
+
+Implement the normative [ticket target contract](SPEC.md#ticket-targets) and
+[target operations](docs/targets.md). Keep it shell-first: a small versioned JSON
+allowlist, minimal Beads metadata, and Git CLI checks—not a scheduler or release
+manager. There is no target default. Target eligibility precedes priority
+selection; invalid candidates are atomically claimed only to record an explicit
+blocked/attention outcome. Persist and verify bindings before branch preparation.
+OS-held workspace locks exclude competing runs. Never bypass another worktree's
+branch checkout or infer a legacy branch binding. Provide read-only audits,
+metadata setting, and explicit reviewed adoption. Update planner, doctor,
+initializer, health, prompts, and fake-CLI/real-Git tests together.
+
+The implementation boundary remains before managed landing: agents still merge
+and close tickets. Do not add landing commands, receipts, or new completion/prune
+semantics as part of target routing.
 
 ## Phase 1 - Lock down CLI contracts
 
@@ -268,7 +285,7 @@ All checks happen before any ticket is claimed or agent run is created.
 - After a claim, use Git CLI commands to:
   - verify the workspace is still clean;
   - switch to `abacus/<issue_id>` if it exists;
-  - otherwise create `abacus/<issue_id>` from the workspace's current HEAD;
+  - otherwise create `abacus/<issue_id>` from the durably recorded target starting commit;
   - verify the resulting branch name and cleanliness.
 - Sanitize/validate issue IDs before using them in a branch name. Never interpolate an issue ID into a shell command.
 - If branch preparation fails, reopen and unassign the claimed issue with `bd update <id> --status open --assignee "" --append-notes <reason> --json`, push if configured, and return to waiting.
@@ -284,7 +301,7 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Work
 
-- Render the prompt in SPEC.md verbatim apart from substituting agent name, issue ID, and canonical workspace path. During preflight, read each workspace's optional `.abacus/merge-instructions.md`; when present, replace the complete default merge section with its trimmed contents. Treat even an empty file as an override so no default merge instructions reach that agent.
+- Render the prompt in SPEC.md verbatim apart from substituting agent name, issue ID, and canonical workspace path. During preflight, snapshot the controller target registry and instruction files. Substitute the bound target into Git authority and the default merge section; use target-specific instructions when present. Treat even an empty file as an override so no default merge instructions reach that agent.
 - Write the prompt and a small POSIX wrapper to the run's temporary directory. The wrapper should:
   - `cd` to the workspace;
   - export `BEADS_ACTOR`;
@@ -423,6 +440,36 @@ All checks happen before any ticket is claimed or agent run is created.
   standalone new-repository initializer.
 - Starting or managing the requested tmux session, tmux window, or OpenCode server.
 - Direct Codex app-server, Claude Remote Control, or other Git, tmux, Dolt, Beads, OpenCode, Codex, or Claude API/protocol integrations beyond invoking their supported CLI commands.
-- A persistent queue, dashboard, web service, configuration file, dynamic agent pool, or automatic scaling.
+- A persistent queue, dashboard, web service, general workflow configuration language, dynamic agent pool, or automatic scaling.
 - Interpreting ticket content, deciding whether work is correct, or performing the merge for the agent.
 - Supporting Windows.
+
+### Existing-repository setup and simplified identity
+
+- `abacus --init` validates existing Git/Beads setup and local targets, installs
+  bundled skills with overwrite confirmation, and creates an absent default
+  targets config. Preserve existing config and reject uninitialized Beads.
+- Keep setup non-destructive: no automatic branch creation, ticket assignment,
+  Beads setting changes, staging, or commits. Print health/audit next steps.
+- Remove repository IDs from target config and execution bindings. Ignore legacy
+  ID fields for compatibility; target/ref/start-commit/policy checks remain.
+
+### Optional ticket target enforcement
+
+- Config defaults: `enforceTargetBranch: false`, `defaultTarget: "main"`.
+- Resolve absent metadata to the default only when unenforced; explicit invalid
+  metadata still fails. Keep the same resolution for audits, filtering, binding,
+  policy selection, and every agent prompt without stamping `abacus_target`.
+- Strict mode retains quarantine for missing targets. Existing bindings cannot
+  be silently redirected by a default change. Doctor/planner respect this policy.
+
+### Explicit main repository selection
+
+- Replace Abacus `--config` with shared `--repo <main-checkout>` selection for runs
+  and repository-scoped standalone commands. Without an override, cwd must be
+  inside the main checkout. Reject linked-worktree controller roots; never infer
+  a controller from agent workspaces. Agent `-a` worktrees remain supported.
+- Load targets only from `<repo>/.abacus/targets.json`. Run standalone Beads
+  maintenance at that selected repository, not the invocation directory.
+- New-project launchers must pass `--repo "$root/repo"` and work from outside Git.
+  Help, models, and new-project creation need no existing repo.

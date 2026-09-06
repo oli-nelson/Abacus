@@ -4,7 +4,7 @@ public sealed record BranchPruneResult(
     IReadOnlyList<string> DeletedBranches,
     IReadOnlyList<string> SkippedCheckedOutBranches);
 
-public sealed class Git(CommandRunner runner, string executable = "git")
+public sealed partial class Git(CommandRunner runner, string executable = "git")
 {
     public async Task<string> ResolveWorkspaceRootAsync(
         string workspace,
@@ -27,6 +27,7 @@ public sealed class Git(CommandRunner runner, string executable = "git")
     public static bool IsValidIssueId(string issueId)
     {
         if (string.IsNullOrWhiteSpace(issueId)
+            || issueId.StartsWith('-')
             || issueId.Length > 200
             || issueId is "." or ".."
             || issueId.EndsWith(".", StringComparison.Ordinal)
@@ -57,7 +58,8 @@ public sealed class Git(CommandRunner runner, string executable = "git")
         string workspace,
         string agentName,
         string issueId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? startCommit = null)
     {
         if (!IsValidIssueId(issueId))
         {
@@ -72,13 +74,13 @@ public sealed class Git(CommandRunner runner, string executable = "git")
             ["-C", workspace, "show-ref", "--verify", "--quiet", $"refs/heads/{branch}"],
             cancellationToken);
 
+        if (!branchExists.Succeeded && branchExists.ExitCode != 1)
+            throw new WorkspacePreparationException($"could not inspect branch '{branch}': {FailureDetail(branchExists)}");
+        startCommit ??= await ResolveTargetCommitAsync(workspace, agentName, "main", cancellationToken);
+        if (!IsCommitId(startCommit)) throw new WorkspacePreparationException("invalid starting commit");
         var switchArguments = branchExists.Succeeded
-            // A previously interrupted agent can leave this issue branch
-            // checked out in another clean worktree. Beads guarantees one
-            // active owner for the ticket, so resume it here without mutating
-            // the stale worktree. That worktree is reset before its next claim.
-            ? new[] { "-C", workspace, "switch", "--ignore-other-worktrees", branch }
-            : new[] { "-C", workspace, "switch", "-c", branch };
+            ? new[] { "-C", workspace, "switch", "--no-guess", branch }
+            : new[] { "-C", workspace, "switch", "-c", branch, startCommit };
         var switchResult = await RunAsync(workspace, agentName, switchArguments, cancellationToken);
         if (!switchResult.Succeeded)
         {

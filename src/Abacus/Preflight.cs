@@ -8,7 +8,9 @@ public sealed record ValidatedAgent(
     DoltIdentity DoltIdentity,
     bool HasRemote,
     string? AppendedPrompt = null,
-    string? MergeInstructionsOverride = null);
+    string? MergeInstructionsOverride = null,
+    TargetRegistry? Targets = null,
+    IReadOnlyList<string>? TargetBranches = null);
 
 public sealed record PreflightResult(
     Options Options,
@@ -35,6 +37,10 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
             FindExecutable(AgentCommandFactory.ExecutableName(options.AgentMode)),
             options.TmuxSession is null ? null : FindExecutable("tmux"));
 
+        var git = new Git(runner, tools.Git);
+        var controllerRoot = await git.ResolveMainRepositoryAsync(
+            Environment.CurrentDirectory, options.RepositoryPath, cancellationToken);
+
         if (options.TmuxSession is not null)
         {
             await VerifyTmuxTargetAsync(
@@ -44,7 +50,6 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
                 cancellationToken);
         }
 
-        var git = new Git(runner, tools.Git);
         var beads = new Beads(runner, tools.Bd);
         var existingAgents = options.Agents
             .Select(static agent => new AgentOptions(agent.Name, ResolveWorkspace(agent.WorkspacePath)))
@@ -78,9 +83,7 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
                 repositoryPrompt = await Prompt.ReadRepositoryAppendAsync(
                     agent.WorkspacePath,
                     cancellationToken);
-                mergeInstructionsOverride = await Prompt.ReadRepositoryMergeInstructionsAsync(
-                    agent.WorkspacePath,
-                    cancellationToken);
+                mergeInstructionsOverride = null; // Target policies are loaded once from the controller below.
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
@@ -98,6 +101,17 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
         }
 
         ValidateDoltSafety(validated);
+
+        var targets = await TargetRegistry.LoadAsync(
+            Path.Combine(controllerRoot, ".abacus", "targets.json"), cancellationToken);
+        foreach (var branch in options.TargetBranches ?? []) targets.Resolve(branch);
+        for (var i = 0; i < validated.Count; i++)
+        {
+            foreach (var target in targets.Targets.Keys)
+                await git.ResolveTargetCommitAsync(validated[i].WorkspacePath, validated[i].Name, target, cancellationToken);
+            validated[i] = validated[i] with { Targets = targets, TargetBranches = options.TargetBranches };
+        }
+
 
         return new PreflightResult(
             options,

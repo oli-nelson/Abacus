@@ -55,6 +55,12 @@ public enum NoGitOpsHealthStatus
 
 public sealed record NoGitOpsHealth(NoGitOpsHealthStatus Status, string Detail);
 
+public sealed record TargetConfigurationHealth(string Path, IReadOnlyList<string> Branches, string? Error,
+    bool EnforceTargetBranch = false, string DefaultTarget = "main")
+{
+    public bool IsReady => Error is null;
+}
+
 public sealed record HealthReport(
     string? RepositoryRoot,
     ToolHealth Git,
@@ -72,7 +78,8 @@ public sealed record HealthReport(
     IReadOnlyList<SkillHealth> Skills,
     IReadOnlyList<string> AvailableModes,
     bool SingleAgentReady,
-    bool MultiAgentReady)
+    bool MultiAgentReady,
+    TargetConfigurationHealth? TargetConfiguration = null)
 {
     public bool AreSkillsInstalled => Skills.All(static skill => skill.IsInstalled);
 
@@ -90,6 +97,22 @@ public sealed record HealthReport(
             ? "  [FAIL] Git repository root could not be resolved."
             : $"  [PASS] Git root: {RepositoryRoot}");
 
+        text.AppendLine();
+        text.AppendLine("Target configuration");
+        if (TargetConfiguration is { IsReady: true } targetConfig)
+        {
+            text.AppendLine($"  [PASS] {targetConfig.Path}");
+            text.AppendLine($"  Allowed local targets: {string.Join(", ", targetConfig.Branches)}");
+            text.AppendLine(targetConfig.EnforceTargetBranch
+                ? "  Target metadata enforcement: enabled (explicit ticket targets required)"
+                : $"  Target metadata enforcement: disabled (missing targets use {targetConfig.DefaultTarget})");
+            text.AppendLine("  Ticket metadata is checked separately with: abacus --check-ticket-targets");
+        }
+        else
+        {
+            text.AppendLine($"  [FAIL] {TargetConfiguration?.Error ?? "Target configuration was not checked"}");
+            text.AppendLine("  Create .abacus/targets.json with abacus --init, or repair the existing version-1 targets allowlist explicitly.");
+        }
         text.AppendLine();
         text.AppendLine("Beads");
         AppendTool(text, Beads);
@@ -275,7 +298,7 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
         ?? Environment.GetEnvironmentVariable("PATH")
         ?? string.Empty;
 
-    public async Task<HealthReport> RunAsync(string workingDirectory, CancellationToken cancellationToken)
+    public async Task<HealthReport> RunAsync(string workingDirectory, CancellationToken cancellationToken, string? repositoryPath = null)
     {
         var git = await ProbeAsync("Git", "git", MinimumGitVersion, ["--version"], workingDirectory, cancellationToken);
         var beads = await ProbeAsync("Beads", "bd", MinimumBeadsVersion, ["version"], workingDirectory, cancellationToken);
@@ -290,29 +313,37 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
         string? worktreeError = null;
         if (git.IsReady)
         {
-            var rootResult = await RunAsync("git", ["-C", workingDirectory, "rev-parse", "--show-toplevel"], workingDirectory, cancellationToken);
-            if (rootResult.Succeeded && !string.IsNullOrWhiteSpace(rootResult.StandardOutput))
+            try
             {
-                repositoryRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootResult.StandardOutput.Trim()));
-                var worktreeResult = await RunAsync(
-                    "git",
-                    ["-C", repositoryRoot, "worktree", "list", "--porcelain"],
-                    repositoryRoot,
-                    cancellationToken);
-                if (worktreeResult.Succeeded)
-                {
-                    worktrees = ParseWorktrees(worktreeResult.StandardOutput);
-                }
-                else
-                {
-                    worktreeError = FailureDetail(worktreeResult);
-                }
+                repositoryRoot = await new Git(runner, FindExecutable("git")!)
+                    .ResolveMainRepositoryAsync(workingDirectory, repositoryPath, cancellationToken);
+                var worktreeResult = await RunAsync("git", ["-C", repositoryRoot, "worktree", "list", "--porcelain"],
+                    repositoryRoot, cancellationToken);
+                if (worktreeResult.Succeeded) worktrees = ParseWorktrees(worktreeResult.StandardOutput);
+                else worktreeError = FailureDetail(worktreeResult);
             }
-            else
+            catch (PreflightException exception)
             {
-                repositoryError = FailureDetail(rootResult);
+                repositoryError = exception.Message;
                 worktreeError = repositoryError;
             }
+        }
+
+        TargetConfigurationHealth targetConfiguration;
+        var targetConfigPath = Path.Combine(repositoryRoot ?? repositoryPath ?? workingDirectory, ".abacus", "targets.json");
+        try
+        {
+            if (repositoryRoot is null) throw new TargetException("Git repository is unavailable; target configuration cannot be checked");
+            var registry = await TargetRegistry.LoadAsync(targetConfigPath, cancellationToken);
+            var targetGit = new Git(runner, FindExecutable("git")!);
+            foreach (var branch in registry.Targets.Keys)
+                await targetGit.ResolveTargetCommitAsync(repositoryRoot, "abacus", branch, cancellationToken);
+            targetConfiguration = new(targetConfigPath, registry.Targets.Keys.Order(StringComparer.Ordinal).ToArray(), null,
+                registry.EnforceTargetBranch, registry.DefaultTarget);
+        }
+        catch (TargetException exception)
+        {
+            targetConfiguration = new(targetConfigPath, [], exception.Message);
         }
 
         var skills = InspectSkills(repositoryRoot);
@@ -400,7 +431,7 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
             modes.Add("codex (tmux-hosted)");
         }
 
-        var singleAgentReady = repositoryRoot is not null && modes.Count > 0;
+        var singleAgentReady = repositoryRoot is not null && modes.Count > 0 && targetConfiguration.IsReady;
         var multiAgentReady = singleAgentReady
             && identity?.IsShared is true
             && worktreeError is null
@@ -423,7 +454,8 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
             skills,
             modes,
             singleAgentReady,
-            multiAgentReady);
+            multiAgentReady,
+            targetConfiguration);
     }
 
     private async Task<MergeSlotHealth> CheckMergeSlotAsync(

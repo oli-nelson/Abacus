@@ -10,6 +10,7 @@
 - [Setup](#setup)
 - [Usage and command behavior](#usage)
 - [Repository health](#repository-health)
+- [Ticket targets](#ticket-targets)
 - [Agent workflow](#agent-workflow)
 - [Exact agent prompt](#agent-prompt-template)
 
@@ -40,7 +41,9 @@ Beads initialization must be non-interactive and select the maintainer role.
 The project root also receives executable `run_abacus_opencode.sh`,
 `run_abacus_codex.sh`, and `run_abacus_claude.sh` launchers. Each launcher must
 discover the worktree directories at run time and pass one uniquely named agent
-per worktree to Abacus. Launchers accept model and effort overrides but do not
+per worktree to Abacus. Each launcher passes `--repo "$root/repo"` explicitly
+so invocation does not depend on the caller's working directory. Launchers accept
+model and effort overrides but do not
 create the tmux session.
 
 Before running Abacus:
@@ -67,6 +70,24 @@ skills are preserved. Skill installation is a standalone operation: it does not
 require a model, agent, Beads project, tmux session, or agent CLI, and it does
 not start the orchestrator.
 
+### Initialize Abacus in an existing repository
+
+`abacus --init [--repo <path>]` is standalone. Resolve the main Git checkout,
+require an initialized, readable Beads project belonging to the same Git
+repository (including explicit Beads redirects), and validate target
+configuration and local branch refs before installing anything. Reject missing
+or unusable Beads with setup guidance; never run `bd init` automatically.
+Install the bundled skills using the same confirmation contract as
+`--install-skills`. A declined confirmation leaves both skills and configuration
+unchanged. Create `.abacus/targets.json` allowing only `main` when absent, with
+`enforceTargetBranch: false` and `defaultTarget: "main"`;
+preserve existing configuration byte-for-byte. If no local `main` exists, require
+an explicit configuration naming an existing target or an operator-created branch.
+Do not create branches, assign tickets, change Beads settings, stage, or commit.
+Report created/preserved config, installed skills, and next steps: review/commit
+setup files, run `--health`, then audit/set ticket targets. Full agent readiness
+is a separate health/preflight check, not an initialization prerequisite.
+
 ### Agent workspaces
 
 Each agent is assigned a Git workspace. This can be:
@@ -91,7 +112,13 @@ Initialize a new multi-agent repository:
 abacus --init-new-multi-agent-repo <project-name> <agent-count>
 ```
 
-Install the bundled agent skills:
+Initialize Abacus in an existing Git/Beads repository:
+
+```sh
+abacus --init
+```
+
+Install only the bundled agent skills:
 
 ```sh
 abacus --install-skills
@@ -242,6 +269,7 @@ Abacus runs continuously unless a finite execution option is selected. `--once` 
 `--health` is a standalone, read-only diagnostic. From the current Git
 repository it reports:
 
+- whether target configuration, instruction files, and local target branches are valid;
 - whether Git and Beads meet their minimum versions and Beads is initialized;
 - whether Beads uses embedded single-writer storage or a reachable shared,
   server-backed Dolt database suitable for multiple agents;
@@ -265,7 +293,105 @@ also provide distinct workspaces, but health deliberately does not search for
 them. Merge-slot availability is advisory because repositories may serialize
 merges another way. The command exits zero when at least one single-agent mode is
 runnable, `no-git-ops` is disabled, and all bundled skills are installed;
-otherwise it exits one.
+otherwise it exits one. Target configuration must also be valid.
+
+## Ticket targets
+
+`enforceTargetBranch` is an optional config boolean defaulting to false.
+`defaultTarget` is an optional local branch name defaulting to `main`. With
+enforcement off, absent `metadata.abacus_target` resolves to the configured
+default without stamping that key. With enforcement on, every work ticket,
+including epics, decisions, and closed history, must carry a nonempty string
+target. Internal `gt:slot` records are exempt. Explicit null, non-string, empty,
+and unconfigured targets are invalid in both modes. There is no label routing
+or parent/dependency inheritance. Each ticket has exactly one destination;
+backports use separate linked tickets.
+
+The controller selects the main checkout with `--repo <path>`. Without it, the
+current directory must be inside the main checkout; normalize subdirectories to
+the Git root. A linked worktree is rejected as the controller even if it checks
+out `main`; `--repo` must select the primary checkout, not a branch name. Never
+silently promote a linked worktree to its main repo or infer the controller from
+agent `-a` paths. Only an explicit `--repo` permits invocation outside the selected
+repo. Repository-scoped standalone operations (init, skill installation, health,
+target audit/set, attention listing/resolution, and pruning) use the same rule.
+Help, model discovery, and new-repository creation need no existing repository;
+`--repo` is not supported with the latter two operations.
+
+`--config` is removed. Load `<repo>/.abacus/targets.json` once at startup; all
+repository-scoped standalone Beads commands run at the selected root as well.
+Agent workspaces may still be linked worktrees. The version-1 schema requires a
+nonempty `targets` object keyed by allowed local branch names. Each target may
+specify a relative `mergeInstructions` file path,
+resolved from the config directory. Otherwise `merge-instructions.md` beside the
+config is the optional fallback. Missing explicit files, invalid or duplicate
+keys, unknown properties, and missing local targets
+fail preflight. Policy files are not read from changing agent checkouts.
+Legacy `repositoryId` configuration and `repository` binding fields are ignored;
+no repository ID is required or emitted. When enforcement is off, the default
+must be in the allowlist. An explicitly configured default must be allowed in
+either mode; strict registries may omit an unused default.
+
+`--target-branch <branch>` is a repeatable eligibility filter, never a destination
+override. Apply target eligibility before priority/comment selection. Invalid
+metadata candidates remain eligible for an atomic validation claim. After the
+claim, reread ownership and metadata. A missing target under enforcement, an
+invalid explicit target, or conflicting binding must block the owned ticket, clear its assignee, add
+`abacus:needs-user-attention`, and append the precise reason and repair commands.
+Verify the block, label, and reason and push when configured. Do not launch a
+coding agent or mutate Git. Failed blocking or synchronization halts the loop.
+Dirty recovery bypasses dispatch filters but never these safety checks.
+A validation claim consumes the agent's one claim in `--once` mode.
+
+Before preparing a new issue branch, persist and read back
+`metadata.abacus_execution`: version 1, exact target ref,
+issue branch, full starting target commit, and relevant merge-policy identity.
+Defaulted tickets use the resolved branch in filters, audits, bindings, and
+agent prompts. Changing a default never rewrites an existing binding; conflicting
+bindings require operator review. Synchronize Beads when configured before branch
+creation. Resume only matching bindings; a changed target or policy requires operator recovery.
+Existing issue and target histories must contain the recorded starting commit.
+Create new branches explicitly from that commit, never current workspace HEAD.
+Never reset, rebase, or forcibly share another worktree's checked-out issue branch.
+Hold exclusive per-workspace OS ownership in the Git administrative directory
+before runtime claims; release handles on shutdown without deleting lock files.
+The read-only `--check` operation creates no locks.
+
+Standalone commands:
+
+```sh
+abacus --check-ticket-targets [<issue-id> ...] [--repo <path>]
+abacus --set-ticket-target <branch> <issue-id> [<issue-id> ...] [--repo <path>]
+abacus --set-ticket-target <branch> <issue-id> --adopt-existing-branch --start-commit <full-commit-id>
+```
+
+The check is read-only and audits all tickets, including closed history, when no
+IDs are supplied, excluding `gt:slot`. Validate metadata, configuration membership,
+local refs, bindings, and existing issue history. Exit 0 only when every selected
+ticket passes. Neither command requires agent preflight, a harness, or tmux.
+
+The setter preserves unrelated metadata, status, notes, and attention labels.
+Reject active tickets, malformed execution metadata, and bound retargeting.
+Restoring missing/incorrect target metadata to its unchanged bound destination is allowed.
+Validate the batch before writing and reread before/after individual writes;
+partial CLI failures report completed IDs. Operators must stop concurrent work
+before repair: metadata edits are not a compare-and-swap transaction. Commands
+perform no automatic Beads push. Adoption requires an explicit full starting
+commit contained in both issue and target histories, one inactive unbound ticket,
+and an existing issue branch. Record its binding without changing Git. Never
+silently adopt legacy branches or overwrite an existing binding.
+
+`--health [--repo <path>]` checks target configuration, instruction files, and
+local branches; invalid targets make readiness fail. It does not audit tickets.
+The new-repository initializer writes and commits a config with `main` allowed,
+and launchers explicitly select it. Planner and doctor must use
+the metadata setter and checker. See [target operations](docs/targets.md) for the
+schema, repair, adoption, and upgrade procedures.
+
+This change does not add orchestrator-owned merging, landing receipts, completion
+verification, or changes to branch pruning. Agents retain merge and outcome
+responsibilities. Git fetch/push and automatic release-branch creation remain
+outside normal orchestration.
 
 ## Agent workflow
 
@@ -289,9 +415,9 @@ Each Abacus agent follows this loop:
 
    When dispatch filters are configured, their literal `--label`, `--exclude-label`, `--type`, and `--priority` arguments are added before `--limit 0 --json`. The same filters apply when resuming ready work already assigned to that agent. Abacus keeps the priority ordering from Beads. If the highest-priority group contains multiple issues, it reads comments for the commented candidates using `bd show <ids...> --include-comments --json`, selects the issue with the newest comment, or keeps the first issue when none has a comment. Before claiming the selected issue, it runs `bd show <id> --children --json`. A candidate with any child whose status is not `closed` is skipped and selection continues with the remaining candidates. A failed or malformed child lookup fails safely without claiming the candidate. Abacus then atomically claims the eligible issue with `bd update <id> --claim --json`. If another agent wins that claim race, Abacus refreshes the candidates and tries again.
 
-4. Create or check out an `abacus/<issue_id>` branch in the assigned workspace.
+4. Validate the ticket target and durable execution binding, then create or check out `abacus/<issue_id>` using the safe preparation contract above.
 5. Make sure a normal newly selected workspace has no local changes before starting the agent CLI. An interrupted issue workspace intentionally retains its existing changes.
-6. Start the selected local agent CLI interactively in tmux, or start an attached OpenCode Server client either directly or in tmux. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the requested model and a prompt describing the issue and its ticket-state responsibilities. When `<workspace>/.abacus/merge-instructions.md` exists, replace the complete default merge-instruction section with that file's trimmed contents; file presence overrides the default even when the file is empty. Pass the requested effort where the selected CLI exposes it; interactive OpenCode uses its configured or session-selected variant because its TUI has no variant CLI option.
+6. Start the selected local agent CLI interactively in tmux, or start an attached OpenCode Server client either directly or in tmux. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the requested model and a prompt describing the issue and its ticket-state responsibilities. Use the controller-snapshotted target merge instructions when present; file presence overrides the default even when the file is empty. Pass the requested effort where the selected CLI exposes it; interactive OpenCode uses its configured or session-selected variant because its TUI has no variant CLI option.
 7. While the agent CLI is running, Abacus monitors the ticket status through Beads and enforces the optional ticket runtime limit.
 8. The coding agent does the work and changes the ticket status when it is finished:
 
@@ -309,10 +435,10 @@ The ticket-timeout path uses the same verified reopen and push behavior after st
 
 ## Agent prompt template
 
-The template below is the default. If `.abacus/merge-instructions.md` exists at
-the agent workspace root, Abacus replaces the section beginning `Commit your
-changes` and ending `merge and release succeed.` with the file's trimmed
-contents. The default section must not remain anywhere in that agent's prompt.
+The template below is the default, with `<target_branch>` resolved from the
+validated ticket binding. Controller-snapshotted merge instructions replace the
+section beginning `Commit your changes` and ending `merge and release succeed.`
+with the file's trimmed contents. The default section must not remain anywhere in that agent's prompt.
 An empty file intentionally removes the section without adding a replacement.
 
 ```text
@@ -322,17 +448,19 @@ Abacus has already claimed the ticket for you and set BEADS_ACTOR to your agent
 name. Do not claim another ticket.
 
 Abacus grants you authority to perform the local Git operations needed for this
-ticket, including staging, committing, and merging into the local main branch.
+ticket, including staging, committing, and merging into the local <target_branch> branch.
 You do not have authority to push; do not run `git push`. If `bd prime` says
 there is no Git authority, this explicit Abacus instruction overrides that.
 Follow any more restrictive user or repository instruction.
+The bound destination is refs/heads/<target_branch>. Custom instructions cannot
+redirect this ticket to another branch. Do not change abacus_target or abacus_execution.
 
 Read the ticket with:
 
-  bd show <issue_id> --json
+  bd show <issue_id> --include-comments --json
 
 Work on the branch abacus/<issue_id> and satisfy the ticket's definition of done.
-Commit your changes, then merge the branch into the latest local main branch.
+Commit your changes, then merge the branch into the latest local <target_branch> branch.
 
 Follow any repository-specific merge instructions when they define a merge process.
 Otherwise, use this basic merge strategy:
@@ -345,11 +473,11 @@ Otherwise, use this basic merge strategy:
      until bd merge-slot acquire --holder "$BEADS_ACTOR"; do sleep 2; done
 
 2. While holding the merge slot when one is configured, merge the latest local
-   `main` into the issue branch. Resolve any conflicts and commit the result.
-3. Locate the worktree where `main` is checked out with
+   `<target_branch>` into the issue branch. Resolve any conflicts and commit the result.
+3. Locate the worktree where `<target_branch>` is checked out with
    `git worktree list --porcelain`, then fast-forward it to the issue branch with
-   `git -C <main-worktree> merge --ff-only <issue-branch>`. If `main` is not checked
-   out elsewhere, switch this workspace to `main` and fast-forward it there.
+   `git -C <target-worktree> merge --ff-only <issue-branch>`. If `<target_branch>` is not checked
+   out elsewhere, switch this workspace to `<target_branch>` and fast-forward it there.
 4. If you acquired a merge slot, release it with
    `bd merge-slot release --holder "$BEADS_ACTOR"`. Always release it, including
    when the merge fails. Only close the ticket after the merge and release succeed.

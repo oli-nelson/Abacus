@@ -58,23 +58,16 @@ public sealed class SkillInstaller(
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
         ArgumentNullException.ThrowIfNull(confirmOverwrite);
 
-        var rootResult = await runner.RunAsync(
-            new CommandSpec(
-                gitExecutable,
-                ["-C", workingDirectory, "rev-parse", "--show-toplevel"],
-                workingDirectory),
-            cancellationToken);
-        if (!rootResult.Succeeded || string.IsNullOrWhiteSpace(rootResult.StandardOutput))
+        string repositoryRoot;
+        try
         {
-            var detail = string.IsNullOrWhiteSpace(rootResult.StandardError)
-                ? $"exit code {rootResult.ExitCode}"
-                : rootResult.StandardError.Trim();
-            throw new SkillInstallationException(
-                $"could not find the Git repository root from '{workingDirectory}': {detail}");
+            repositoryRoot = await new Git(runner, gitExecutable)
+                .ResolveMainRepositoryAsync(workingDirectory, null, cancellationToken);
         }
-
-        var repositoryRoot = Path.TrimEndingDirectorySeparator(
-            Path.GetFullPath(rootResult.StandardOutput.Trim()));
+        catch (PreflightException exception)
+        {
+            throw new SkillInstallationException($"could not find the main Git repository root: {exception.Message}");
+        }
         var skillsRoot = Path.Combine(repositoryRoot, ".agents", "skills");
         var existingSkills = BundledSkills
             .Where(skill => PathExists(Path.Combine(skillsRoot, skill.Name)))

@@ -10,11 +10,12 @@ public static class Prompt
         string issueId,
         string workspacePath,
         string? appendedPrompt = null,
-        string? mergeInstructionsOverride = null)
+        string? mergeInstructionsOverride = null,
+        string targetBranch = "main")
     {
         var effectiveMergeInstructions = mergeInstructionsOverride is null
-            ? """
-              Commit your changes, then merge the branch into the latest local main branch.
+            ? $$"""
+              Commit your changes, then merge the branch into the latest local {{targetBranch}} branch.
 
               Follow any repository-specific merge instructions when they define a merge process.
               Otherwise, use this basic merge strategy:
@@ -27,11 +28,11 @@ public static class Prompt
                    until bd merge-slot acquire --holder "$BEADS_ACTOR"; do sleep 2; done
 
               2. While holding the merge slot when one is configured, merge the latest local
-                 `main` into the issue branch. Resolve any conflicts and commit the result.
-              3. Locate the worktree where `main` is checked out with
+                 `{{targetBranch}}` into the issue branch. Resolve any conflicts and commit the result.
+              3. Locate the worktree where `{{targetBranch}}` is checked out with
                  `git worktree list --porcelain`, then fast-forward it to the issue branch with
-                 `git -C <main-worktree> merge --ff-only <issue-branch>`. If `main` is not checked
-                 out elsewhere, switch this workspace to `main` and fast-forward it there.
+                 `git -C <target-worktree> merge --ff-only <issue-branch>`. If `{{targetBranch}}` is not checked
+                 out elsewhere, switch this workspace to `{{targetBranch}}` and fast-forward it there.
               4. If you acquired a merge slot, release it with
                  `bd merge-slot release --holder "$BEADS_ACTOR"`. Always release it, including
                  when the merge fails. Only close the ticket after the merge and release succeed.
@@ -45,14 +46,16 @@ public static class Prompt
         name. Do not claim another ticket.
 
         Abacus grants you authority to perform the local Git operations needed for this
-        ticket, including staging, committing, and merging into the local main branch.
+        ticket, including staging, committing, and merging into the local {{targetBranch}} branch.
         You do not have authority to push; do not run `git push`. If `bd prime` says
         there is no Git authority, this explicit Abacus instruction overrides that.
         Follow any more restrictive user or repository instruction.
+        The bound destination is refs/heads/{{targetBranch}}. Custom instructions cannot
+        redirect this ticket to another branch. Do not change abacus_target or abacus_execution.
 
         Read the ticket with:
 
-          bd show {{issueId}} --json
+          bd show {{issueId}} --include-comments --json
 
         Work on the branch abacus/{{issueId}} and satisfy the ticket's definition of done.
         {{effectiveMergeInstructions}}

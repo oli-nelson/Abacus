@@ -99,9 +99,13 @@ public sealed partial class MultiAgentRepositoryInitializer(
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             cancellationToken);
 
+        Directory.CreateDirectory(Path.Combine(repositoryPath, ".abacus"));
+        await File.WriteAllTextAsync(Path.Combine(repositoryPath, ".abacus", "targets.json"),
+            TargetRegistry.DefaultConfiguration, cancellationToken);
+
         await RunRequiredAsync(
             gitExecutable,
-            ["-C", repositoryPath, "add", "README.md", ".agents"],
+            ["-C", repositoryPath, "add", "README.md", ".agents", ".abacus"],
             projectRoot,
             "stage the initialized repository",
             cancellationToken);
@@ -202,6 +206,7 @@ public sealed partial class MultiAgentRepositoryInitializer(
             # Abacus owns panes but not the tmux session. Create it first, for example:
             #   tmux new-session -d -s "$tmux_session"
             exec "$abacus_bin" \
+              --repo "$root/repo" \
               --mode {{{mode}}} \
               --tmux-session "$tmux_session" \
               --tmux-layout tiled \

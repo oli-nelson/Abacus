@@ -1,5 +1,8 @@
 # Abacus
 
+> **Ticket targets:** Configure the target allowlist and default destination.
+> Missing ticket metadata is allowed unless `enforceTargetBranch` is enabled. See [target setup, audit, and recovery](docs/targets.md).
+
 **Turn a Beads backlog into safe, observable parallel agent work.**
 
 Abacus is a small Unix-oriented orchestrator for coding agents. It finds ready
@@ -56,6 +59,16 @@ Choose the path that matches your repository:
 
 The [documentation index](docs/README.md) maps the rest of the project docs.
 
+## Existing Git/Beads repository
+
+From the main Git checkout, run `abacus --init` to install/update bundled skills and create a missing
+`.abacus/targets.json` allowing `main`. Beads must already be initialized;
+existing configuration is preserved. Then run `abacus --health` and
+`abacus --check-ticket-targets`, and review default routing versus explicit ticket destinations.
+From elsewhere (including linked worktrees), pass `--repo /path/to/main-checkout`.
+`--repo` replaces `--config`; target configuration lives in that repo's `.abacus`
+directory. See [setup and migration](docs/targets.md#upgrade-checklist).
+
 ## Quickest path: a new multi-agent project
 
 First [build Abacus](#build-and-install), then run the standalone initializer
@@ -66,7 +79,8 @@ abacus --init-new-multi-agent-repo my-project 4
 ```
 
 It creates a Git repository, a shared-server Beads database, four detached
-worktrees, the bundled skills, and ready-to-use launch scripts:
+worktrees, a committed `.abacus/targets.json` allowing `main`, the bundled skills,
+and ready-to-use launch scripts that pass `--repo "$root/repo"`:
 
 ```text
 my-project/
@@ -85,6 +99,9 @@ bd create "Add the first feature" \
   --description "Describe the work and relevant context." \
   --acceptance "State the observable definition of done." \
   --json
+# Replace <returned-id> with the ID from bd create:
+abacus --set-ticket-target main <returned-id>
+abacus --check-ticket-targets <returned-id>
 
 cd ..
 tmux new-session -d -s my-project

@@ -60,7 +60,7 @@ public sealed class GitTests
     }
 
     [Fact]
-    public async Task ResumesIssueBranchWithoutMutatingItsStaleWorktree()
+    public async Task RefusesIssueBranchCheckedOutInAnotherWorktree()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -80,17 +80,10 @@ public sealed class GitTests
             await repository.RunAsync("worktree", "add", targetWorkspace, "worker-target");
 
             var git = new Git(new CommandRunner(TextWriter.Null), repository.GitExecutable);
-            var branch = await git.PrepareIssueBranchAsync(
-                targetWorkspace,
-                "alice",
-                "abc-resume",
-                CancellationToken.None);
-
-            Assert.Equal("abacus/abc-resume", branch);
-            Assert.Equal("abacus/abc-resume", (await repository.RunInAsync(
-                targetWorkspace,
-                "branch",
-                "--show-current")).Trim());
+            await Assert.ThrowsAsync<WorkspacePreparationException>(() => git.PrepareIssueBranchAsync(
+                targetWorkspace, "alice", "abc-resume", CancellationToken.None));
+            Assert.Equal("worker-target", (await repository.RunInAsync(
+                targetWorkspace, "branch", "--show-current")).Trim());
             Assert.Equal("abacus/abc-resume", (await repository.RunInAsync(
                 staleWorkspace,
                 "branch",
@@ -201,7 +194,7 @@ public sealed class GitTests
             var path = Directory.CreateTempSubdirectory("abacus-git-").FullName;
             var git = FindGit();
             var repository = new TemporaryGitRepository(path, git, string.Empty);
-            await repository.RunAsync("init", "-q");
+            await repository.RunAsync("init", "-q", "--initial-branch=main");
             await repository.RunAsync("config", "user.name", "Abacus Test");
             await repository.RunAsync("config", "user.email", "abacus@example.invalid");
             await File.WriteAllTextAsync(System.IO.Path.Combine(path, "file.txt"), "clean\n");

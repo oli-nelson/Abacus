@@ -120,7 +120,7 @@ public sealed class SkillInstallerTests
             var exception = await Assert.ThrowsAsync<SkillInstallationException>(() =>
                 installer.InstallAsync(root.FullName, _ => true, CancellationToken.None));
 
-            Assert.Contains("could not find the Git repository root", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("could not find the main Git repository root", exception.Message, StringComparison.Ordinal);
         }
         finally
         {

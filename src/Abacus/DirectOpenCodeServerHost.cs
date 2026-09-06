@@ -86,7 +86,9 @@ public sealed class DirectOpenCodeServerHost(
             issue.Id,
             agent.WorkspacePath,
             agent.AppendedPrompt,
-            agent.MergeInstructionsOverride);
+            agent.MergeInstructionsOverride,
+            agent.Targets?.Validate(issue).Branch ?? issue.TargetBranch
+                ?? throw new TargetException("cannot launch a ticket without a resolved target"));
 
         var startInfo = new ProcessStartInfo
         {

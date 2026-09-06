@@ -55,7 +55,9 @@ public sealed record Options(
     NotificationMode NotificationMode = NotificationMode.Off,
     bool NotificationSound = false,
     int LatestCommentCount = 8,
-    string? AppendAgentPrompt = null)
+    string? AppendAgentPrompt = null,
+    string? RepositoryPath = null,
+    IReadOnlyList<string>? TargetBranches = null)
 {
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -68,13 +70,14 @@ public sealed record Options(
 
     public const string ShortUsage =
         "Usage: abacus --init-new-multi-agent-repo <project-name> <agent-count> | " +
-        "abacus --install-skills | abacus --health | abacus --models | " +
+        "abacus --check-ticket-targets [<id> ...] | abacus --set-ticket-target <branch> <id> ... | " +
+        "abacus --init | abacus --install-skills | abacus --health [--repo <path>] | abacus --models | " +
         "abacus --prune-closed-branches | abacus --list-user-attention | " +
         "abacus --resolve <issue-id> [<message>] [--reopen] | " +
         "abacus [--mode <opencode|codex|claude|opencode-server>] " +
         "[--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] " +
         "--model <model> [--effort <effort>] [--remote] " +
-        "[--append-agent-prompt <prompt>] " +
+        "[--repo <path>] [--target-branch <branch>] [--append-agent-prompt <prompt>] " +
         "[--label <label>] [--exclude-label <label>] [--type <types>] [--priority <priority>] " +
         "[--ticket-timeout <duration>] [--latest-comments <count>] " +
         "[--notify <off|attention|all>] [--notify-sound] " +
@@ -84,10 +87,26 @@ public sealed record Options(
     public const string Usage = """
         Abacus coordinates Beads tasks and interactive coding agents.
 
+        Targets:
+          Missing metadata.abacus_target uses defaultTarget (main) unless enforceTargetBranch is true.
+          Enforcement defaults to false; explicit invalid targets and binding conflicts always fail.
+          --repo <path> selects the main Git checkout (default: current directory, which must be inside it).
+          Linked worktrees cannot be controller roots. Targets load from <repo>/.abacus/targets.json.
+          Repository-scoped standalone commands also accept --repo; --config is no longer supported.
+          --target-branch <branch> is a repeatable dispatch filter, never a destination override.
+          --check-ticket-targets is read-only; without IDs it audits all tickets except gt:slot.
+          --set-ticket-target adds/repairs targets on inactive tickets without reopening or retargeting bound work.
+          Existing unbound issue branches require explicit operator adoption, with dispatch stopped:
+            --set-ticket-target <branch> <id> --adopt-existing-branch --start-commit <full-commit-id>
+          Adoption verifies the chosen starting commit is in both the issue and target histories; it does not change Git.
+
         Usage:
           abacus --init-new-multi-agent-repo <project-name> <agent-count>
+          abacus --check-ticket-targets [<issue-id> ...] [--repo <path>]
+          abacus --set-ticket-target <branch> <issue-id> [<issue-id> ...] [--repo <path>]
+          abacus --init
           abacus --install-skills
-          abacus --health
+          abacus --health [--repo <path>]
           abacus --models
           abacus --prune-closed-branches
           abacus --list-user-attention
@@ -116,13 +135,18 @@ public sealed record Options(
           detached worktrees under <project-name>/worktrees, and launch scripts
           for OpenCode, Codex, and Claude modes.
 
+          --init requires an existing Beads project, validates local target branches,
+          installs skills (confirming replacement), and creates .abacus/targets.json
+          allowing main only when absent (defaultTarget: main, enforceTargetBranch: false).
+          Existing configuration is preserved.
           --install-skills installs the bundled abacus-beads-planner,
           abacus-beads-doctor, abacus-beads-attention, and abacus-git-check skills under
           .agents/skills at the Git root. Existing skills require confirmation
           before their directories are replaced.
 
         Health:
-          --health reports Beads configuration, no-git-ops, and merge-slot availability,
+          --health checks target configuration, instruction files, and local branches;
+          it also reports Beads configuration, no-git-ops, and merge-slot availability,
           supported agent harness and tmux versions, referenced Git worktrees,
           bundled skill presence, and single-/multi-agent readiness.
 
@@ -170,8 +194,9 @@ public sealed record Options(
           --append-agent-prompt appends a nonempty prompt fragment to every agent
           prompt. If <workspace>/.abacus/append-prompt.md exists, its contents are
           appended after the command-line fragment.
-          If <workspace>/.abacus/merge-instructions.md exists, its contents replace
-          the built-in merge instructions. An empty file suppresses them.
+          Target merge instruction files come from the controller configuration.
+          merge-instructions.md beside that configuration is the optional fallback.
+          An empty instruction file suppresses the built-in merge section.
 
         Dispatch filters:
           --label and --exclude-label are repeatable. --type accepts the literal
@@ -221,6 +246,31 @@ public sealed record Options(
     public static OptionsParseResult Parse(IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
+        if (arguments.Any(static argument => argument is "--help" or "-h"))
+            return OptionsParseResult.Help;
+        string? repositoryPath = null;
+        var remaining = new List<string>();
+        for (var i = 0; i < arguments.Count; i++)
+        {
+            if (arguments[i] != "--repo") { remaining.Add(arguments[i]); continue; }
+            if (repositoryPath is not null) throw new OptionsException("--repo can only be specified once");
+            repositoryPath = CanonicalizePath(ReadValue(arguments, ref i, "--repo"));
+        }
+        var parsed = ParseCore(remaining);
+        if (repositoryPath is null) return parsed;
+        if (parsed.NewMultiAgentRepository is not null || parsed.ShowModels)
+            throw new OptionsException("--repo cannot be combined with --init-new-multi-agent-repo or --models");
+        return parsed with
+        {
+            RepositoryPath = repositoryPath,
+            Value = parsed.Value is { } options ? options with { RepositoryPath = repositoryPath } : null,
+            TargetCommand = parsed.TargetCommand is { } command ? command with { RepositoryPath = repositoryPath } : null,
+        };
+    }
+
+    private static OptionsParseResult ParseCore(IReadOnlyList<string> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
 
         if (arguments.Any(static argument => argument is "--help" or "-h"))
         {
@@ -251,6 +301,16 @@ public sealed record Options(
             return OptionsParseResult.InitializeNewMultiAgentRepository(projectName, agentCount);
         }
 
+        if (arguments.Contains("--init", StringComparer.Ordinal))
+        {
+            if (arguments.Count != 1)
+                throw new OptionsException("--init cannot be combined with other options");
+            return new(null, ShowHelp: false, InitializeRepository: true);
+        }
+
+        if (arguments.Any(a => a is "--check-ticket-targets" or "--set-ticket-target"))
+            return ParseTargetCommand(arguments);
+
         if (arguments.Contains("--install-skills", StringComparer.Ordinal))
         {
             if (arguments.Count != 1)
@@ -264,10 +324,7 @@ public sealed record Options(
         if (arguments.Contains("--health", StringComparer.Ordinal))
         {
             if (arguments.Count != 1)
-            {
-                throw new OptionsException("--health cannot be combined with other options");
-            }
-
+                throw new OptionsException("--health can only be combined with --repo <path>");
             return OptionsParseResult.Health;
         }
 
@@ -341,6 +398,7 @@ public sealed record Options(
             return OptionsParseResult.ResolveAttentionOnly(issueId, message, reopenCount == 1);
         }
 
+        var targetBranches = new List<string>();
         string? tmuxSession = null;
         string? tmuxWindow = null;
         string? tmuxLayout = null;
@@ -372,6 +430,12 @@ public sealed record Options(
             var argument = arguments[index];
             switch (argument)
             {
+                case "--target-branch":
+                    var target = ReadValue(arguments, ref index, argument);
+                    if (!Git.IsValidTargetBranch(target)) throw new OptionsException("--target-branch requires a literal local branch name");
+                    if (targetBranches.Contains(target)) throw new OptionsException($"duplicate target filter '{target}'");
+                    targetBranches.Add(target);
+                    break;
                 case "--mode":
                     requestedAgentMode = ParseAgentMode(ReadValue(arguments, ref index, argument));
                     break;
@@ -623,8 +687,49 @@ public sealed record Options(
                 notificationMode,
                 notificationSound,
                 latestCommentCount,
-                appendAgentPrompt),
+                appendAgentPrompt,
+                null,
+                targetBranches.AsReadOnly()),
             ShowHelp: false);
+    }
+
+    private static OptionsParseResult ParseTargetCommand(IReadOnlyList<string> arguments)
+    {
+        string? target = null;
+        bool? check = null;
+        var adopt = false;
+        string? startCommit = null;
+        var ids = new List<string>();
+        for (var i = 0; i < arguments.Count; i++)
+        {
+            switch (arguments[i])
+            {
+                case "--adopt-existing-branch":
+                    if (adopt) throw new OptionsException("duplicate --adopt-existing-branch");
+                    adopt = true;
+                    break;
+                case "--start-commit":
+                    if (startCommit is not null) throw new OptionsException("duplicate --start-commit");
+                    startCommit = ReadValue(arguments, ref i, "--start-commit");
+                    break;
+                case "--check-ticket-targets":
+                case "--set-ticket-target":
+                    if (check is not null) throw new OptionsException("choose one target metadata command");
+                    check = arguments[i] == "--check-ticket-targets";
+                    if (check == false) target = ReadValue(arguments, ref i, "--set-ticket-target");
+                    break;
+                default:
+                    if (!Git.IsValidIssueId(arguments[i])) throw new OptionsException($"invalid issue ID or option '{arguments[i]}'");
+                    ids.Add(arguments[i]);
+                    break;
+            }
+        }
+        if (check == false && (ids.Count == 0 || !Git.IsValidTargetBranch(target!)))
+            throw new OptionsException("use --set-ticket-target <branch> <issue-id> [<issue-id> ...]");
+        if (ids.Distinct(StringComparer.Ordinal).Count() != ids.Count) throw new OptionsException("duplicate issue IDs");
+        if ((adopt || startCommit is not null) && (check != false || !adopt || ids.Count != 1 || !Git.IsCommitId(startCommit)))
+            throw new OptionsException("adoption requires --set-ticket-target <branch> <id> --adopt-existing-branch --start-commit <full-commit-id>");
+        return new(null, false, TargetCommand: new(check == true, target, ids, null, adopt, startCommit));
     }
 
     private static string ReadFilterValue(
@@ -762,7 +867,10 @@ public sealed record OptionsParseResult(
     bool PruneClosedBranches = false,
     bool ListUserAttention = false,
     AttentionResolutionOptions? AttentionResolution = null,
-    NewMultiAgentRepositoryOptions? NewMultiAgentRepository = null)
+    NewMultiAgentRepositoryOptions? NewMultiAgentRepository = null,
+    TicketTargetCommand? TargetCommand = null,
+    string? RepositoryPath = null,
+    bool InitializeRepository = false)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);
@@ -785,3 +893,6 @@ public sealed record OptionsParseResult(
 }
 
 public sealed class OptionsException(string message) : Exception(message);
+
+public sealed record TicketTargetCommand(bool Check, string? Target, IReadOnlyList<string> IssueIds, string? RepositoryPath,
+    bool AdoptExistingBranch = false, string? StartCommit = null);
