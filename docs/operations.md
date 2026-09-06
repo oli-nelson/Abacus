@@ -48,6 +48,24 @@ remain visible, while idle polling is visually distinct from failure retries.
 Press **Shift-Tab** to pause or resume new claims for every agent. Active work
 continues; an agent pauses only when it next reaches the claim boundary.
 
+Use the **Up** and **Down** arrows to select an agent, then press **Enter** to
+open its action panel:
+
+- **Stop Agent** interrupts its pane or process and parks that loop. An active
+  ticket remains `in_progress` and reserved for the same agent, and workspace
+  changes remain untouched.
+- **Restart Agent** restarts an active agent or resumes a parked one. A ticket
+  retained by Stop is relaunched directly in the same workspace.
+- **Clean Agent Workspace** asks for a second confirmation, stops the agent,
+  safely reopens and releases any active ticket, runs `git reset --hard` and
+  `git clean -fd`, and leaves the agent parked. Choose Restart when the clean
+  workspace should return to service.
+
+Escape closes the action panel. Clean removes tracked modifications and
+untracked files and directories permanently; ignored files are unaffected
+because Abacus uses `git clean -fd` exactly. A cleanup failure remains visible
+as a persistent alert.
+
 ### Latest comments
 
 The dashboard ends with the latest eight Beads comments by default. Each entry

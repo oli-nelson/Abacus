@@ -220,6 +220,32 @@ public sealed class ClaimCoordinatorTests
     }
 
     [Fact]
+    public async Task RestartUsesReservedInProgressTicketWithoutAReadyLookupOrNewClaim()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            initiallyDirty: true,
+            resumeIssueStatus: "in_progress",
+            resumeIssueAssignee: "alice");
+
+        var claim = await fixture.Coordinator.ResumeReservedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            new BeadsIssue("abc-resume", IssueStatus.InProgress, "Resume interrupted work", "alice"),
+            CancellationToken.None);
+
+        Assert.NotNull(claim);
+        Assert.Equal("abc-resume", claim.Issue.Id);
+        Assert.Equal("0", await fixture.ReadAsync("ready-count"));
+        Assert.False(File.Exists(fixture.PathOf("updates")));
+        Assert.DoesNotContain("update abc-resume --claim", fixture.Log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task FiniteModeReturnsImmediatelyWhenNoWorkIsReady()
     {
         if (OperatingSystem.IsWindows())

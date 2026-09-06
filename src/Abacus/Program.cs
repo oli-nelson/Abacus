@@ -137,7 +137,11 @@ public static class Program
                 Console.Error,
                 parsed.Value!.Agents.Select(static agent => agent.Name),
                 parsed.Value.Model,
-                parsed.Value.Verbose);
+                parsed.Value.Verbose,
+                workspacePaths: parsed.Value.Agents.ToDictionary(
+                    static agent => agent.Name,
+                    static agent => agent.WorkspacePath,
+                    StringComparer.Ordinal));
             await using var notifier = new DesktopNotifier(
                 new CommandRunner(
                     output,

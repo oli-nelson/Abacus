@@ -216,6 +216,36 @@ public sealed class Git(CommandRunner runner, string executable = "git")
         return string.IsNullOrEmpty(status.StandardOutput);
     }
 
+    public async Task CleanWorkspaceAsync(
+        string workspace,
+        string agentName,
+        CancellationToken cancellationToken)
+    {
+        var reset = await RunAsync(
+            workspace,
+            agentName,
+            ["-C", workspace, "reset", "--hard"],
+            cancellationToken);
+        if (!reset.Succeeded)
+        {
+            throw new WorkspacePreparationException(
+                $"could not reset the workspace: {FailureDetail(reset)}");
+        }
+
+        var clean = await RunAsync(
+            workspace,
+            agentName,
+            ["-C", workspace, "clean", "-fd"],
+            cancellationToken);
+        if (!clean.Succeeded)
+        {
+            throw new WorkspacePreparationException(
+                $"could not remove untracked files: {FailureDetail(clean)}");
+        }
+
+        await EnsureCleanAsync(workspace, agentName, cancellationToken);
+    }
+
     private async Task EnsureCleanAsync(
         string workspace,
         string agentName,

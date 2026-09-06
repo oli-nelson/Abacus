@@ -121,6 +121,27 @@ public sealed class GitTests
     }
 
     [Fact]
+    public async Task CleanWorkspaceDiscardsTrackedAndUntrackedChanges()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var repository = await TemporaryGitRepository.CreateAsync();
+        await File.WriteAllTextAsync(Path.Combine(repository.Path, "file.txt"), "changed\n");
+        var untrackedDirectory = Directory.CreateDirectory(Path.Combine(repository.Path, "scratch"));
+        await File.WriteAllTextAsync(Path.Combine(untrackedDirectory.FullName, "notes.txt"), "temporary\n");
+
+        await new Git(new CommandRunner(TextWriter.Null), repository.GitExecutable)
+            .CleanWorkspaceAsync(repository.Path, "alice", CancellationToken.None);
+
+        Assert.Equal("clean\n", await File.ReadAllTextAsync(Path.Combine(repository.Path, "file.txt")));
+        Assert.False(Directory.Exists(untrackedDirectory.FullName));
+        Assert.Equal(repository.InitialBranch, await repository.CurrentBranchAsync());
+    }
+
+    [Fact]
     public async Task PrunesOnlyClosedTicketBranchesAndSkipsCheckedOutWorktrees()
     {
         if (OperatingSystem.IsWindows())

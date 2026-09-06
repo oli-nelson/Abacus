@@ -80,7 +80,7 @@ public sealed class OutputTests
         var text = writer.ToString();
         Assert.Contains("ABACUS", text, StringComparison.Ordinal);
         Assert.Contains("CLAIMS ON", text, StringComparison.Ordinal);
-        Assert.Contains("Shift-Tab toggle", text, StringComparison.Ordinal);
+        Assert.Contains("Shift-Tab", text, StringComparison.Ordinal);
         Assert.Contains("alice", text, StringComparison.Ordinal);
         Assert.Contains("WORKING", text, StringComparison.Ordinal);
         Assert.Contains("bob", text, StringComparison.Ordinal);
@@ -144,6 +144,69 @@ public sealed class OutputTests
             new ConsoleKeyInfo('\t', ConsoleKey.Tab, shift: false, alt: false, control: false)));
         Assert.False(ConsoleOutput.IsClaimToggle(
             new ConsoleKeyInfo('\t', ConsoleKey.Tab, shift: true, alt: false, control: true)));
+    }
+
+    [Fact]
+    public void AgentActionMenuSelectsRowsAndConfirmsWorkspaceCleanup()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice", "bob"],
+            "provider/model",
+            verbose: false,
+            interactive: true,
+            color: false,
+            workspacePaths: new Dictionary<string, string>
+            {
+                ["alice"] = "/worktrees/alice",
+                ["bob"] = "/worktrees/bob",
+            });
+        var actions = new List<(string Agent, AgentControlAction Action)>();
+        var claimGate = new ClaimGate();
+
+        Assert.True(output.HandleDashboardKey(Key(ConsoleKey.DownArrow), claimGate, Record));
+        Assert.True(output.HandleDashboardKey(Key(ConsoleKey.DownArrow), claimGate, Record));
+        Assert.True(output.HandleDashboardKey(Key(ConsoleKey.Enter), claimGate, Record));
+        Assert.Contains("AGENT ACTIONS — bob", writer.ToString(), StringComparison.Ordinal);
+        Assert.Contains("[S] Stop agent", writer.ToString(), StringComparison.Ordinal);
+        Assert.Contains("/worktrees/bob", writer.ToString(), StringComparison.Ordinal);
+
+        Assert.True(output.HandleDashboardKey(Key(ConsoleKey.C, 'c'), claimGate, Record));
+        Assert.Contains("Permanently discard tracked and untracked", writer.ToString(), StringComparison.Ordinal);
+        Assert.Empty(actions);
+
+        Assert.True(output.HandleDashboardKey(Key(ConsoleKey.Y, 'y'), claimGate, Record));
+        Assert.Equal([("bob", AgentControlAction.CleanWorkspace)], actions);
+
+        void Record(string agent, AgentControlAction action) => actions.Add((agent, action));
+    }
+
+    [Theory]
+    [InlineData(ConsoleKey.S, AgentControlAction.Stop)]
+    [InlineData(ConsoleKey.R, AgentControlAction.Restart)]
+    public void AgentActionMenuDispatchesLifecycleAction(
+        ConsoleKey key,
+        AgentControlAction expected)
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: false,
+            interactive: true,
+            color: false);
+        (string Agent, AgentControlAction Action)? requested = null;
+        var claimGate = new ClaimGate();
+
+        output.HandleDashboardKey(Key(ConsoleKey.Enter), claimGate, (_, _) => { });
+        output.HandleDashboardKey(
+            Key(key, char.ToLowerInvariant(key.ToString()[0])),
+            claimGate,
+            (agent, action) => requested = (agent, action));
+
+        Assert.Equal(("alice", expected), requested);
     }
 
     [Fact]
@@ -279,4 +342,7 @@ public sealed class OutputTests
         string text,
         bool attention = false) =>
         new(id, issueId, title, author, text, DateTimeOffset.Parse("2026-09-02T12:00:00Z"), attention);
+
+    private static ConsoleKeyInfo Key(ConsoleKey key, char character = '\0') =>
+        new(character, key, shift: false, alt: false, control: false);
 }

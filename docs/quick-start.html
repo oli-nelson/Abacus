@@ -1268,7 +1268,8 @@ abacus --mode claude \
         <h3>Startup and an empty queue</h3>
         <div class="terminal" aria-label="Example idle dashboard">
           <div class="terminal-bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="terminal-title">abacus · waiting for work</span></div>
-          <pre><span class="t-cyan"> ABACUS</span>  <span class="t-dim">2 agents  •  sonnet  •  </span><span class="t-green">CLAIMS ON</span><span class="t-dim">  •  Shift-Tab toggle  •  Ctrl-C stop</span>
+          <pre><span class="t-cyan"> ABACUS</span>  <span class="t-dim">2 agents  •  sonnet  •  </span><span class="t-green">CLAIMS ON</span>
+<span class="t-dim"> ↑↓ select • Enter • Shift-Tab • Ctrl-C all</span>
 <span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
  <span class="t-cyan">○ alice     WAITING</span>              <span class="t-dim">2s</span> Looking for a ready ticket
  <span class="t-cyan">○ bob       IDLE</span>                 <span class="t-dim">4s</span> No ready tickets; checking again soon
@@ -1282,7 +1283,8 @@ abacus --mode claude \
 
         <div class="terminal" aria-label="Example working dashboard">
           <div class="terminal-bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="terminal-title">abacus · active work</span></div>
-          <pre><span class="t-cyan"> ABACUS</span>  <span class="t-dim">2 agents  •  sonnet  •  </span><span class="t-green">CLAIMS ON</span><span class="t-dim">  •  Shift-Tab toggle  •  Ctrl-C stop</span>
+          <pre><span class="t-cyan"> ABACUS</span>  <span class="t-dim">2 agents  •  sonnet  •  </span><span class="t-green">CLAIMS ON</span>
+<span class="t-dim"> ↑↓ select • Enter • Shift-Tab • Ctrl-C all</span>
 <span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
  <span class="t-green">● alice     WORKING</span>       <span class="t-dim">4m 12s</span> ab-a31 • agent CLI in pane %3
               <span class="t-dim">↳ ab-a31 — Add health endpoint</span>
@@ -1303,6 +1305,7 @@ abacus --mode claude \
 
         <h3>Follow the latest Beads comments</h3>
         <p>New ticket claims start enabled. Press <kbd>Shift-Tab</kbd> to pause or resume claims across all agents. Tickets that are already active keep running; agents at the next claim boundary display <code>PAUSED</code>, and the header always shows the current claim state.</p>
+        <p>Select an agent with <kbd>↑</kbd> or <kbd>↓</kbd> and press <kbd>Enter</kbd> to open its action panel. Stop parks that loop while retaining its active ticket and workspace; Restart relaunches the retained ticket or resumes the parked loop. Clean Workspace asks for confirmation, reopens any active ticket, runs <code>git reset --hard</code> and <code>git clean -fd</code>, and leaves the agent stopped until you choose Restart.</p>
         <p>The dashboard polls Beads in the same five-second cycle used for user-attention detection, then places the newest comments at the very bottom, newest first. It shows up to 8 entries by default. Each entry puts the issue ID, a width-aware truncated issue title, and the comment author on a header line. The comment appears on the indented line beneath it, giving the text nearly the full terminal width before truncation. Newlines and repeated whitespace within the comment are collapsed onto that one body line.</p>
 
         <table class="comparison">

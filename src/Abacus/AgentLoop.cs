@@ -216,6 +216,90 @@ public sealed class ClaimCoordinator(
         }
     }
 
+    public async Task<PreparedClaim?> ResumeReservedClaimAsync(
+        ValidatedAgent agent,
+        BeadsIssue reservedIssue,
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(agent.WorkspacePath))
+        {
+            throw new StartupInvariantException(
+                $"[{agent.Name}] workspace disappeared: '{agent.WorkspacePath}'");
+        }
+
+        var expectedBranch = $"abacus/{reservedIssue.Id}";
+        var currentBranch = await git.GetCurrentBranchAsync(
+            agent.WorkspacePath,
+            agent.Name,
+            cancellationToken);
+        if (!string.Equals(currentBranch, expectedBranch, StringComparison.Ordinal))
+        {
+            await HaltAsync(
+                agent.Name,
+                $"Could not restart reserved ticket {reservedIssue.Id}: workspace is on " +
+                $"'{currentBranch}', expected '{expectedBranch}'. The workspace was preserved.");
+        }
+
+        var current = await beads.GetIssueAsync(
+            agent.WorkspacePath,
+            agent.Name,
+            reservedIssue.Id,
+            cancellationToken)
+            ?? throw new BeadsException($"reserved issue '{reservedIssue.Id}' no longer exists");
+        if (current.Status is IssueStatus.Closed or IssueStatus.Blocked)
+        {
+            var outcome = current.Status is IssueStatus.Closed
+                ? TicketOutcome.Closed
+                : TicketOutcome.Blocked;
+            summary?.Record(
+                agent.Name,
+                outcome,
+                current.Id,
+                current.Title ?? reservedIssue.Title);
+            await log.ClearTicketAsync(agent.Name);
+            return null;
+        }
+
+        BeadsIssue resumed;
+        if (current.Status is IssueStatus.Open)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Assignee)
+                && !string.Equals(current.Assignee, agent.Name, StringComparison.Ordinal))
+            {
+                await HaltAsync(
+                    agent.Name,
+                    $"Could not restart reserved ticket {reservedIssue.Id}: it is assigned to " +
+                    $"'{current.Assignee}'. The workspace was preserved.");
+            }
+
+            resumed = await beads.ResumeOpenIssueAsync(
+                agent.WorkspacePath,
+                agent.Name,
+                reservedIssue.Id,
+                cancellationToken);
+        }
+        else if (current.Status is IssueStatus.InProgress
+                 && string.Equals(current.Assignee, agent.Name, StringComparison.Ordinal))
+        {
+            resumed = current;
+        }
+        else
+        {
+            var detail = current.Status is IssueStatus.InProgress
+                ? $"it is assigned to '{current.Assignee ?? "(nobody)"}'"
+                : $"its status is {current.Status.ToString().ToLowerInvariant()}";
+            await HaltAsync(
+                agent.Name,
+                $"Could not restart reserved ticket {reservedIssue.Id}: {detail}. " +
+                "The workspace was preserved.");
+            return null;
+        }
+
+        return new PreparedClaim(
+            resumed with { Title = resumed.Title ?? reservedIssue.Title },
+            expectedBranch);
+    }
+
     private async Task WaitForClaimPermissionAsync(
         string agentName,
         CancellationToken cancellationToken)
@@ -249,7 +333,7 @@ public sealed class ClaimCoordinator(
         await initialRecovery.WaitAsync(cancellationToken);
     }
 
-    private void LeaveInitialRecoveryPhase()
+    internal void LeaveInitialRecoveryPhase()
     {
         if (!initialRecoveryPending)
         {
@@ -320,27 +404,118 @@ public sealed class AgentLoop(
     ExecutionMode executionMode,
     RunSummary summary,
     TextWriter log,
+    Git git,
+    AgentControl agentControl,
     DesktopNotifier? notifier = null)
 {
+    private readonly AgentControl control = agentControl;
+    private readonly Git workspaceGit = git;
+    private BeadsIssue? suspendedIssue;
+
     public async Task RunAsync(CancellationToken cancellationToken)
+    {
+        AgentControlAction? action = null;
+        try
+        {
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                action ??= control.TakeRequestedAction();
+                if (action is AgentControlAction.CleanWorkspace)
+                {
+                    var cleaned = await CleanWorkspaceAsync(cancellationToken);
+                    await log.SetAgentAsync(
+                        agent.Name,
+                        AgentActivity.Stopped,
+                        cleaned
+                            ? "Workspace cleaned; press Enter and choose Restart to resume"
+                            : "Workspace cleanup failed; review the persistent alert before retrying");
+                    action = await control.WaitForRequestedActionAsync(cancellationToken);
+                    continue;
+                }
+
+                if (action is AgentControlAction.Stop)
+                {
+                    await log.SetAgentAsync(
+                        agent.Name,
+                        AgentActivity.Stopped,
+                        "Stopped by operator; press Enter and choose Restart to resume");
+                    action = await control.WaitForRequestedActionAsync(cancellationToken);
+                    continue;
+                }
+
+                if (action is AgentControlAction.Restart)
+                {
+                    await log.ClearPersistentAlertAsync(agent.Name);
+                    await log.SetAgentAsync(agent.Name, AgentActivity.Starting, "Restart requested by operator");
+                }
+
+                action = null;
+                using var operation = control.CreateOperationCancellation(cancellationToken);
+                try
+                {
+                    await RunActiveAsync(operation.Token);
+                    return;
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    claims.LeaveInitialRecoveryPhase();
+                    action = control.TakeRequestedAction() ?? AgentControlAction.Stop;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (suspendedIssue is not null)
+            {
+                await RecoverClaimAsync(
+                    suspendedIssue,
+                    $"Abacus shut down while {agent.Name} was stopped");
+                suspendedIssue = null;
+            }
+
+            await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, "Shutting down");
+            throw;
+        }
+    }
+
+    private async Task RunActiveAsync(CancellationToken cancellationToken)
     {
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var claim = await claims.WaitForPreparedClaimAsync(
-                    agent,
-                    singleAgentMode,
-                    executionMode,
-                    cancellationToken);
+                var reserved = suspendedIssue;
+                var claim = reserved is not null
+                    ? await claims.ResumeReservedClaimAsync(agent, reserved, cancellationToken)
+                    : await claims.WaitForPreparedClaimAsync(
+                        agent,
+                        singleAgentMode,
+                        executionMode,
+                        cancellationToken);
+                suspendedIssue = null;
                 if (claim is null)
                 {
+                    if (reserved is not null && executionMode is ExecutionMode.Continuous)
+                    {
+                        continue;
+                    }
+
                     var detail = executionMode is ExecutionMode.Once
                         ? "No ready ticket; once complete"
                         : "No ready tickets; drain complete";
                     await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, detail);
                     return;
+                }
+
+                if (reserved is not null)
+                {
+                    await log.SetTicketAsync(agent.Name, claim.Issue.Id, claim.Issue.Title);
+                    await log.SetAgentAsync(
+                        agent.Name,
+                        AgentActivity.Recovering,
+                        $"{claim.Issue.Id} • restarting reserved ticket");
                 }
 
                 IAgentRun run;
@@ -356,9 +531,17 @@ public sealed class AgentLoop(
                 }
                 catch (OperationCanceledException)
                 {
-                    await RecoverClaimAsync(
-                        claim.Issue,
-                        $"Abacus shut down before the agent CLI started for {agent.Name}");
+                    if (control.ShouldPreserveClaimOnInterruption)
+                    {
+                        suspendedIssue = claim.Issue;
+                    }
+                    else
+                    {
+                        await RecoverClaimAsync(
+                            claim.Issue,
+                            $"Abacus shut down before the agent CLI started for {agent.Name}");
+                    }
+
                     summary.Record(
                         agent.Name,
                         TicketOutcome.Interrupted,
@@ -383,7 +566,16 @@ public sealed class AgentLoop(
                     agent.Name,
                     AgentActivity.Working,
                     $"{claim.Issue.Id} • agent CLI in {run.Location}");
-                await supervisor.SuperviseAsync(agent, claim.Issue, run, cancellationToken);
+                try
+                {
+                    await supervisor.SuperviseAsync(agent, claim.Issue, run, cancellationToken);
+                }
+                catch (OperationCanceledException) when (control.ShouldPreserveClaimOnInterruption)
+                {
+                    suspendedIssue = claim.Issue;
+                    throw;
+                }
+
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Finalizing,
@@ -400,11 +592,6 @@ public sealed class AgentLoop(
             catch (StartupInvariantException)
             {
                 await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, "Workspace invariant failed");
-                throw;
-            }
-            catch (OperationCanceledException)
-            {
-                await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, "Shutting down");
                 throw;
             }
             catch (AgentHaltedException exception)
@@ -431,6 +618,41 @@ public sealed class AgentLoop(
                 await log.SetAgentAsync(agent.Name, AgentActivity.Retrying, "Agent loop failed; retrying soon");
                 await Task.Delay(claims.PollingInterval, cancellationToken);
             }
+        }
+    }
+
+    private async Task<bool> CleanWorkspaceAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (suspendedIssue is not null)
+            {
+                await RecoverClaimAsync(
+                    suspendedIssue,
+                    $"Abacus released {suspendedIssue.Id} because {agent.Name}'s workspace was cleaned");
+                suspendedIssue = null;
+            }
+
+            await log.SetAgentAsync(agent.Name, AgentActivity.Recovering, "Cleaning workspace");
+            await workspaceGit.CleanWorkspaceAsync(
+                agent.WorkspacePath,
+                agent.Name,
+                cancellationToken);
+            await log.ClearTicketAsync(agent.Name);
+            await log.ClearPersistentAlertAsync(agent.Name);
+            await log.SystemAsync($"{agent.Name} workspace cleaned with git reset --hard and git clean -fd");
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            var message = $"Could not clean workspace '{agent.WorkspacePath}': {exception.Message}";
+            await log.WarningAsync(agent.Name, message);
+            await log.SetPersistentAlertAsync(agent.Name, message);
+            return false;
         }
     }
 

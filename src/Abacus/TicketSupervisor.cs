@@ -176,7 +176,8 @@ public sealed class TicketSupervisor(
     int maximumInvalidPolls = 3,
     RunSummary? summary = null,
     TimeSpan? ticketTimeout = null,
-    DesktopNotifier? notifier = null)
+    DesktopNotifier? notifier = null,
+    Func<bool>? preserveClaimOnCancellation = null)
 {
     private readonly TimeSpan interval = pollingInterval ?? TimeSpan.FromSeconds(5);
     private readonly TimeSpan? runtimeLimit = ticketTimeout;
@@ -361,6 +362,11 @@ public sealed class TicketSupervisor(
                 claimedIssue.Title);
             using var finalization = new CancellationTokenSource(FinalizationDeadline);
             await CleanupRunAsync(agent.Name, run, finalization.Token);
+            if (preserveClaimOnCancellation?.Invoke() is true)
+            {
+                throw;
+            }
+
             RecoveryResult recoveryResult;
             try
             {

@@ -24,6 +24,7 @@ internal interface IAgentOutput
     Task SetUserAttentionIssuesAsync(IReadOnlyList<BeadsIssue> issues);
     Task SetLatestCommentsAsync(IReadOnlyList<BeadsComment> comments);
     Task SetPersistentAlertAsync(string source, string message);
+    Task ClearPersistentAlertAsync(string source);
     Task ClearTicketAsync(string agentName);
     Task SetRunLocationAsync(string agentName, string location);
     Task SetLastExitCodeAsync(string agentName, int? exitCode);
@@ -87,6 +88,11 @@ internal static class OutputExtensions
         output is IAgentOutput agentOutput
             ? agentOutput.SetPersistentAlertAsync(source, message)
             : output.WriteLineAsync($"[{source}] ATTENTION: {message}");
+
+    public static Task ClearPersistentAlertAsync(this TextWriter output, string source) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.ClearPersistentAlertAsync(source)
+            : Task.CompletedTask;
 
     public static Task SetRunLocationAsync(this TextWriter output, string agentName, string location) =>
         output is IAgentOutput agentOutput
@@ -178,6 +184,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private bool claimingEnabled = true;
     private bool rendered;
     private bool dashboardFrozen;
+    private int selectedAgentIndex = -1;
+    private AgentActionPanel actionPanel;
     private bool disposed;
 
     public ConsoleOutput(
@@ -186,7 +194,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         string model,
         bool verbose,
         bool? interactive = null,
-        bool? color = null)
+        bool? color = null,
+        IReadOnlyDictionary<string, string>? workspacePaths = null)
     {
         this.writer = writer;
         this.verbose = verbose;
@@ -195,7 +204,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         this.model = model;
         agents = agentNames.ToDictionary(
             static name => name,
-            static name => AgentRow.Create(name),
+            name => AgentRow.Create(
+                name,
+                workspacePaths is not null && workspacePaths.TryGetValue(name, out var workspace)
+                    ? workspace
+                    : null),
             StringComparer.Ordinal);
 
         if (this.interactive)
@@ -218,8 +231,9 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
     internal bool IsInteractiveDashboard => interactive;
 
-    internal async Task MonitorClaimToggleAsync(
+    internal async Task MonitorDashboardInputAsync(
         ClaimGate claimGate,
+        Action<string, AgentControlAction> requestAgentAction,
         CancellationToken cancellationToken)
     {
         if (!interactive || Console.IsInputRedirected)
@@ -234,7 +248,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             {
                 if (Console.KeyAvailable)
                 {
-                    HandleDashboardKey(Console.ReadKey(intercept: true), claimGate);
+                    HandleDashboardKey(
+                        Console.ReadKey(intercept: true),
+                        claimGate,
+                        requestAgentAction);
                 }
             }
             catch (InvalidOperationException)
@@ -251,20 +268,43 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     }
 
     internal bool HandleDashboardKey(ConsoleKeyInfo key, ClaimGate claimGate)
+        => HandleDashboardKey(key, claimGate, null);
+
+    internal bool HandleDashboardKey(
+        ConsoleKeyInfo key,
+        ClaimGate claimGate,
+        Action<string, AgentControlAction>? requestAgentAction)
     {
-        if (!IsClaimToggle(key))
+        if (IsClaimToggle(key))
         {
-            return false;
+            var enabled = claimGate.Toggle();
+            lock (gate)
+            {
+                claimingEnabled = enabled;
+                systemStatus = enabled
+                    ? "New ticket claims enabled"
+                    : "New ticket claims paused; active tickets continue";
+                RenderDashboard();
+            }
+
+            return true;
         }
 
-        var enabled = claimGate.Toggle();
+        string? selectedAgent = null;
+        AgentControlAction? requestedAction = null;
         lock (gate)
         {
-            claimingEnabled = enabled;
-            systemStatus = enabled
-                ? "New ticket claims enabled"
-                : "New ticket claims paused; active tickets continue";
+            if (!HandleAgentSelectionKey(key, out selectedAgent, out requestedAction))
+            {
+                return false;
+            }
+
             RenderDashboard();
+        }
+
+        if (selectedAgent is not null && requestedAction is not null)
+        {
+            requestAgentAction?.Invoke(selectedAgent, requestedAction.Value);
         }
 
         return true;
@@ -369,6 +409,19 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             else if (changed)
             {
                 WriteEvent(source, "ATTENTION", message);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task ClearPersistentAlertAsync(string source)
+    {
+        lock (gate)
+        {
+            if (persistentAlerts.Remove(source) && interactive)
+            {
+                RenderDashboard();
             }
         }
 
@@ -576,11 +629,15 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         builder.Append(Color(Bold + Cyan, " ABACUS"));
         builder.Append(Color(Dim, $"  {agents.Count} agent{(agents.Count == 1 ? string.Empty : "s")}  •  {model}  •  "));
         builder.Append(Color(claimingEnabled ? Green : Yellow, claimingEnabled ? "CLAIMS ON" : "CLAIMS PAUSED"));
-        builder.Append(Color(Dim, "  •  Shift-Tab toggle  •  Ctrl-C stop"));
+        builder.Append("\u001b[K\n");
+        builder.Append(Color(Dim, Truncate(
+            " ↑↓ select • Enter • Shift-Tab • Ctrl-C all",
+            width)));
         builder.Append("\u001b[K\n");
         builder.Append(Color(Dim, line)).Append("\u001b[K\n");
 
         var nameWidth = Math.Clamp(agents.Keys.DefaultIfEmpty(string.Empty).Max(static name => name.Length), 8, 20);
+        var rowIndex = 0;
         foreach (var row in agents.Values)
         {
             var state = OutputExtensions.ActivityName(row.Activity);
@@ -595,7 +652,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             };
             var icon = row.Activity == AgentActivity.Working ? "●" : "○";
             var elapsed = OutputExtensions.FormatDuration(DateTimeOffset.UtcNow - row.ChangedAt).PadLeft(7);
-            var prefix = $" {icon} {Truncate(row.Name, nameWidth).PadRight(nameWidth)}  ";
+            var selector = rowIndex == selectedAgentIndex ? "›" : " ";
+            var prefix = $"{selector}{icon} {Truncate(row.Name, nameWidth).PadRight(nameWidth)}  ";
             var status = state.PadRight(10);
             var available = Math.Max(0, width - prefix.Length - 20);
             builder.Append(Color(stateColor, prefix + status));
@@ -607,6 +665,46 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 builder.Append(Color(Dim, $"   {new string(' ', nameWidth)}  ↳ "));
                 builder.Append(Truncate(metadata, Math.Max(0, width - nameWidth - 7)));
                 builder.Append("\u001b[K\n");
+            }
+
+            rowIndex++;
+        }
+
+        if (actionPanel is not AgentActionPanel.Closed && SelectedAgent() is { } selected)
+        {
+            builder.Append(Color(Bold + Cyan, Truncate($" AGENT ACTIONS — {selected.Name}", width)));
+            builder.Append("\u001b[K\n");
+            builder.Append(Truncate(
+                $"   {OutputExtensions.ActivityName(selected.Activity)} • {selected.Detail}",
+                width));
+            builder.Append("\u001b[K\n");
+            if (selected.WorkspacePath is not null)
+            {
+                builder.Append(Color(Dim, Truncate($"   {selected.WorkspacePath}", width)));
+                builder.Append("\u001b[K\n");
+            }
+
+            if (actionPanel is AgentActionPanel.ConfirmClean)
+            {
+                builder.Append(Color(Red, Truncate(
+                    "   Permanently discard tracked and untracked workspace changes?",
+                    width)));
+                builder.Append("\u001b[K\n");
+                builder.Append(Truncate("   [Y] Clean workspace   [N/Esc] Cancel", width));
+                builder.Append("\u001b[K\n");
+            }
+            else
+            {
+                foreach (var option in new[]
+                {
+                    "   [S] Stop agent",
+                    "   [R] Restart agent",
+                    "   [C] Clean workspace",
+                    "   [Esc] Close",
+                })
+                {
+                    builder.Append(Truncate(option, width)).Append("\u001b[K\n");
+                }
             }
         }
 
@@ -670,6 +768,105 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     }
 
     private string Color(string ansi, string value) => color ? ansi + value + Reset : value;
+
+    private bool HandleAgentSelectionKey(
+        ConsoleKeyInfo key,
+        out string? selectedAgent,
+        out AgentControlAction? requestedAction)
+    {
+        selectedAgent = null;
+        requestedAction = null;
+        if (agents.Count == 0)
+        {
+            return false;
+        }
+
+        if (actionPanel is AgentActionPanel.ConfirmClean)
+        {
+            if (key.Key is ConsoleKey.Y)
+            {
+                selectedAgent = SelectedAgent()!.Name;
+                requestedAction = AgentControlAction.CleanWorkspace;
+                actionPanel = AgentActionPanel.Closed;
+                systemStatus = $"Cleaning {selectedAgent}'s workspace";
+                return true;
+            }
+
+            if (key.Key is ConsoleKey.N or ConsoleKey.Escape)
+            {
+                actionPanel = AgentActionPanel.Menu;
+                return true;
+            }
+
+            return false;
+        }
+
+        if (actionPanel is AgentActionPanel.Menu)
+        {
+            var action = key.Key switch
+            {
+                ConsoleKey.S => AgentControlAction.Stop,
+                ConsoleKey.R => AgentControlAction.Restart,
+                _ => (AgentControlAction?)null,
+            };
+            if (action is not null)
+            {
+                selectedAgent = SelectedAgent()!.Name;
+                requestedAction = action;
+                actionPanel = AgentActionPanel.Closed;
+                systemStatus = action is AgentControlAction.Stop
+                    ? $"Stopping {selectedAgent}"
+                    : $"Restarting {selectedAgent}";
+                return true;
+            }
+
+            if (key.Key is ConsoleKey.C)
+            {
+                actionPanel = AgentActionPanel.ConfirmClean;
+                return true;
+            }
+
+            if (key.Key is ConsoleKey.Escape)
+            {
+                actionPanel = AgentActionPanel.Closed;
+                return true;
+            }
+
+            return false;
+        }
+
+        if (key.Key is ConsoleKey.UpArrow or ConsoleKey.DownArrow)
+        {
+            var direction = key.Key is ConsoleKey.UpArrow ? -1 : 1;
+            selectedAgentIndex = selectedAgentIndex < 0
+                ? direction < 0 ? agents.Count - 1 : 0
+                : (selectedAgentIndex + direction + agents.Count) % agents.Count;
+            return true;
+        }
+
+        if (key.Key is ConsoleKey.Enter)
+        {
+            if (selectedAgentIndex < 0)
+            {
+                selectedAgentIndex = 0;
+            }
+
+            actionPanel = AgentActionPanel.Menu;
+            return true;
+        }
+
+        if (key.Key is ConsoleKey.Escape && selectedAgentIndex >= 0)
+        {
+            selectedAgentIndex = -1;
+            return true;
+        }
+
+        return false;
+    }
+
+    private AgentRow? SelectedAgent() => selectedAgentIndex >= 0
+        ? agents.Values.ElementAt(selectedAgentIndex)
+        : null;
 
     private Task UpdateRowAsync(string agentName, Func<AgentRow, AgentRow> update)
     {
@@ -817,11 +1014,12 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         string? IssueId,
         string? TicketTitle,
         string? RunLocation,
+        string? WorkspacePath,
         int? LastExitCode,
         bool HasExitObservation,
         int RetryCount)
     {
-        public static AgentRow Create(string name) => new(
+        public static AgentRow Create(string name, string? workspacePath = null) => new(
             name,
             AgentActivity.Starting,
             "Waiting for preflight",
@@ -829,8 +1027,16 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             null,
             null,
             null,
+            workspacePath,
             null,
             false,
             0);
+    }
+
+    private enum AgentActionPanel
+    {
+        Closed,
+        Menu,
+        ConfirmClean,
     }
 }

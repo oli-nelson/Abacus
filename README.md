@@ -31,7 +31,8 @@ already use rather than replacing Git, Beads, tmux, or your agent harness.
   in real tmux panes. OpenCode Server clients can instead run as supervised
   child processes.
 - **Visible and steerable.** A live terminal dashboard shows agents, tickets,
-  timing, comments, warnings, and user-attention requests.
+  timing, comments, warnings, and user-attention requests, with controls to stop,
+  restart, or explicitly clean one agent workspace.
 - **Failure-aware.** Unexpected exits and timeouts safely reopen work instead of
   pretending it completed.
 - **Automation-friendly.** `--once`, `--drain`, and `--check` make the same

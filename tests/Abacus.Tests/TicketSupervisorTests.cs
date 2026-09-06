@@ -134,6 +134,29 @@ public sealed class TicketSupervisorTests
     }
 
     [Fact]
+    public async Task OperatorStopCleansUpProcessButKeepsTicketReservedForRestart()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await SupervisorFixture.CreateAsync(["in_progress"]);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.SuperviseAsync(
+                hasRemote: true,
+                cancellation.Token,
+                preserveClaimOnCancellation: () => true));
+
+        Assert.False(File.Exists(fixture.UpdateCalls));
+        Assert.Contains("send-keys", await File.ReadAllTextAsync(fixture.TmuxCalls), StringComparison.Ordinal);
+        Assert.Equal("0", (await File.ReadAllTextAsync(fixture.PushCount)).Trim());
+    }
+
+    [Fact]
     public async Task InvalidPollsEnterDegradedModeAndSupervisionContinues()
     {
         if (OperatingSystem.IsWindows())
@@ -351,7 +374,8 @@ public sealed class TicketSupervisorTests
         public Task SuperviseAsync(
             bool hasRemote,
             CancellationToken cancellationToken = default,
-            TimeSpan? ticketTimeout = null)
+            TimeSpan? ticketTimeout = null,
+            Func<bool>? preserveClaimOnCancellation = null)
         {
             var runner = new CommandRunner(Log);
             var beads = new Beads(runner, bd);
@@ -371,7 +395,8 @@ public sealed class TicketSupervisorTests
                 Log,
                 pollingInterval: TimeSpan.FromMilliseconds(1),
                 summary: Summary,
-                ticketTimeout: ticketTimeout);
+                ticketTimeout: ticketTimeout,
+                preserveClaimOnCancellation: preserveClaimOnCancellation);
             var agent = new ValidatedAgent(
                 "alice",
                 Path.Combine(root.FullName, "workspace"),

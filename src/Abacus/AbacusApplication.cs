@@ -42,8 +42,15 @@ public sealed class AbacusApplication(
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var claimGate = new ClaimGate();
         var initialClaimBarrier = new InitialClaimBarrier(preflight.Agents.Count);
+        var agentControls = preflight.Agents.ToDictionary(
+            static agent => agent.Name,
+            static _ => new AgentControl(),
+            StringComparer.Ordinal);
         var inputMonitor = log is ConsoleOutput consoleOutput
-            ? consoleOutput.MonitorClaimToggleAsync(claimGate, linkedCancellation.Token)
+            ? consoleOutput.MonitorDashboardInputAsync(
+                claimGate,
+                (agentName, action) => agentControls[agentName].Request(action),
+                linkedCancellation.Token)
             : Task.CompletedTask;
         try
         {
@@ -88,7 +95,9 @@ public sealed class AbacusApplication(
                     log,
                     summary: summary,
                     ticketTimeout: preflight.Options.TicketTimeout,
-                    notifier: notifier);
+                    notifier: notifier,
+                    preserveClaimOnCancellation: () =>
+                        agentControls[agent.Name].ShouldPreserveClaimOnInterruption);
                 return new AgentLoop(
                     agent,
                     preflight.Agents.Count == 1,
@@ -102,6 +111,8 @@ public sealed class AbacusApplication(
                     preflight.Options.ExecutionMode,
                     summary,
                     log,
+                    git,
+                    agentControls[agent.Name],
                     notifier).RunAsync(linkedCancellation.Token);
             }).ToArray();
 
@@ -150,6 +161,11 @@ public sealed class AbacusApplication(
             catch (IOException)
             {
                 await log.WarningAsync("abacus", $"temporary files retained in {temporaryRoot}");
+            }
+
+            foreach (var control in agentControls.Values)
+            {
+                control.Dispose();
             }
 
             var snapshot = summary.Snapshot();
