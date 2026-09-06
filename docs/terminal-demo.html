@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="An interactive, self-contained simulation of the Abacus terminal dashboard.">
+<title>Abacus — terminal demo</title>
+<style>
+  :root { color-scheme: dark; --bg:#141719; --ink:#d8dedf; --dim:#899397; --cyan:#75cdd5; --green:#99d58b; --yellow:#e4c17a; --red:#f08080; --magenta:#c7a1db; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:36px 28px; background:#0c0f11; color:var(--ink); font:14px/1.6 system-ui,sans-serif; }
+  main { max-width:1240px; margin:auto; }
+  .intro { display:flex; justify-content:space-between; align-items:center; gap:20px; margin-bottom:21px; }
+  h1 { font-size:18px; font-weight:600; letter-spacing:-.4px; margin:0; }
+  .subtitle { color:var(--dim); font-size:12px; margin:3px 0 0; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  .controls button { border:1px solid #343c40; background:#1a1f22; padding:6px 12px; border-radius:6px; font-size:12px; }
+  .controls button:hover { background:#293237; border-color:#647077; }
+  button:focus-visible, #terminal:focus-visible { outline:2px solid var(--cyan); outline-offset:3px; }
+  .window { border:1px solid #343b3f; border-radius:10px; overflow:hidden; box-shadow:0 25px 90px #0007; }
+  .titlebar { display:flex; align-items:center; height:42px; padding:0 16px; background:#23282c; color:#a5adb1; font-size:12px; }
+  .lights { display:flex; gap:8px; width:80px; }
+  .lights i { height:11px; width:11px; border-radius:50%; background:#ed6a60; }
+  .lights i:nth-child(2) { background:#f4bf50; } .lights i:nth-child(3) { background:#61c454; }
+  .window-title { flex:1; text-align:center; } .badge { width:80px; text-align:right; color:#8c989d; font-size:10px; letter-spacing:1px; }
+  .viewport { overflow:auto; background:var(--bg); }
+  #terminal { padding:21px 24px 25px; min-height:770px; width:max-content; min-width:100%; font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace; }
+  .line { white-space:pre; height:1.6em; }
+  .cyan { color:var(--cyan); } .green { color:var(--green); } .yellow { color:var(--yellow); } .red { color:var(--red); } .magenta { color:var(--magenta); } .dim { color:var(--dim); } .bold { font-weight:700; }
+  .row { display:block; width:100%; border:0; border-radius:0; background:transparent; text-align:left; font:inherit; padding:0; }
+  .row:hover { background:#ffffff06; } .selected { background:#ffffff09; }
+  .inline { padding:0; border:0; background:transparent; font:inherit; }
+  .inline:hover { text-decoration:underline; }
+  .tmux { display:flex; justify-content:space-between; padding:3px 14px; background:#91b887; color:#152218; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  footer { margin-top:16px; display:flex; justify-content:space-between; gap:18px; font-size:12px; color:var(--dim); }
+  footer p { margin:0; } footer a { color:#a6b4bb; text-decoration:none; border-bottom:1px solid #465157; }
+  #notice { margin-top:10px; min-height:20px; color:var(--green); font-size:12px; }
+  @media(max-width:700px) { body { padding:18px 10px; } .intro { align-items:flex-start; flex-direction:column; gap:12px; } #terminal { padding:16px 12px; font-size:11px; } footer { flex-direction:column; gap:6px; } .badge { display:none; } .lights { width:55px; } }
+</style>
+</head>
+<body>
+<main>
+  <header class="intro">
+    <div><h1>Abacus, in motion.</h1><p class="subtitle">An interactive terminal demo · sample tickets and simulated activity</p></div>
+    <nav class="controls" aria-label="Demo controls">
+      <button id="motion" aria-pressed="false">Freeze demo</button>
+      <button id="resolve">Simulate attention resolution</button>
+      <button id="reset">Reset demo</button>
+    </nav>
+  </header>
+  <section class="window" aria-label="Simulated terminal window">
+    <div class="titlebar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">abacus — ~/Development/atlas/repo — tmux</span><span class="badge">DEMO</span></div>
+    <div class="viewport"><div id="terminal" tabindex="0" role="region" aria-label="Abacus dashboard. Use arrow keys to select, Enter to open, Escape to close, and Shift Tab to toggle claims."></div></div>
+    <div class="tmux"><span>[atlas] 0:abacus*  1:agents-</span><span id="clock">14:32</span></div>
+  </section>
+  <footer><p>Click an agent or comment to open it. Keyboard controls work when the terminal is focused.</p><p>Based on <a href="../src/Abacus/Output.cs">Output.cs</a> · Runs entirely in your browser.</p></footer>
+  <div id="notice" role="status" aria-live="polite"></div>
+</main>
+<script>
+// Browser-only fixture. Layout, state colors, metadata, and keyboard actions follow
+// ConsoleOutput in src/Abacus/Output.cs; demo controls live outside the terminal.
+const terminal = document.querySelector('#terminal');
+const width = 120;
+const initialAgents = [
+  {name:'agent-0', state:'WORKING', seconds:287, id:'atlas-k7m', title:'Add cursor pagination to the activity feed', pane:'tmux pane %3', detail:'atlas-k7m • agent CLI in tmux pane %3'},
+  {name:'agent-1', state:'WORKING', seconds:143, id:'atlas-p2x', title:'Cache repository health checks between refreshes', pane:'tmux pane %4', detail:'atlas-p2x • agent CLI in tmux pane %4'},
+  {name:'agent-2', state:'FINALIZING', seconds:2, id:'atlas-n4b', title:'Preserve ticket ownership during agent restart', pane:'tmux pane %5', exit:0, detail:'atlas-n4b • ticket is closed'},
+  {name:'agent-3', state:'PREPARING', seconds:1, id:'atlas-r8c', title:'Add keyboard navigation to search results', detail:'atlas-r8c • preparing workspace'},
+  {name:'agent-4', state:'IDLE', seconds:12, detail:'No ready tickets; checking again soon', exit:0},
+  {name:'agent-5', state:'RECOVERING', seconds:3, id:'atlas-w9q', title:'Retry interrupted artifact uploads', pane:'tmux pane %8', retries:1, detail:'atlas-w9q • ticket status unavailable; agent remains supervised'}
+];
+const initialComments = [
+  {id:'atlas-d3f', title:'Define retention policy for audit events', author:'agent-4', attention:true, text:'BLOCKED: Need a retention decision before implementing deletion. Keep audit events for 30 or 90 days?\n\nThe existing export endpoint allows users to download historical events, but the requirements do not define a retention period.\n\nProposed approach:\nKeep events for 90 days and apply the same cutoff to the feed and export endpoint. Run cleanup daily in batches.\n\nDecision needed:\nConfirm the retention period and whether administrative events need an exemption.\n\nImplementation is committed on abacus/atlas-d3f. The ticket is blocked and labelled abacus:needs-user-attention.\n\nOnce decided, resolve the attention label with a comment and reopen the ticket so an agent can continue.\n\nValidation planned after the decision:\n- Events inside the retention period remain available.\n- Expired events are removed from both feed and export.\n- Cleanup can resume safely after an interruption.\n- Empty batches leave the next scheduled run intact.'},
+  {id:'atlas-k7m', title:'Add cursor pagination to the activity feed', author:'agent-0', text:'Cursor encoding and stable ordering are implemented. Checking duplicate timestamps and the empty-page boundary before merging.'},
+  {id:'atlas-n4b', title:'Preserve ticket ownership during agent restart', author:'agent-2', text:'CLOSED: Restart now preserves the reserved ticket and relaunches the existing branch. Regression checks passed; merged into main.'},
+  {id:'atlas-p2x', title:'Cache repository health checks between refreshes', author:'onelson', text:'Use a 5-second cache window. Keep the manual refresh immediate, and invalidate the cache whenever repository settings change.'},
+  {id:'atlas-p2x', title:'Cache repository health checks between refreshes', author:'agent-1', text:'Added cache invalidation for settings changes. Verifying that a failed probe cannot leave a stale healthy result visible.'},
+  {id:'atlas-w9q', title:'Retry interrupted artifact uploads', author:'agent-5', text:'Resumed the existing branch with local changes preserved. Upload checkpoints are in place; checking retry behavior after a disconnect.'}
+];
+let agents, comments, claims, frozen, selected, panel, opened, scroll, tick, resolved, system, finished;
+const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const color = (s,c='') => `<span class="${c}">${esc(s)}</span>`;
+const line = (s,c='') => `<div class="line">${color(s,c)}</div>`;
+const cut = (s,n) => s.length > n ? s.slice(0,n-1)+'…' : s;
+const rule = () => line('─'.repeat(width),'dim');
+const duration = n => n >= 3600 ? `${Math.floor(n/3600)}h ${Math.floor(n/60)%60}m` : n >= 60 ? `${Math.floor(n/60)}m ${n%60}s` : `${n}s`;
+const stateColor = s => s==='WORKING'?'green':['RECOVERING','RETRYING'].includes(s)?'red':['PREPARING','SYNCING','FINALIZING','PAUSED'].includes(s)?'yellow':s==='STARTING'?'magenta':'cyan';
+function wrap(text, size) {
+  return text.split('\n').flatMap(part => {
+    const result=[];
+    while(part.length>size) { let n=part.lastIndexOf(' ',size); if(n<=0)n=size; result.push(part.slice(0,n)); part=part.slice(n).trimStart(); }
+    result.push(part); return result;
+  });
+}
+function reset() {
+  agents=structuredClone(initialAgents); comments=structuredClone(initialComments); claims=true; frozen=false; selected=-1; panel=''; opened=null; scroll=0; tick=0; resolved=false; finished=false; system='Preflight passed; starting agent loops';
+  document.querySelector('#notice').textContent=''; render();
+}
+function actionButton(label,action,cls='') { return `<button class="inline ${cls}" data-action="${action}">${esc(label)}</button>`; }
+function render() {
+  document.querySelector('#motion').textContent=frozen?'Resume demo':'Freeze demo';
+  document.querySelector('#motion').setAttribute('aria-pressed',String(frozen));
+  document.querySelector('#resolve').disabled=resolved||finished;
+  document.querySelector('#clock').textContent=`14:${String(32+Math.floor(tick/60)%28).padStart(2,'0')}`;
+  if(finished) { renderSummary(); return; }
+  let h=`<div class="line">${color(' ABACUS','bold cyan')}${color('  6 agents  •  gpt-5.4  •  ','dim')}${actionButton(claims?'CLAIMS ON':'CLAIMS PAUSED','claims',claims?'green':'yellow')}</div>`;
+  h+=line(' ↑↓ select • Enter open','dim')+`<div class="line dim"> ${actionButton('Shift-Tab claims on/off','claims')} • ${actionButton('Ctrl-C stop all','finish')}</div>`+rule();
+  if(panel==='comment') {
+    const lines=wrap(opened.text,width-3); scroll=Math.max(0,Math.min(scroll,Math.max(0,lines.length-16)));
+    h+=line(` COMMENT — ${opened.id}`,'bold cyan')+line('   '+opened.title)+line(`   ${opened.author} • 2026-09-06 14:32:00Z`,'dim')+rule();
+    h+=lines.slice(scroll,scroll+16).map(s=>line('   '+s)).join('')+rule();
+    h+=`<div class="line dim"> ↑↓ scroll • PgUp/PgDn • ${actionButton('Esc close','close')}</div>`;
+    if(lines.length>16) h+=line(` Lines ${scroll+1}-${Math.min(scroll+16,lines.length)} of ${lines.length}`,'dim');
+  } else {
+    agents.forEach((a,i)=>{
+      h+=`<button class="row ${selected===i?'selected':''}" data-select="${i}" aria-label="Open actions for ${a.name}"><div class="line">${color(`${selected===i?'›':' '}${a.state==='WORKING'?'●':'○'} ${a.name.padEnd(8)}  ${a.state.padEnd(10)}`,stateColor(a.state))}${color(duration(a.seconds).padStart(7),'dim')} ${esc(cut(a.detail,86))}</div>`;
+      if(a.id) h+=`<div class="line">${color('             ↳ ','dim')}${esc(a.id+' — '+a.title)}</div>`;
+      const parts=[a.pane,a.retries?'retries '+a.retries:null,a.exit!==undefined?'last exit '+a.exit:null].filter(Boolean);
+      if(parts.length) h+=`<div class="line">${color('             ↳ ','dim')}${esc(parts.join(' • '))}</div>`;
+      h+='</button>';
+    });
+    if(panel==='agent'||panel==='clean') {
+      const a=agents[selected];
+      h+=line(` AGENT ACTIONS — ${a.name}`,'bold cyan')+line(`   ${a.state} • ${a.detail}`)+line(`   /Users/onelson/Development/atlas/worktrees/${selected}`,'dim');
+      if(panel==='clean') h+=line('   Permanently discard tracked and untracked workspace changes?','red')+`<div class="line">   ${actionButton('[Y] Clean workspace','clean-confirm')}   ${actionButton('[N/Esc] Cancel','cancel')}</div>`;
+      else ['[S] Stop agent|stop','[R] Restart agent|restart','[C] Clean workspace|clean','[Esc] Close|close'].forEach(s=>{const [label,action]=s.split('|');h+=`<div class="line">   ${actionButton(label,action)}</div>`;});
+    }
+    if(!resolved) h+=line(' ! USER ATTENTION (1)','bold red')+`<div class="line">${color('   ! ','red')}${esc('atlas-d3f — Define retention policy for audit events')}</div>`;
+    h+=rule()+line(' '+system,'dim');
+    h+=line(' ! agent-5: could not poll atlas-w9q (1/3): Beads command timed out','yellow');
+    h+=rule()+line(` LATEST COMMENTS (${comments.length})`,'bold');
+    comments.forEach((c,i)=>{
+      const index=agents.length+i;
+      const header=`${selected===index?'›':' '}• ${c.id.padEnd(18)} — ${cut(c.title,77).padEnd(77)} • ${c.author.padEnd(16)}`;
+      h+=`<button class="row ${selected===index?'selected':''}" data-select="${index}" aria-label="Read comment on ${c.id} by ${c.author}">${line(header,c.attention?'red':c.author==='onelson'?'cyan':'green')}`;
+      const lines=wrap(c.text.replace(/\s+/g,' '),width-5);
+      h+=line('   ↳ '+lines[0]); if(lines.length>1)h+=line('     '+cut(lines.slice(1).join(' '),width-5));
+      h+='</button>';
+    });
+  }
+  terminal.innerHTML=h;
+}
+function openSelection() {
+  if(selected<0)return;
+  if(selected<agents.length)panel='agent';
+  else {panel='comment';opened=structuredClone(comments[selected-agents.length]);scroll=0;}
+  render();
+}
+function act(action) {
+  if(finished)return;
+  const a=agents[selected];
+  if(action==='claims') {
+    claims=!claims; system=claims?'New ticket claims enabled':'New ticket claims paused; active tickets continue';
+    agents.forEach(a=>{if(['IDLE','PAUSED'].includes(a.state)){a.state=claims?'IDLE':'PAUSED';a.detail=claims?'No ready tickets; checking again soon':'New ticket claims paused';a.seconds=0;}});
+  } else if(action==='close')panel='';
+  else if(action==='cancel')panel='agent';
+  else if(action==='clean')panel='clean';
+  else if(action==='stop'&&a) {a.state='STOPPED';a.detail='Stopped by operator; press Enter and choose Restart to resume';a.pane=null;a.seconds=0;panel='';}
+  else if(action==='restart'&&a) {a.state=a.id?'WORKING':claims?'IDLE':'PAUSED';a.pane=a.id?'tmux pane %'+(selected+10):null;a.detail=a.id?`${a.id} • agent CLI in ${a.pane}`:claims?'No ready tickets; checking again soon':'New ticket claims paused';a.seconds=0;delete a.exit;panel='';}
+  else if(action==='clean-confirm'&&a) {
+    if(a.id)addComment({id:a.id,title:a.title,author:a.name,text:'REOPENED: Workspace cleaned at operator request. Ticket unassigned and ready to claim again.'});
+    Object.assign(a,{state:'STOPPED',id:null,title:null,pane:null,seconds:0,detail:'Workspace cleaned; press Enter and choose Restart to resume'});panel='';
+    document.querySelector('#notice').textContent='Simulated workspace cleanup complete. No files or tickets were changed.';
+  } else if(action==='finish') {finished=true;panel='';}
+  render();
+}
+function addComment(c) {comments.unshift(c);comments=comments.slice(0,6);if(selected>=agents.length)selected=-1;}
+function advance() {
+  if(frozen||finished)return;
+  tick++; agents.forEach(a=>a.seconds++);
+  const a2=agents[2],a3=agents[3],a5=agents[5];
+  if(tick===9&&a3.state==='PREPARING'){a3.state='WORKING';a3.seconds=0;a3.pane='tmux pane %9';a3.detail='atlas-r8c • agent CLI in tmux pane %9';}
+  if(tick===15&&a5.state==='RECOVERING'){a5.state='WORKING';a5.seconds=0;a5.detail='atlas-w9q • ticket status readable again; agent remains supervised';}
+  if(tick===20&&a2.state==='FINALIZING'){a2.state=claims?'IDLE':'PAUSED';a2.seconds=0;a2.id=null;a2.pane=null;a2.detail=claims?'No ready tickets; checking again soon':'New ticket claims paused';}
+  if(tick%24===0&&panel==='') {
+    const active=agents.filter(a=>a.state==='WORKING');
+    if(active.length) {const a=active[(tick/24-1)%active.length];addComment({id:a.id,title:a.title,author:a.name,text:['Implementation is in place. Reviewing edge cases and checking the existing regression coverage.','Focused checks passed. Reviewing the diff and preparing the completion notes.','Checking integration behavior against the latest main branch before acquiring the merge slot.'][Math.floor(tick/24-1)%3]});}
+  }
+  render();
+}
+function renderSummary() {
+  let h=line(`ABACUS RUN SUMMARY  •  ${duration(1102+tick)}  •  15 outcomes`)+line('Initial Beads Dolt commit  7mf0t5b2ak9su6v3p4d8n1r0cqhjeols')+rule();
+  agents.forEach((a,i)=>{h+=line(`${a.name.padEnd(16)} closed ${[3,2,4,1,0,0][i]}  reopened ${i===5?1:0}  blocked ${i===4?1:0}  interrupted ${[0,1,3].includes(i)?1:0}`);});
+  h+=rule()+line(' Demo summary fixture. Select Reset demo to return to the live dashboard.','dim');
+  terminal.innerHTML=h;
+}
+terminal.addEventListener('click',e=>{
+  const action=e.target.closest('[data-action]');const row=e.target.closest('[data-select]');
+  if(action)act(action.dataset.action);else if(row){selected=Number(row.dataset.select);openSelection();}
+  terminal.focus({preventScroll:true});
+});
+terminal.addEventListener('keydown',e=>{
+  if(e.key==='Tab'&&e.shiftKey){e.preventDefault();act('claims');return;}
+  if(e.ctrlKey&&e.key.toLowerCase()==='c'){e.preventDefault();act('finish');return;}
+  if(finished)return;
+  if(panel==='comment'&&['ArrowUp','ArrowDown','PageUp','PageDown'].includes(e.key)){e.preventDefault();scroll+=(e.key==='ArrowUp'?-1:e.key==='ArrowDown'?1:e.key==='PageUp'?-16:16);render();return;}
+  if(e.key==='Escape'){e.preventDefault();act(panel==='clean'?'cancel':'close');return;}
+  if(panel==='clean'){if(['y','n'].includes(e.key.toLowerCase())){e.preventDefault();act(e.key.toLowerCase()==='y'?'clean-confirm':'cancel');}return;}
+  if(panel==='agent'){const action={s:'stop',r:'restart',c:'clean'}[e.key.toLowerCase()];if(action){e.preventDefault();act(action);}return;}
+  if(panel==='') {
+    if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();selected=Math.max(0,Math.min(agents.length+comments.length-1,selected+(e.key==='ArrowUp'?-1:1)));render();terminal.querySelector(`[data-select="${selected}"]`)?.scrollIntoView({block:'nearest'});}
+    else if(e.key==='Enter'){e.preventDefault();openSelection();}
+  }
+});
+document.querySelector('#motion').onclick=()=>{frozen=!frozen;render();};
+document.querySelector('#reset').onclick=reset;
+document.querySelector('#resolve').onclick=()=>{
+  resolved=true;comments.forEach(c=>c.attention=false);addComment({id:'atlas-d3f',title:'Define retention policy for audit events',author:'onelson',text:'Keep audit events for 90 days, including administrative events. Approved the proposed daily cleanup. Reopening for implementation.'});
+  system='User-attention snapshot refreshed';
+  document.querySelector('#notice').textContent='Simulated: abacus --resolve atlas-d3f "Keep audit events for 90 days, including administrative events." --reopen';render();
+};
+reset();setInterval(advance,1000);
+</script>
+</body>
+</html>

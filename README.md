@@ -1,5 +1,7 @@
 # Abacus
 
+![Abacus terminal dashboard showing six agents, a user attention request, and latest comments](docs/images/abacus-terminal.png)
+
 > **Ticket targets:** Configure the target allowlist and default destination.
 > Missing ticket metadata is allowed unless `enforceTargetBranch` is enabled. See [target setup, audit, and recovery](docs/targets.md).
 
