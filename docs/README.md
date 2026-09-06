@@ -28,8 +28,10 @@ complete rather than reading every page in order.
 
 ## Bundled agent skills
 
-Abacus can install four optional skills into another repository with
-`abacus --install-skills`:
+Abacus installs four bundled skills with `abacus --init` (existing Git/Beads
+setup plus missing targets config) or `abacus --install-skills` (skills only).
+Run inside the main checkout or pass `--repo <main-checkout>`; installation
+never targets a linked worktree:
 
 - [Beads Planner](../skills/abacus-beads-planner/SKILL.md) — design a reviewed issue graph
 - [Beads Doctor](../skills/abacus-beads-doctor/SKILL.md) — audit and repair issue quality

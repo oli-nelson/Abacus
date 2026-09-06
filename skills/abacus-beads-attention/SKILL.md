@@ -9,7 +9,9 @@ Tell the user what Abacus agents need from them without making them read every t
 
 ## Find Attention Issues
 
-1. Run `bd prime`. If it returns no context, run `bd where` and stop if the current repository has no Beads workspace.
+1. Establish the intended main Git checkout. Run repository-scoped `bd` commands
+   there; Abacus commands may instead use `--repo <main-checkout>` from elsewhere.
+   `--repo` is an Abacus option, not a Beads option. Run `bd prime`. If it returns no context, run `bd where` and stop if the current repository has no Beads workspace.
 2. Query exactly the label Abacus uses, including closed issues:
 
    ```sh

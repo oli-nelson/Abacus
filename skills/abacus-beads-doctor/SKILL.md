@@ -9,7 +9,9 @@ Find content and graph problems that make Beads work ambiguous, unsafe, blocked 
 
 ## Scope and Evidence
 
-1. Run `bd prime`. If it returns no context, run `bd where` and stop if the current repository has no Beads workspace.
+1. Establish the intended main Git checkout. Run repository-scoped `bd` commands
+   there; Abacus commands may instead use `--repo <main-checkout>` from elsewhere.
+   `--repo` is an Abacus option, not a Beads option. Run `bd prime`. If it returns no context, run `bd where` and stop if the current repository has no Beads workspace.
 2. Establish the requested scope: named issues, an epic and its descendants, active issues, or the whole database. Default to active work rather than auditing closed history.
 3. Read repository instructions and relevant product, architecture, and planning documents.
 4. Inspect `bd version` and command help when needed. Collect structured data with `bd list --json`, `bd show <id> --json`, `bd dep list <id> --json`, and `bd config show --json`.

@@ -44,7 +44,8 @@ Waiting → Claimed → Preparing → Running → Finalizing → Waiting
 ```
 
 The loops share no scheduler or internal queue. Each one asks Beads for ready
-work and uses `bd update <id> --claim` for atomic ownership. The complete visual
+work and uses `bd update <id> --claim` for atomic ownership. Target-validation failures quarantine the claim before any harness starts;
+ordinary recoverable failures use the reopen path. The visual
 walkthrough is in [The Abacus agent loop](agent-loop-flow.html).
 
 ## Concurrency model
@@ -54,7 +55,7 @@ Parallel safety comes from two independent forms of isolation:
 1. **Task isolation.** Atomic Beads claims prevent intentional duplicate
    assignment.
 2. **Filesystem isolation.** Every agent receives a unique Git worktree or
-   clone.
+   clone. OS-held workspace locks also exclude competing Abacus runs.
 
 Multiple agents must connect to the same server-backed Dolt database. Abacus
 normalizes and compares host, port, and database identity in every workspace.
@@ -90,7 +91,7 @@ The observed commands and their success/failure behavior are recorded in
 ## Agent prompt and authority
 
 Abacus renders one built-in prompt with the agent name, issue ID, and canonical
-workspace. It:
+workspace, and resolved bound destination. It:
 
 - says the issue is already claimed;
 - grants local Git staging, commit, and merge authority;
@@ -99,9 +100,11 @@ workspace. It:
 - defines the user-attention label protocol; and
 - makes the agent responsible for choosing `closed`, `open`, or `blocked`.
 
-When `merge-instructions.md` exists beside the controller target configuration, its trimmed
-contents replace the complete default merge section; an empty file suppresses
-the section. Other repository-specific instructions may be appended from the
+Target-specific `mergeInstructions` files take precedence. Otherwise,
+`<main-repo>/.abacus/merge-instructions.md` is the optional fallback, and the
+built-in merge process applies when neither is present. Selected file contents
+replace the complete default merge section; an empty file suppresses it.
+Policies are snapshotted once at startup, not reread from agent checkouts. Other repository-specific instructions may be appended from the
 CLI and `.abacus/append-prompt.md`. More restrictive user or repository
 instructions still win.
 
@@ -128,7 +131,8 @@ During normal orchestration, Abacus does **not**:
 - create or start a tmux session or window;
 - start, stop, or directly query an OpenCode server;
 - merge agent branches or decide whether their work is correct;
-- choose a terminal ticket status for an agent;
+- decide successful delivery for an agent (it does block invalid target claims
+  and reopen unfinished claims during recovery);
 - push Git commits;
 - integrate with Git, tmux, Beads, Dolt, OpenCode, Codex, or Claude APIs and
   protocols beyond invoking supported CLI commands;

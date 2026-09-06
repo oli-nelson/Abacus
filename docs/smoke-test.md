@@ -15,6 +15,12 @@ The command contracts had already been captured with the minimum supported
 versions. All repositories, Dolt databases and remotes, servers, and tmux
 sessions used in this smoke test were disposable under `/tmp`.
 
+> **Historical evidence:** This exercise predates target routing, execution
+> bindings, `--init`, and `--repo`. It does not verify those later features.
+> For a current rerun, initialize/review targets, audit tickets, and pass the
+> main checkout explicitly when launching outside it. The observations below
+> are preserved as recorded rather than rewritten to imply a newer smoke test.
+
 ## Local single-agent path
 
 - Initialized a Git repository and embedded Beads project with one ticket.

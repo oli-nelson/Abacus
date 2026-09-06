@@ -15,6 +15,13 @@ The commands here target Beads 1.2.2, Abacus's minimum supported version. Check
 the upstream [Beads Dolt guide](https://github.com/gastownhall/beads/blob/main/docs/architecture/dolt.md)
 and your installed command help before performing destructive maintenance.
 
+Repository-scoped Abacus commands below assume the selected main Git checkout.
+From elsewhere, including an agent worktree, pass `--repo <main-checkout>`.
+After Beads is initialized and readable, run `abacus --init` to install skills
+and create missing targets config, then review the allowlist and audit tickets.
+A healthy Dolt connection alone is not sufficient for Abacus readiness: target
+configuration, local refs, skills, and supported tools must also pass.
+
 ## Understand the topology
 
 There are three separate concepts:

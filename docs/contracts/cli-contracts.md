@@ -21,7 +21,9 @@ disposable repository's values.
 
 ## Beads 1.2.2
 
-All commands run with the agent workspace as the working directory. Agent-owned commands receive `BEADS_ACTOR=<agent-name>` in their child environment.
+Runtime agent commands run in the assigned workspace; repository-scoped
+standalone commands run at the selected main checkout. Agent-owned commands
+receive `BEADS_ACTOR=<agent-name>` in their child environment.
 
 | Operation | Invocation | Successful stdout | Exit behavior |
 | --- | --- | --- | --- |
@@ -41,9 +43,10 @@ All commands run with the agent workspace as the working directory. Agent-owned 
 | Pull | `bd dolt pull --json` | Human-readable progress (despite `--json`). | With no remote this version exits 1 (`no remote`). Unreachable/invalid remotes also exit 1. Abacus invokes pull only after a successful remote-list result says a remote exists. |
 | Push | `bd dolt push --json` | Human-readable progress (despite `--json`). | With no remote this version prints a skip message and exits 0. Unreachable remotes exit 1. |
 
-Captured issue statuses are `in_progress`, `open`, `blocked`, and `closed`. Schema additions are expected; production parsing must use `JsonDocument` and extract only the fields above.
+Captured issue statuses are `in_progress`, `open`, `blocked`, and `closed`. Schema additions are expected; production parsing must use `JsonDocument` and extract the fields above and the target metadata described below.
 
-Representative failure transcripts and exit codes are in `command-outcomes.json`. They establish that “no ready issue” is a successful empty array, while Beads failures are nonzero results.
+Representative failure transcripts and exit codes are in
+[`command-outcomes.json`](../../tests/Abacus.Tests/Fixtures/Beads/command-outcomes.json). They establish that “no ready issue” is a successful empty array, while Beads failures are nonzero results.
 
 ## OpenCode 1.18.20
 

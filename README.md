@@ -99,6 +99,7 @@ bd create "Add the first feature" \
   --description "Describe the work and relevant context." \
   --acceptance "State the observable definition of done." \
   --json
+# Optional explicit target (required only under enforcement or for a non-default destination):
 # Replace <returned-id> with the ID from bd create:
 abacus --set-ticket-target main <returned-id>
 abacus --check-ticket-targets <returned-id>
@@ -161,7 +162,10 @@ Explore the [visual agent-loop guide](docs/agent-loop-flow.html), or read the
 | Command | Purpose |
 | --- | --- |
 | `abacus --init-new-multi-agent-repo <name> <count>` | Create a complete new multi-agent project layout. |
-| `abacus --install-skills` | Install the four bundled agent skills into the current repository. |
+| `abacus --init` | Install skills and create missing target config in an existing Git/Beads project. |
+| `abacus --install-skills` | Install only the four bundled skills into the selected main checkout. |
+| `abacus --check-ticket-targets [<id> ...]` | Audit resolved ticket targets, bindings, and branch history. |
+| `abacus --set-ticket-target <branch> <id> ...` | Set or repair inactive ticket target metadata. |
 | `abacus --health` | Report whether the current repository is ready. |
 | `abacus --models` | List model IDs discoverable from installed harnesses. |
 | `abacus --list-user-attention` | Print issue IDs that need a decision or outside action. |

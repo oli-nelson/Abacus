@@ -72,7 +72,7 @@ is not proof of agent readiness. Review and commit the installed files.
 abacus --install-skills
 ```
 
-Installs the four bundled skills under `.agents/skills` at the current Git root.
+Installs the four bundled skills under `.agents/skills` at the selected main Git root.
 Existing bundled directories require confirmation before complete replacement;
 declining leaves every skill unchanged. Unrelated skills are preserved.
 
@@ -88,7 +88,8 @@ abacus --health
 
 Reports:
 
-- Git and Beads versions and repository discovery;
+- Git and Beads versions and main-checkout discovery;
+- target registry, instruction files, local target refs, and enforcement/default policy;
 - Beads storage mode, reachability, `no-git-ops`, and merge-slot state;
 - supported agent harness and tmux versions;
 - referenced Git worktrees;
@@ -96,8 +97,25 @@ Reports:
 - available modes plus single- and multi-agent readiness.
 
 It exits zero when at least one single-agent mode is runnable,
-`no-git-ops=false`, and all bundled skills are installed. A missing merge slot
+`no-git-ops=false`, all bundled skills are installed, and main-repository and
+target configuration checks pass. It does not audit individual tickets; use
+`--check-ticket-targets` for that. A missing merge slot
 is advisory. The check is read-only and does not contact an OpenCode server.
+
+### Audit and repair ticket targets
+
+```sh
+abacus --check-ticket-targets [<id> ...] [--repo <main-checkout>]
+abacus --set-ticket-target <branch> <id> [<id> ...] [--repo <main-checkout>]
+```
+
+The read-only audit includes closed history when no IDs are supplied and exempts
+internal `gt:slot` records. It validates resolved targets, bindings, and existing
+branch history. Missing metadata is valid when enforcement is off. The setter
+requires inactive tickets and preserves status, attention, and unrelated metadata.
+Pause dispatch/active work before edits; neither command automatically pushes Beads.
+Reviewed legacy adoption requires one unbound ticket, `--adopt-existing-branch`,
+and `--start-commit <full-commit-id>`. See [target operations](targets.md).
 
 ### List available models
 
@@ -211,6 +229,7 @@ OpenCode Server mode may omit tmux for direct child-process hosting. Supplying
 | `--label <label>` | Requires a label; repeat to require all supplied labels. |
 | `--exclude-label <label>` | Excludes a label; repeat to reject any supplied label. |
 | `--type <types>` | Passes one literal Beads type filter, including comma-separated values. |
+| `--target-branch <branch>` | Restricts the pool to resolved destinations; repeat to allow several. Never supplies ticket metadata. |
 | `--priority <0-4>` | Limits dispatch to one Beads priority (`0` is highest). |
 | `--ticket-timeout <duration>` | Stops a run after a positive `s`, `m`, or `h` duration and safely recovers it. |
 
@@ -218,7 +237,9 @@ Filters apply to both fresh unassigned claims and matching ready work already
 assigned to the same agent. Abacus always excludes `gt:slot` so merge
 coordination beads are not dispatched as coding work.
 
-Beads priority stays primary. Among the highest-priority candidates, the issue
+Resolved-target eligibility is applied before priority and newest-comment
+selection; invalid metadata candidates remain eligible for a validation claim.
+Among eligible candidates, Beads priority stays primary. Among the highest-priority candidates, the issue
 with the newest comment wins; if none has comments, Abacus preserves Beads'
 first result. A candidate with an unclosed direct child is skipped. Claims remain
 atomic, and Abacus refreshes selection after a lost race.
@@ -234,7 +255,8 @@ The final prompt is the built-in Abacus prompt, the command-line addition, then
 the repository file, separated by blank lines. Empty repository files are
 ignored; an empty command-line value is rejected.
 
-Use the dedicated repository file to replace the built-in merge instructions:
+From the selected main checkout, use the fallback policy file to replace the
+built-in merge instructions for targets without their own `mergeInstructions`:
 
 ```sh
 mkdir -p .abacus
@@ -244,8 +266,10 @@ only after the queue reports success.
 MERGE
 ```
 
-When `merge-instructions.md` exists beside the controller target configuration, its trimmed contents
-replace the complete built-in merge section for agents using that workspace.
+A target-specific `mergeInstructions` file takes precedence; otherwise this
+controller-owned fallback replaces the built-in merge section. All paths are
+relative to `<main-repo>/.abacus`, and policies are loaded once at startup—not
+from agents' changing workspaces.
 The default merge instructions are not included elsewhere in the prompt. An
 empty file intentionally suppresses the default section without replacing it.
 

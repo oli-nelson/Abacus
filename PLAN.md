@@ -66,24 +66,30 @@ These files are boundaries for readability, not layers or generic interfaces. Co
 
 ## End-to-end state machine
 
-Each agent loop has only these states:
+The core claim/run cycle is summarized below; dashboard and recovery states
+include pausing, synchronization, retries, and persistent halts:
 
 ```text
 Waiting -> Claimed -> PreparingWorkspace -> RunningAgent -> Finalizing -> Waiting
-                                      \-> ReopenOnFailure -------^
+                                      \-> Recover or Quarantine
 ```
 
-Before starting any loop, pull once when a single configured agent has a Dolt
-remote, then record the current commit with read-only `bd vc status`. For a
+Before starting any loop, acquire exclusive OS-backed ownership of each
+workspace's Git administrative directory. Pull once when a single configured
+agent has a Dolt remote, then record the current commit with read-only `bd vc status`. For a
 multi-agent shared server, record its live commit without pulling. A failure
 aborts before any ticket is claimed. Keep the full commit in memory for the
-final summary; do not create a checkpoint commit or persistent Abacus state.
+final summary; do not create a checkpoint commit. Ticket execution bindings are
+persisted separately in Beads before branch preparation.
 
 1. Inspect the workspace before looking for work. A dirty `abacus/<issue-id>` branch resumes that exact open issue without changing its files. Any dirty workspace that cannot be tied safely to a resumable issue stops that agent and remains untouched. A shared one-shot startup barrier holds every clean agent before ready lookup until all configured workspaces complete this recovery pass.
 2. In single-agent mode, pull Beads before looking for work when a Dolt remote exists.
-3. List matching work with `bd ready --unassigned --exclude-label gt:slot --limit 0 --json`, preserve Beads priority, use the newest comment to break a highest-priority tie, skip each selected candidate when `bd show <id> --children --json` reports any unclosed direct child, and atomically claim the eligible issue with `bd update <id> --claim --json`, all with `BEADS_ACTOR=<agent name>`.
-4. If no issue is ready, sleep for a small fixed interval and try again.
-5. Switch to existing branch `abacus/<issue_id>`, or create it if absent.
+3. List matching work with `bd ready --unassigned --exclude-label gt:slot --limit 0 --json`, apply resolved-target eligibility, preserve Beads priority among eligible candidates, use the newest comment to break a highest-priority tie, skip each selected candidate when `bd show <id> --children --json` reports any unclosed direct child, and atomically claim the eligible issue with `bd update <id> --claim --json`, all with `BEADS_ACTOR=<agent name>`.
+4. If no issue is ready, continuous mode sleeps and tries again; once/drain complete.
+5. Revalidate ticket ownership and target, persist/read back the execution binding,
+   and synchronize Beads when configured before branch preparation. Switch to a
+   matching bound `abacus/<issue_id>` or create it from the recorded target commit.
+   Refuse unbound existing branches until explicitly adopted.
 6. Verify that a normal newly selected workspace is clean before the agent CLI starts. Preserve existing changes when resuming an interrupted issue workspace.
 7. Render the target-aware SPEC.md prompt, replacing its default merge section with controller-snapshotted target instructions when present, and launch the selected mode. OpenCode, Codex, and Claude use a new interactive pane in the requested tmux target. OpenCode Server uses `opencode run` and is directly supervised unless tmux was explicitly supplied.
 8. Poll `bd show <issue_id> --json` while also watching the hosted agent run for exit.
@@ -91,14 +97,19 @@ final summary; do not create a checkpoint commit or persistent Abacus state.
 10. When the agent CLI exits while the ticket is still `in_progress`, warn, reopen the issue with a useful note, and clean up its hosted run.
 11. After every agent exit, run `bd dolt push` when a remote is configured, then return to waiting.
 
-Any failure after a successful claim but before the agent changes ticket state must attempt to return the issue to `open` with an appended reason. This prevents an orchestration error from stranding work in `in_progress`.
+Ordinary preparation failures and cancellation attempt to reopen the still-owned
+claim with a reason. Target-validation failures instead block the owned ticket,
+clear its assignee, add user attention, and verify the reason and synchronization.
+Do not overwrite ownership or terminal-state races. Failed recovery halts the loop.
+A validation claim consumes the one-claim budget in `--once` mode.
 
-## Required target routing and bindings
+## Target routing and execution bindings
 
 Implement the normative [ticket target contract](SPEC.md#ticket-targets) and
 [target operations](docs/targets.md). Keep it shell-first: a small versioned JSON
 allowlist, minimal Beads metadata, and Git CLI checks—not a scheduler or release
-manager. There is no target default. Target eligibility precedes priority
+manager. Missing target metadata uses `defaultTarget` when enforcement is off;
+strict enforcement requires explicit metadata. Target eligibility precedes priority
 selection; invalid candidates are atomically claimed only to record an explicit
 blocked/attention outcome. Persist and verify bindings before branch preparation.
 OS-held workspace locks exclude competing runs. Never bypass another worktree's
@@ -145,7 +156,8 @@ Before building the loop, capture the exact behavior of the locally supported co
 - Bundle the `abacus-beads-planner`, `abacus-beads-doctor`, and
   `abacus-beads-attention` skills, plus the `abacus-git-check` agent-instruction
   audit, as executable resources. A standalone
-  `abacus --install-skills` resolves the current Git root with the Git CLI and installs all
+  `abacus --install-skills [--repo <path>]` resolves the selected main Git checkout
+  with the Git CLI and installs all
   four skills under `.agents/skills` without entering agent preflight or
   requiring normal run options. Stage the bundled contents before installation;
   if any bundled skill already exists, require one user confirmation before
@@ -154,19 +166,24 @@ Before building the loop, capture the exact behavior of the locally supported co
 - Implement the exact CLI from the spec:
 
   ```text
-  abacus --install-skills
-  abacus --health
+  abacus --init-new-multi-agent-repo <project-name> <agent-count>
+  abacus --init [--repo <main-checkout>]
+  abacus --install-skills [--repo <main-checkout>]
+  abacus --check-ticket-targets [<id> ...] [--repo <main-checkout>]
+  abacus --set-ticket-target <branch> <id> [<id> ...] [--repo <main-checkout>]
+  abacus --health [--repo <main-checkout>]
   abacus --models
-  abacus --prune-closed-branches
-  abacus --list-user-attention
-  abacus --resolve <issue-id> [<message>] [--reopen]
-  abacus -r <issue-id> [<message>] [--reopen]
+  abacus --prune-closed-branches [--repo <main-checkout>]
+  abacus --list-user-attention [--repo <main-checkout>]
+  abacus --resolve <issue-id> [<message>] [--reopen] [--repo <main-checkout>]
+  abacus -r <issue-id> [<message>] [--reopen] [--repo <main-checkout>]
 
   abacus [--mode <opencode|codex|claude|opencode-server>] \
     [--tmux-session <name> [--tmux-window <name-or-index>] [--tmux-layout <layout>]] \
     --model <model> \
     [--effort <effort>] \
     [--remote] \
+    [--repo <main-checkout>] [--target-branch <branch>] \
     [--label <label>] [--exclude-label <label>] \
     [--type <types>] [--priority <priority>] \
     [--ticket-timeout <duration>] \
@@ -246,7 +263,8 @@ All checks happen before any ticket is claimed or agent run is created.
 - For every agent workspace:
   - resolve the canonical absolute path and ensure it exists;
   - verify it is a Git worktree using `git -C <path> rev-parse`;
-  - verify `git status --porcelain` is empty;
+  - allow dirty workspaces at preflight; runtime inspection either safely resumes
+    an interrupted bound issue or preserves the workspace and halts;
   - verify Beads can find and query its project from that directory;
   - reject enabled Beads `no-git-ops` with a clear correction command before any
     ticket is claimed or agent CLI is started;
@@ -275,7 +293,7 @@ All checks happen before any ticket is claimed or agent run is created.
   BEADS_ACTOR=<agent_name> bd update <selected-id> --claim --json
   ```
 
-- Append configured `--label`, `--exclude-label`, `--type`, and `--priority` values literally to both the unassigned ready lookup and the same-agent assigned-ready fallback. Keep the built-in `gt:slot` exclusion. Respect the priority ordering returned by Beads, then use the newest comment only to break a tie within the highest-priority group. If none of the tied issues has comments, select the first result. Before claiming, inspect that candidate's direct children and skip it when any child status is not `closed`; failed or malformed child data must not permit a claim. Claim an eligible selected ID atomically and refresh selection after a lost claim race or Dolt serialization conflict.
+- Append configured `--label`, `--exclude-label`, `--type`, and `--priority` values literally to both the unassigned ready lookup and the same-agent assigned-ready fallback. Keep the built-in `gt:slot` exclusion. Apply resolved-target eligibility before priority/comment selection. Respect the priority ordering returned by Beads, then use the newest comment only to break a tie within the highest-priority group. If none of the tied issues has comments, select the first result. Before claiming, inspect that candidate's direct children and skip it when any child status is not `closed`; failed or malformed child data must not permit a claim. Claim an eligible selected ID atomically and refresh selection after a lost claim race or Dolt serialization conflict.
 
 - In single-agent mode only, run `bd dolt pull` immediately before each claim attempt when a remote exists. A pull failure should log and delay the next attempt rather than claim against stale data.
 - Check workspace cleanliness before every claim. If a workspace is dirty, require its current branch to be a valid `abacus/<issue-id>` branch, read that exact issue, and atomically claim it when it is open and unassigned or already assigned to the configured agent. Resume it without switching branches or changing tracked or untracked files. This recovery takes precedence over normal dispatch and ignores dispatch filters.
@@ -288,13 +306,17 @@ All checks happen before any ticket is claimed or agent run is created.
   - otherwise create `abacus/<issue_id>` from the durably recorded target starting commit;
   - verify the resulting branch name and cleanliness.
 - Sanitize/validate issue IDs before using them in a branch name. Never interpolate an issue ID into a shell command.
-- If branch preparation fails, reopen and unassign the claimed issue with `bd update <id> --status open --assignee "" --append-notes <reason> --json`, push if configured, and return to waiting.
+- On ordinary branch-preparation failure, safely reopen/unassign the owned claim,
+  verify recovery, and push when configured. Target/binding validation failures
+  instead block with attention and a precise reason; preserve dirty files and
+  halt unsafe recovery. Finite modes do not retry orchestration errors forever.
 
 ### Exit criteria
 
 - Parallel fake-agent tests prove each atomic claim is handled by only one loop.
 - A ready parent with an unclosed direct child is skipped without any claim attempt, while parents with no children or only closed children remain eligible.
-- Existing and new issue branches both work.
+- New branches start at the bound target commit. Existing branches require a
+  matching execution binding and history; unbound legacy branches require adoption.
 - Resumable dirty issue workspaces start the agent without losing changes. Ambiguous or unsafe dirty workspaces remain unchanged, never start an agent CLI, and raise a persistent alert.
 
 ## Phase 5 - Agent processes, panes, and prompt delivery
@@ -383,10 +405,12 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Manual smoke test
 
-1. Create a disposable Git repository and Beads project with one small ticket.
+1. Create a disposable Git repository and Beads project, run `abacus --init`,
+   review `.abacus/targets.json`, create a small ticket, and audit its target.
 2. Start a named tmux session and run one agent in each of the OpenCode, Codex, and Claude modes.
 3. Verify claim, branch creation, selected model, prompt, completion-state detection, pane cleanup, and push behavior.
-4. Repeat without tmux using two distinct worktrees sharing one Dolt database and an existing OpenCode server.
+4. Repeat without tmux using two distinct worktrees sharing one Dolt database
+   and an existing OpenCode server; pass `--repo <main-checkout>` explicitly.
 5. Kill each selected agent CLI mid-ticket and verify the warning, reopen, push, and retry path.
 
 ### Exit criteria
@@ -397,12 +421,12 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ## Definition of done
 
-- `abacus --install-skills` installs all four bundled skills at the current Git repository
-  root without starting preflight or agent loops, and requires confirmation before
+- `abacus --install-skills [--repo <path>]` installs all four bundled skills at
+  the selected main Git checkout without starting preflight or agent loops, and requires confirmation before
   it replaces existing bundled skill directories.
 - `abacus --health` reports project readiness without mutating it and fails when
   `no-git-ops` is enabled, no single-agent mode is runnable, or a bundled skill
-  is missing.
+  is missing, or main-repository/target configuration validation fails.
 - `abacus --models` reports discoverable model IDs by harness without requiring
   Beads, Git, tmux, a model, or an agent configuration.
 - `abacus --prune-closed-branches` removes local Abacus issue branches for

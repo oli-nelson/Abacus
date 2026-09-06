@@ -91,10 +91,12 @@ The initializer:
 2. Initializes a uniquely named shared-server Beads database non-interactively
    with the maintainer role.
 3. Sets `no-git-ops=false`, marks Dolt local-only, and creates a merge slot.
-4. Installs the four bundled Abacus skills.
+4. Installs the four bundled Abacus skills and writes `.abacus/targets.json`
+   with `enforceTargetBranch: false`, `defaultTarget: "main"`, and `main` allowed.
 5. Commits the initial repository state.
 6. Adds the requested detached worktrees.
-7. Writes executable launchers that discover `worktrees/*` at runtime.
+7. Writes executable launchers that discover `worktrees/*` at runtime and
+   explicitly pass `--repo "$root/repo"`.
 
 It does **not** create a tmux session. Create ready work and start one yourself:
 

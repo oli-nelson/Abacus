@@ -9,7 +9,9 @@ Create a durable Beads graph that another agent can execute without having to re
 
 ## Establish Context
 
-1. Run `bd prime`. If it returns no context, run `bd where` and stop if the current repository has no Beads workspace.
+1. Establish the intended main Git checkout. Run repository-scoped `bd` commands
+   there; Abacus commands may instead use `--repo <main-checkout>` from elsewhere.
+   `--repo` is an Abacus option, not a Beads option. Run `bd prime`. If it returns no context, run `bd where` and stop if the current repository has no Beads workspace.
 2. Read repository guidance and the product, architecture, and planning documents relevant to the concept.
 3. Inspect related open and recently closed issues with `bd list --json` and `bd show <id> --json`. Reuse or link existing work rather than creating duplicates.
 4. Inspect `bd version` and the help for any command whose contract is uncertain. Use the installed CLI rather than assuming a particular Beads release.

@@ -317,7 +317,7 @@
 
         <text class="section-kicker" x="58" y="74">01 · ACQUIRE</text>
         <text class="section-title" x="58" y="112">Claim work without stranding it</text>
-        <text class="section-copy" x="58" y="141">Workspace hygiene happens before every claim; preparation failures are recovered immediately.</text>
+        <text class="section-copy" x="58" y="141">Inspect workspaces before claims; validate and bind targets before branch preparation.</text>
 
         <text class="section-kicker" x="58" y="1218">02 · EXECUTE</text>
         <text class="section-title" x="58" y="1256">Run the coding agent under supervision</text>
@@ -457,7 +457,7 @@
           <rect class="body" x="520" y="994" width="440" height="90" rx="12"/>
           <text class="node-kicker" x="544" y="1020">PREPARING</text>
           <text class="node-title" x="544" y="1046">Select <tspan class="node-code">abacus/&lt;issue-id&gt;</tspan></text>
-          <text class="node-copy" x="544" y="1070">Normal: switch/create + verify clean · resume: preserve current tree</text>
+          <text class="node-copy" x="544" y="1070">Validate + bind target; create at recorded commit or safely resume</text>
         </g>
 
         <g class="node recovery flow-item" data-path="happy idle crash shutdown">
@@ -476,9 +476,9 @@
 
         <g class="node recovery flow-item" data-path="happy crash shutdown">
           <rect class="body" x="1082" y="990" width="324" height="98" rx="11"/>
-          <text class="node-kicker" x="1104" y="1016">PREP FAILURE / CANCEL</text>
-          <text class="node-copy" x="1104" y="1041">Reopen + unassign ticket, verify,</text>
-          <text class="node-copy" x="1104" y="1062">then push remote if configured</text>
+          <text class="node-kicker" x="1104" y="1016">TARGET / PREP FAILURE</text>
+          <text class="node-copy" x="1104" y="1041">Invalid target → block + attention;</text>
+          <text class="node-copy" x="1104" y="1062">other errors → reopen; verify + push</text>
           <text class="node-copy" x="1104" y="1081">Recovery failure → persistent halt</text>
         </g>
 
@@ -707,9 +707,9 @@
         <g class="node stop flow-item" data-path="happy crash shutdown">
           <rect class="body" x="1090" y="2445" width="316" height="112" rx="11"/>
           <text class="node-kicker" x="1112" y="2471">PERSISTENT HALT</text>
-          <text class="node-copy" x="1112" y="2496">Cleanup, recovery, or every push</text>
+          <text class="node-copy" x="1112" y="2496">Ticket recovery or every Beads push</text>
           <text class="node-copy" x="1112" y="2517">attempt failed. Raise persistent alert.</text>
-          <text class="node-copy" x="1112" y="2542">Continuous parks until cancellation;</text>
+          <text class="node-copy" x="1112" y="2542">Continuous parks for operator recovery;</text>
           <text class="node-copy" x="1112" y="2560">finite execution fails immediately.</text>
         </g>
 
@@ -745,7 +745,7 @@
     <section class="notes-grid" aria-label="Supporting notes">
       <article class="card">
         <h2>Two state machines overlap</h2>
-        <p>The green labels are <code>AgentActivity</code> values shown by the dashboard. The coding agent separately controls the Beads ticket status. Abacus keeps the host alive while the ticket is <code>in_progress</code>; <code>closed</code>, <code>open</code>, or <code>blocked</code> are all valid terminal signals that end the session.</p>
+        <p>The green labels are <code>AgentActivity</code> values shown by the dashboard. During a hosted run, the coding agent chooses the Beads outcome. Before launch, Abacus can quarantine invalid target claims as blocked. Abacus keeps the host alive while the ticket is <code>in_progress</code>; <code>closed</code>, <code>open</code>, or <code>blocked</code> are all valid terminal signals that end the session.</p>
         <p>An agent process exiting is never treated as completion by itself. Abacus reads the ticket again to resolve the exit/status race, then reopens and unassigns it if it is still <code>in_progress</code>.</p>
       </article>
 
@@ -753,9 +753,10 @@
         <h2>Dashboard state vocabulary</h2>
         <dl class="state-table">
           <dt>STARTING</dt><dd>Application initialized; loop not yet claiming.</dd>
+          <dt>PAUSED</dt><dd>New claims are disabled; active work may continue.</dd>
           <dt>WAITING / IDLE</dt><dd>Checking for work / confirmed empty queue.</dd>
           <dt>SYNCING</dt><dd>Pre-claim Beads pull.</dd>
-          <dt>PREPARING</dt><dd>Claim held; issue branch is being selected.</dd>
+          <dt>PREPARING</dt><dd>Claim held; target binding and branch preparation are being validated.</dd>
           <dt>WORKING</dt><dd>Agent host is live and supervised.</dd>
           <dt>FINALIZING</dt><dd>Terminal ticket observed; run is ending.</dd>
           <dt>RECOVERING / RETRYING</dt><dd>Repairing a claim / delaying another attempt.</dd>
@@ -764,13 +765,20 @@
       </article>
 
       <article class="card">
+        <h2>Controller and target binding</h2>
+        <p>Before this chart, select the main checkout with <code>--repo</code>, or run inside it. A linked worktree cannot be the controller; agent workspaces may be worktrees. Load <code>&lt;repo&gt;/.abacus/targets.json</code> once and acquire exclusive per-workspace ownership before runtime claims.</p>
+        <p>Absent ticket targets use <code>defaultTarget</code> when <code>enforceTargetBranch</code> is false (the default). Explicit invalid targets and conflicting bindings fail in either mode. Target eligibility precedes priority/comment selection.</p>
+        <p>Persist and read back the execution binding, synchronizing Beads when configured, before creating a branch from its recorded target commit. Existing unbound branches require explicit adoption; never infer a binding or reset history. See <a href="targets.md">target routing and recovery</a>.</p>
+      </article>
+
+      <article class="card">
         <h2>Safety invariants</h2>
         <ul>
-          <li>Dirty issue workspaces resume their exact open ticket with every file preserved. Ambiguous dirty state stops the affected agent without changing the workspace.</li>
+          <li>Dirty issue workspaces resume their exact open ticket only after target, binding, history, and ownership checks, with every file preserved. Ambiguous dirty state stops the affected agent without changing the workspace.</li>
           <li>A ready candidate is never claimed while any direct child is unclosed; failed or malformed child data also prevents the claim.</li>
-          <li>Any failure after a successful claim attempts to return the ticket to <code>open</code>, clears its assignee, verifies the result, and pushes when configured.</li>
+          <li>Target-validation failures block the owned ticket, clear its assignee, add attention and a precise reason, and verify synchronization without launching a harness. Ordinary recoverable failures reopen unfinished claims; neither path overwrites observed ownership or terminal-state races.</li>
           <li>Host cleanup is idempotent and targets only the tmux pane or direct child created by Abacus.</li>
-          <li>A failed recovery, unverified cleanup, or exhausted push retries prevents this loop from claiming more work.</li>
+          <li>Failed ticket recovery or exhausted Beads-push retries halt the loop. tmux cleanup remains best effort and never targets unrecorded panes.</li>
         </ul>
       </article>
 
@@ -778,7 +786,7 @@
         <h2>Execution modes</h2>
         <ul>
           <li><code>continuous</code> retries orchestration errors and keeps polling an empty queue.</li>
-          <li><code>--once</code> processes at most one ticket; an empty first claim also completes it.</li>
+          <li><code>--once</code> claims at most one ticket, including a target-validation quarantine; no eligible work also completes it.</li>
           <li><code>--drain</code> returns to the queue after every ticket and stops when no ready ticket remains.</li>
           <li><code>--ticket-timeout</code> bounds one hosted run, then cleans the host and safely reopens work that remains <code>in_progress</code>.</li>
           <li><code>--check</code> never enters this chart: it exits immediately after non-mutating preflight.</li>
@@ -787,7 +795,7 @@
     </section>
 
     <footer>
-      <span>Derived from the implementation on 2 September 2026.</span>
+      <span>Updated against the implementation on 6 September 2026.</span>
       <span><a href="README.md">Documentation index</a> · Primary sources: <a href="../src/Abacus/AgentLoop.cs">AgentLoop.cs</a> · <a href="../src/Abacus/TicketSupervisor.cs">TicketSupervisor.cs</a> · <a href="../src/Abacus/AgentHost.cs">AgentHost.cs</a></span>
     </footer>
   </main>

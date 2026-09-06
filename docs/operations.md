@@ -6,17 +6,19 @@ pool, and what happens when an agent or external tool fails.
 ## Before launch
 
 Use preflight-only mode when you want the exact run configuration validated
-without changing a workspace or claiming an issue:
+without changing a workspace or claiming an issue. Run repository commands
+inside the main checkout, or pass `--repo <main-checkout>` as below:
 
 ```sh
-abacus --check \
+abacus --check --repo /work/main-repo \
   --mode codex \
   --tmux-session work \
   --model gpt-5.6-terra \
   -a alice /work/repo-a
 ```
 
-Preflight validates the selected harness, Git workspaces, Beads projects,
+Preflight validates the selected main checkout, target configuration, local
+target refs, selected harness, Git workspaces, Beads projects,
 `no-git-ops`, Dolt identity, server-address syntax when applicable, and the
 requested tmux target. It does not clean workspaces, claim issues, create panes,
 or print a run summary.
@@ -55,7 +57,8 @@ to open its action panel:
   ticket remains `in_progress` and reserved for the same agent, and workspace
   changes remain untouched.
 - **Restart Agent** restarts an active agent or resumes a parked one. A ticket
-  retained by Stop is relaunched directly in the same workspace.
+  retained by Stop is revalidated for ownership, target, binding, and history
+  before relaunch in the same workspace.
 - **Clean Agent Workspace** asks for a second confirmation, stops the agent,
   safely reopens and releases any active ticket, runs `git reset --hard` and
   `git clean -fd`, and leaves the agent parked. Choose Restart when the clean
@@ -105,7 +108,7 @@ An agent can add `abacus:needs-user-attention` when it needs awareness, a
 decision, or outside action. Abacus keeps matching IDs and titles in a persistent
 dashboard alert, including for closed issues, until the label is removed.
 
-List the IDs from any shell:
+List the IDs from a shell inside the main checkout, or add `--repo <main-checkout>`:
 
 ```sh
 abacus --list-user-attention
@@ -147,7 +150,8 @@ fallback only when sound was requested.
 
 ## Claim and branch lifecycle
 
-Before agents start, Abacus establishes a Beads baseline:
+Before agents start, Abacus acquires exclusive per-workspace ownership and
+establishes a Beads baseline:
 
 - one agent with a Dolt remote: pull, then record the current full Dolt commit;
 - multiple agents on shared server storage: record the live commit without a
@@ -158,11 +162,14 @@ Each loop then:
 1. Inspects its assigned workspace. A dirty `abacus/<issue-id>` branch is preserved and resumes that exact open issue; any unsafe dirty state stops that agent with a persistent alert.
 2. Pulls before the claim in single-agent remote mode.
 3. Selects eligible ready work and claims it atomically as `BEADS_ACTOR`.
-4. Creates or reuses `abacus/<issue-id>`.
-5. Starts the harness after verifying a normal claim is clean, or directly in the preserved workspace for an interrupted issue recovery.
+4. Resolves the explicit or default target, revalidates ownership, and records/reads
+   back the execution binding. Synchronizes Beads when configured before touching Git.
+5. Creates `abacus/<issue-id>` at its recorded target commit or reuses a matching
+   bound branch after checking history; unbound legacy branches require adoption.
+6. Starts the harness after verifying a normal claim is clean, or directly in the preserved workspace for an interrupted issue recovery.
 
 Interrupted-workspace recovery takes precedence over the ready queue and ignores
-dispatch filters. Abacus never automatically resets or cleans a dirty workspace.
+dispatch filters, but not target, binding, history, or ownership checks. Abacus never automatically resets or cleans a dirty workspace.
 If the issue is no longer open, belongs to another agent, or cannot be claimed,
 the files remain in place and that agent stops for operator attention.
 
@@ -184,6 +191,28 @@ repository's serialized merge process, and chooses the terminal Beads status:
 - `blocked` — outside help is required.
 
 Changing the issue away from `in_progress` tells Abacus the session may end.
+
+## Target validation and repair
+
+With `enforceTargetBranch: false`, missing target metadata uses `defaultTarget`
+(`main` unless configured otherwise). Enforced omissions, malformed explicit
+targets, and binding conflicts are atomically claimed only to block the ticket,
+clear its assignee, and attach `abacus:needs-user-attention` with a precise reason.
+No coding agent launches. A validation claim consumes the agent's one claim in
+`--once`; continuous/drain may continue after successful quarantine.
+
+Stop dispatch and active work before repairs. From the selected main checkout:
+
+```sh
+abacus --check-ticket-targets <issue-id>
+abacus --set-ticket-target <reviewed-branch> <issue-id>
+abacus --check-ticket-targets <issue-id>
+# Only after review and successful validation:
+abacus --resolve <issue-id> "Target corrected" --reopen
+```
+
+The setter preserves lifecycle and attention state. Legacy branch adoption and
+changed bindings need explicit review; see [target recovery](targets.md).
 
 ## Failure and recovery
 

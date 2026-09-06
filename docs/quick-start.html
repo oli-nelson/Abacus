@@ -789,7 +789,7 @@ abacus --help</code></pre>
 
         <div class="callout info">
           <span class="icon">i</span>
-          <p><strong>Health is the fastest diagnostic.</strong> Run <code>abacus --health</code> inside the target repository. It reports tool versions, Beads storage, server connectivity, <code>no-git-ops</code>, merge-slot status, Git worktrees, installed Abacus skills, and single-/multi-agent readiness.</p>
+          <p><strong>Health is the fastest diagnostic.</strong> Run <code>abacus --health</code> inside the main checkout, or pass <code>--repo /path/to/main-checkout</code>. It reports target configuration and enforcement/default policy, tool versions, Beads storage, server connectivity, <code>no-git-ops</code>, merge-slot status, Git worktrees, installed Abacus skills, and single-/multi-agent readiness.</p>
         </div>
       </article>
 
@@ -819,7 +819,7 @@ git status --short</code></pre>
 
         <div class="callout info">
           <span class="icon">i</span>
-          <p><strong>Dirty worktrees are preserved.</strong> A dirty <code>abacus/&lt;issue-id&gt;</code> branch resumes that exact open issue before normal dispatch. Other dirty worktrees stop the affected agent for operator attention without changing their files.</p>
+          <p><strong>Dirty worktrees are preserved.</strong> A dirty <code>abacus/&lt;issue-id&gt;</code> branch can resume that exact open issue before normal dispatch only after ownership, target, execution binding, and history checks pass. Other dirty worktrees stop the affected agent for operator attention without changing their files.</p>
         </div>
 
         <ul class="checklist">
@@ -835,7 +835,7 @@ git status --short</code></pre>
           <span class="section-number">03</span>
           <div>
             <h2>Give every agent a worktree</h2>
-            <p class="section-intro">A worktree is a second working directory attached to the same Git repository. Abacus never creates one for you and rejects duplicate resolved workspace paths.</p>
+            <p class="section-intro">A worktree is a second working directory attached to the same Git repository. Normal orchestration never creates worktrees and rejects duplicate resolved workspace paths. The standalone <code>--init-new-multi-agent-repo</code> command creates a new project and its worktrees.</p>
           </div>
         </div>
 
@@ -894,8 +894,8 @@ bd init --non-interactive
 bd config set no-git-ops false
 bd dolt show --json
 bd where
-abacus --install-skills
-abacus --health</code></pre>
+abacus --repo "$REPO" --init
+abacus --repo "$REPO" --health</code></pre>
             </div>
             <p class="small">Expect <code>"embedded": true</code>. Abacus permits exactly one configured agent with this storage mode.</p>
           </section>
@@ -912,9 +912,9 @@ bd config set no-git-ops false
 bd dolt start
 bd dolt status
 bd dolt show --json
-abacus --install-skills
+abacus --repo "$REPO" --init
 bd merge-slot create
-abacus --health</code></pre>
+abacus --repo "$REPO" --health</code></pre>
             </div>
             <p class="small">Expect <code>"embedded": false</code>, a reachable host/port, and <code>"connection_ok": true</code>.</p>
           </section>
@@ -960,6 +960,20 @@ bd dolt show --json</code></pre>
           </div>
         </details>
 
+        <h3>Configure ticket destinations</h3>
+        <p><code>abacus --init</code> requires an existing readable Beads project, installs the bundled skills with replacement confirmation, and creates a missing <code>$REPO/.abacus/targets.json</code>. Existing configuration is never overwritten.</p>
+        <div class="code-block">
+          <div class="code-label"><span>Generated default targets.json</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>{
+  "version": 1,
+  "enforceTargetBranch": false,
+  "defaultTarget": "main",
+  "targets": { "main": {} }
+}</code></pre>
+        </div>
+        <p>Missing <code>metadata.abacus_target</code> uses the default when enforcement is off. Explicit targets override it; malformed or unconfigured targets fail in either mode. Enable enforcement to require explicit metadata. Configured target branches must already exist locally. Policies are loaded from the main checkout, never from an agent's changing checkout.</p>
+        <p>The controller must be the primary Git checkout, not a linked worktree (regardless of which branch is checked out). From elsewhere, including an agent worktree, pass <code>--repo "$REPO"</code>. The old Abacus <code>--config</code> selector is removed. Review and commit setup files before dispatch; <code>--init</code> does not create branches or commits, or assign ticket metadata. See <a href="targets.md">target operations and migration</a>.</p>
+
         <h3>Create ready work</h3>
         <div class="code-block">
           <div class="code-label"><span>First issue</span><button class="copy-button" type="button">Copy</button></div>
@@ -971,7 +985,8 @@ bd create "Add a health endpoint" \
   --priority 2 \
   --json
 
-bd ready --json</code></pre>
+bd ready --json
+abacus --repo "$REPO" --check-ticket-targets</code></pre>
         </div>
 
         <div class="callout success">
@@ -990,11 +1005,12 @@ bd ready --json</code></pre>
         </div>
 
         <div class="code-block">
-          <div class="code-label"><span>Install once from anywhere in the repository</span><button class="copy-button" type="button">Copy</button></div>
+          <div class="code-label"><span>Install/update from the main checkout</span><button class="copy-button" type="button">Copy</button></div>
           <pre><code>cd "$REPO"
-abacus --install-skills
+abacus --repo "$REPO" --init
 
-<span class="comment"># Installed under the Git root:</span>
+<span class="comment"># For skills only, use abacus --repo "$REPO" --install-skills.</span>
+<span class="comment"># Installed under the selected main Git root:</span>
 find .agents/skills -maxdepth 2 -name SKILL.md -print</code></pre>
         </div>
 
@@ -1074,7 +1090,7 @@ and distinguish local commit or merge limits from legitimate push limits.</code>
           <li><strong>Plan.</strong> Turn the concept into a graph, review execution waves, then approve creation.</li>
           <li><strong>Doctor.</strong> Audit the epic before agents start, approve precise repairs, and verify the resulting ready set.</li>
           <li><strong>Check Git guidance.</strong> Confirm that active agent instructions allow the local commit and merge workflow while preserving any push restriction.</li>
-          <li><strong>Execute.</strong> Start Abacus with filters that select the approved work. The coding agents claim and complete individual tickets.</li>
+          <li><strong>Execute.</strong> Start Abacus with filters that select the approved work. Abacus claims tickets atomically, then coding agents implement the work and choose outcomes.</li>
           <li><strong>Triage attention.</strong> Use the attention skill when the dashboard or desktop toast says a human decision or outside action is pending.</li>
         </ol>
 
@@ -1114,7 +1130,7 @@ export AGENT_WORKTREE="$WORKTREES/alice"
 tmux new-session -d -s "$SESSION" -n "$WINDOW"
 git -C "$AGENT_WORKTREE" status --short
 
-abacus \
+abacus --repo "$REPO" \
   --mode claude \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
@@ -1134,7 +1150,7 @@ abacus \
           <p>In Claude mode, Abacus’s <code>--remote</code> switch keeps the session running locally and adds Claude’s <code>--remote-control "&lt;issue-id&gt; • &lt;issue-title&gt;"</code>. You can then steer the same local session from claude.ai or the Claude mobile app.</p>
           <div class="code-block">
             <div class="code-label"><span>Remotely steerable local session</span><button class="copy-button" type="button">Copy</button></div>
-            <pre><code>abacus --mode claude --remote \
+            <pre><code>abacus --repo "$REPO" --mode claude --remote \
   --tmux-session "$SESSION" --tmux-window "$WINDOW" \
   --model "$MODEL" --effort high \
   --notify all --notify-sound \
@@ -1177,12 +1193,12 @@ bd ready --json
 
 bd -C "$WORKTREES/alice" dolt show --json
 bd -C "$WORKTREES/bob" dolt show --json
-abacus --health</code></pre>
+abacus --repo "$REPO" --health</code></pre>
         </div>
 
         <div class="code-block">
           <div class="code-label"><span>Two Claude agents</span><button class="copy-button" type="button">Copy</button></div>
-          <pre><code>abacus \
+          <pre><code>abacus --repo "$REPO" \
   --mode claude \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
@@ -1253,7 +1269,7 @@ Submit the issue branch through the repository merge queue and close the ticket
 only after the queue reports success.
 EOF
 
-abacus --mode claude \
+abacus --repo "$REPO" --mode claude \
   --tmux-session "$SESSION" --tmux-window "$WINDOW" \
   --model "$MODEL" \
   --append-agent-prompt "Keep the change narrowly scoped." \
@@ -1308,24 +1324,24 @@ abacus --mode claude \
 <span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
  LATEST COMMENTS (3)
  <span class="t-red">• ab-c72 — Choose the public endpoint name          • alice</span>
- <span class="t-red">  ↳ Need approval for the public endpoint before I continue.</span>
- <span class="t-yellow">• ab-a31 — Add health endpoint                       • alice</span>
- <span class="t-yellow">  ↳ Endpoint implementation is ready for review.</span>
+   ↳ Need approval for the public endpoint before I continue.
+ <span class="t-green">• ab-a31 — Add health endpoint                       • alice</span>
+   ↳ Endpoint implementation is ready for review.
  <span class="t-cyan">• ab-f09 — Document health endpoint                  • reviewer</span>
- <span class="t-cyan">  ↳ Could we include a curl example in the guide?</span></pre>
+   ↳ Could we include a curl example in the guide?</pre>
         </div>
 
         <h3>Follow the latest Beads comments</h3>
         <p>New ticket claims start enabled. Press <kbd>Shift-Tab</kbd> to pause or resume claims across all agents. Tickets that are already active keep running; agents at the next claim boundary display <code>PAUSED</code>, and the header always shows the current claim state.</p>
-        <p>Select a row with <kbd>↑</kbd> or <kbd>↓</kbd>. Press <kbd>Enter</kbd> on an agent to open its action panel. Stop parks that loop while retaining its active ticket and workspace; Restart relaunches the retained ticket or resumes the parked loop. Clean Workspace asks for confirmation, reopens any active ticket, runs <code>git reset --hard</code> and <code>git clean -fd</code>, and leaves the agent stopped until you choose Restart.</p>
+        <p>Select a row with <kbd>↑</kbd> or <kbd>↓</kbd>. Press <kbd>Enter</kbd> on an agent to open its action panel. Stop parks that loop while retaining its active ticket and workspace; Restart revalidates the retained ticket's target, binding, history, and ownership before relaunch, or resumes the parked loop. Clean Workspace asks for confirmation, reopens any active ticket, runs <code>git reset --hard</code> and <code>git clean -fd</code>, and leaves the agent stopped until you choose Restart.</p>
         <p>Selection continues through the latest-comment rows. Press <kbd>Enter</kbd> on one to read its complete wrapped text with issue, author, and timestamp context. Scroll long comments with <kbd>↑</kbd>, <kbd>↓</kbd>, <kbd>Page Up</kbd>, or <kbd>Page Down</kbd>, and press <kbd>Esc</kbd> to return.</p>
-        <p>The dashboard polls Beads in the same five-second cycle used for user-attention detection, then places the newest comments at the very bottom, newest first. It shows up to 8 entries by default. Each entry puts the issue ID, a width-aware truncated issue title, and the comment author on a header line. The comment appears on the indented line beneath it, giving the text nearly the full terminal width before truncation. Newlines and repeated whitespace within the comment are collapsed onto that one body line.</p>
+        <p>The dashboard polls Beads in the same five-second cycle used for user-attention detection, then places the newest comments at the very bottom, newest first. It shows up to 8 entries by default. Each entry puts the issue ID, a width-aware truncated issue title, and the comment author on a header line. The normalized comment wraps onto up to two indented body lines, with truncation when necessary. Only headers are colored; body lines use the terminal default color. Open a comment with Enter to read its complete text.</p>
 
         <table class="comparison">
           <thead><tr><th>Color</th><th>Meaning</th><th>Precedence</th></tr></thead>
           <tbody>
             <tr><td><span class="t-red">Red</span></td><td>The comment belongs to an issue currently labelled <code>abacus:needs-user-attention</code>.</td><td>Highest; attention stays red even when an agent wrote it.</td></tr>
-            <tr><td><span class="t-yellow">Yellow</span></td><td>The author exactly matches a name configured with <code>-a</code>.</td><td>Used when the issue does not need user attention.</td></tr>
+            <tr><td><span class="t-green">Green</span></td><td>The author exactly matches a name configured with <code>-a</code>.</td><td>Used when the issue does not need user attention.</td></tr>
             <tr><td><span class="t-cyan">Cyan</span></td><td>The author is not one of the agents managed by this Abacus run.</td><td>Default for human and other external authors.</td></tr>
           </tbody>
         </table>
@@ -1333,7 +1349,7 @@ abacus --mode claude \
         <div class="code-block">
           <div class="code-label"><span>Change the number of visible comments</span><button class="copy-button" type="button">Copy</button></div>
           <pre><code><span class="comment"># The default is 8; valid values are 1 through 100.</span>
-abacus --latest-comments 12 \
+abacus --repo "$REPO" --latest-comments 12 \
   --mode claude \
   --tmux-session "$SESSION" \
   --model "$MODEL" \
@@ -1393,9 +1409,9 @@ abacus --latest-comments 12 \
 <span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
  LATEST COMMENTS (2)
  <span class="t-red">• ab-c72 — Choose the public endpoint name          • alice</span>
- <span class="t-red">  ↳ Need approval for the public endpoint before I continue.</span>
+   ↳ Need approval for the public endpoint before I continue.
  <span class="t-cyan">• ab-f09 — Document health endpoint                  • reviewer</span>
- <span class="t-cyan">  ↳ Please retry after the push failure is resolved.</span></pre>
+   ↳ Please retry after the push failure is resolved.</pre>
         </div>
 
         <div class="grid-2">
@@ -1432,6 +1448,7 @@ abacus --latest-comments 12 \
           <div class="terminal-bar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="terminal-title">abacus · final summary</span></div>
           <pre>ABACUS RUN SUMMARY  •  18m 42s  •  5 outcomes
 ────────────────────────────────────────────────────────────────────────
+Initial Beads Dolt commit  pjmrvjigiph28prpf6ir4uv0tuv88vnn
 alice            closed 2  reopened 0  blocked 0  interrupted 0
 bob              closed 1  reopened 1  blocked 1  interrupted 0
 USER ATTENTION
@@ -1455,19 +1472,19 @@ bd comment &lt;issue-id&gt; "Choose the public endpoint name."
 bd update &lt;issue-id&gt; --add-label abacus:needs-user-attention --json
 
 <span class="comment"># Record your response as a comment, then remove the persistent alert.</span>
-abacus --resolve &lt;issue-id&gt; "Approved: use public-api"
+abacus --repo "$REPO" --resolve &lt;issue-id&gt; "Approved: use public-api"
 
 <span class="comment"># Or remove the alert without adding a response comment.</span>
-abacus --resolve &lt;issue-id&gt;
+abacus --repo "$REPO" --resolve &lt;issue-id&gt;
 
 <span class="comment"># Resolve, reopen, and unassign the ticket so an agent can claim it again.</span>
-abacus --resolve &lt;issue-id&gt; "Approved: use public-api" --reopen
+abacus --repo "$REPO" --resolve &lt;issue-id&gt; "Approved: use public-api" --reopen
 
 <span class="comment"># List every ticket still carrying the attention label.</span>
-abacus --list-user-attention
+abacus --repo "$REPO" --list-user-attention
 
 <span class="comment"># Delete local abacus/* branches for closed tickets.</span>
-abacus --prune-closed-branches
+abacus --repo "$REPO" --prune-closed-branches
 
 <span class="comment"># If no work can continue, also mark the ticket blocked.</span>
 bd comment &lt;issue-id&gt; "Waiting for the API name decision."
@@ -1483,7 +1500,7 @@ bd update &lt;issue-id&gt; --status blocked --json</code></pre>
           <section class="card accent-blue">
             <p class="kicker">Standalone command</p>
             <h3>No agent run required</h3>
-            <p class="small">Run the command from the current Beads project. It does not require a model, worktree, tmux session, or agent harness, and it prints a concise confirmation instead of raw Beads JSON.</p>
+            <p class="small">Run the command from the main Git checkout, or pass <code>--repo "$REPO"</code>. It requires Git and Beads but no model, tmux session, or agent harness, and it prints a concise confirmation instead of raw Beads JSON.</p>
           </section>
         </div>
 
@@ -1507,13 +1524,14 @@ bd update &lt;issue-id&gt; --status blocked --json</code></pre>
           <span class="section-number">11</span>
           <div>
             <h2>Control which issues enter the pool</h2>
-            <p class="section-intro">Dispatch filters are global to the Abacus run and are passed literally to every fresh claim and same-agent resume lookup.</p>
+            <p class="section-intro">Dispatch filters are global to the run. Label/type/priority filters are passed to Beads; <code>--target-branch</code> filters resolved destinations before priority/comment selection. Dirty recovery bypasses dispatch filters but never target/binding checks.</p>
           </div>
         </div>
 
         <table class="comparison">
           <thead><tr><th>Argument</th><th>Repeat?</th><th>Effect</th></tr></thead>
           <tbody>
+            <tr><td><code>--target-branch &lt;branch&gt;</code></td><td>Yes</td><td>Allow resolved ticket destinations, including the default. Does not supply or overwrite metadata.</td></tr>
             <tr><td><code>--label &lt;label&gt;</code></td><td>Yes</td><td>Require the label. Repeating it requires all supplied labels.</td></tr>
             <tr><td><code>--exclude-label &lt;label&gt;</code></td><td>Yes</td><td>Reject issues carrying any supplied excluded label.</td></tr>
             <tr><td><code>--type &lt;types&gt;</code></td><td>No</td><td>Pass one Beads type filter; comma-separated values such as <code>bug,task</code> are allowed.</td></tr>
@@ -1523,7 +1541,7 @@ bd update &lt;issue-id&gt; --status blocked --json</code></pre>
 
         <div class="code-block">
           <div class="code-label"><span>Filtered multi-agent run</span><button class="copy-button" type="button">Copy</button></div>
-          <pre><code>abacus --mode claude \
+          <pre><code>abacus --repo "$REPO" --mode claude \
   --tmux-session "$SESSION" --tmux-window "$WINDOW" \
   --model "$MODEL" \
   --label abacus-ready \
@@ -1599,10 +1617,10 @@ bd update &lt;issue-id&gt; --status blocked --json</code></pre>
         <div class="code-block">
           <div class="code-label"><span>Notification examples</span><button class="copy-button" type="button">Copy</button></div>
           <pre><code><span class="comment"># Important events only.</span>
-abacus --notify attention --notify-sound ...
+abacus --repo "$REPO" --notify attention --notify-sound ...
 
 <span class="comment"># Every outcome and the run summary.</span>
-abacus --notify all --notify-sound ...</code></pre>
+abacus --repo "$REPO" --notify all --notify-sound ...</code></pre>
         </div>
 
         <div class="grid-2">
@@ -1644,7 +1662,7 @@ abacus --notify all --notify-sound ...</code></pre>
           <section class="card accent-blue">
             <p class="kicker">Finite</p>
             <h3><code>--once</code> / <code>--drain</code></h3>
-            <p class="small">Process one ticket per agent, or empty the ready queue, then print a summary and exit.</p>
+            <p class="small">Claim at most one ticket per agent, or drain until no ready work is observed. A target-validation quarantine consumes the one claim in <code>--once</code>.</p>
           </section>
           <section class="card accent-yellow">
             <p class="kicker">Validation</p>
@@ -1655,7 +1673,7 @@ abacus --notify all --notify-sound ...</code></pre>
 
         <div class="code-block">
           <div class="code-label"><span>Useful operator commands</span><button class="copy-button" type="button">Copy</button></div>
-          <pre><code>abacus --health
+          <pre><code>abacus --repo "$REPO" --health
 bd ready --json
 bd list --all
 bd show &lt;issue-id&gt; --json
