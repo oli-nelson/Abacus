@@ -4,6 +4,9 @@ namespace Abacus;
 
 internal static class AsciiIntro
 {
+    internal const int FrameCount = 64;
+    internal const int FrameDelayMilliseconds = 60;
+
     internal static bool ShouldPlay(Options options, bool inputRedirected, bool outputRedirected,
         bool errorRedirected, string? term) => !options.Stdio && !options.NoIntro && !options.Verbose
         && !options.CheckOnly && !inputRedirected && !outputRedirected && !errorRedirected && term != "dumb";
@@ -29,9 +32,13 @@ internal static class AsciiIntro
         }
         lines.Add("+--------------------------------------+");
         lines.Add("");
-        var progress = Math.Clamp(frame * 24 / 29, 0, 24);
+        var progress = Math.Clamp(frame * 24 / (FrameCount - 1), 0, 24);
         lines.Add("[" + new string('#', progress) + new string('.', 24 - progress) + "]");
-        lines.Add(frame < 10 ? "ALIGNING THE BEADS" : frame < 20 ? "SYNCHRONIZING THE SWARM" : "EVERY AGENT. EVERY TICKET. IN SYNC.");
+        lines.Add(frame < FrameCount / 3
+            ? "ALIGNING THE BEADS"
+            : frame < FrameCount * 2 / 3
+                ? "SYNCHRONIZING THE SWARM"
+                : "EVERY AGENT. EVERY TICKET. IN SYNC.");
         lines.Add("any key to skip");
         if (width < 44 || height < lines.Count + 2)
             lines = ["ABACUS", "[ " + new string('#', progress) + " ]", "WAKING THE SWARM", "any key to skip"];
@@ -53,14 +60,14 @@ internal static class AsciiIntro
         try
         {
             writer.Write("\u001b[?25l\u001b[2J");
-            for (var frame = 0; frame < 30; frame++)
+            for (var frame = 0; frame < FrameCount; frame++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (Console.KeyAvailable) { Console.ReadKey(intercept: true); break; }
                 writer.Write(Frame(frame, Console.WindowWidth, Console.WindowHeight,
                     Environment.GetEnvironmentVariable("NO_COLOR") is null));
                 writer.Flush();
-                await Task.Delay(60, cancellationToken);
+                await Task.Delay(FrameDelayMilliseconds, cancellationToken);
             }
         }
         finally

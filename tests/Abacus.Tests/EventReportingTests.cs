@@ -185,7 +185,9 @@ public sealed class EventReportingTests
     [Fact]
     public void IntroFramesAnimateAndFitSmallTerminalsWithoutColor()
     {
-        Assert.NotEqual(AsciiIntro.Frame(0, 80, 24, false), AsciiIntro.Frame(29, 80, 24, false));
+        Assert.Equal(3_840, AsciiIntro.FrameCount * AsciiIntro.FrameDelayMilliseconds);
+        Assert.NotEqual(AsciiIntro.Frame(0, 80, 24, false),
+            AsciiIntro.Frame(AsciiIntro.FrameCount - 1, 80, 24, false));
         var frame = AsciiIntro.Frame(12, 20, 6, false);
         var plain = Regex.Replace(frame, "\u001b\\[[0-9;?]*[A-Za-z]", "");
         Assert.All(plain.Split('\n'), line => Assert.True(line.Length < 20));
