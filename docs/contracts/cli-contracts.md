@@ -95,6 +95,10 @@ codex --cd <workspace> \
   '<ticket prompt>'
 ```
 
+The `<model>` value is resolved per claimed ticket: a configured
+`--reasoning-model` route may replace the run's default `--model`. This does not
+change the command shape or the independently configured `<effort>` value.
+
 There is deliberately no `exec` subcommand. The [Codex configuration reference](https://developers.openai.com/codex/config-reference) defines `model_reasoning_effort`; Abacus supplies it through the CLI's per-invocation `--config` override. The installed version's `--approve-for-me` flag routes approval requests through automatic review using the workspace-write sandbox, allowing aligned Git, Beads/Dolt, and network operations without waiting for a human. This flag is part of Abacus's Codex 0.151.0 minimum contract; it was confirmed from the installed CLI help, while the upstream reference documents the corresponding automatic-review workflow and `/approve` retry command.
 
 ## Claude Code 2.1.212

@@ -95,7 +95,7 @@ successful shutdown/EOF exits 0, and orchestration or event-output failure exits
 Each line is a complete object:
 
 ```json
-{"version":1,"runId":"...","sequence":1,"timestamp":"2026-09-06T12:00:00+00:00","type":"run.starting","data":{"model":"provider/model","agentMode":"openCodeServer","executionMode":"continuous","agents":[{"name":"alice","workspacePath":"/path/to/worktree"}]}}
+{"version":1,"runId":"...","sequence":1,"timestamp":"2026-09-06T12:00:00+00:00","type":"run.starting","data":{"model":"provider/model","reasoningModels":{},"agentMode":"openCodeServer","executionMode":"continuous","agents":[{"name":"alice","workspacePath":"/path/to/worktree"}]}}
 ```
 
 `runId` separates runs in appended logs. `sequence` is monotonically increasing
@@ -105,7 +105,7 @@ inside strings are JSON-escaped. Consumers should ignore unknown types/fields.
 
 | Type | `data` |
 | --- | --- |
-| `run.starting` | Model, harness mode, execution mode, configured agents |
+| `run.starting` | Default model, reasoning-model mappings, harness mode, execution mode, configured agents |
 | `system`, `warning` | Message; warnings also include source |
 | `command` | Source and subprocess command diagnostic (including exit diagnostics); independent of `--verbose` |
 | `agent.state` | Full row: name, activity, detail, changedAt, issueId, ticketTitle, runLocation, workspacePath, lastExitCode, hasExitObservation, retryCount |

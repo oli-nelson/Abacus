@@ -45,7 +45,8 @@ public sealed record BeadsIssue(
     string? MetadataError = null,
     string? DispatchTarget = null,
     bool HasDispatchSnapshot = false,
-    bool HasInvalidTargetMetadata = false);
+    bool HasInvalidTargetMetadata = false,
+    IReadOnlyList<string>? Labels = null);
 
 public sealed record BeadsComment(
     string Id,
@@ -728,8 +729,24 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
                 {
                     throw new JsonException("issue id or status is missing");
                 }
+                List<string>? labels = null;
+                if (element.TryGetProperty("labels", out var labelsElement)
+                    && labelsElement.ValueKind is not JsonValueKind.Null)
+                {
+                    if (labelsElement.ValueKind is not JsonValueKind.Array)
+                        throw new JsonException($"labels must be an array for issue '{id}'");
+                    labels = [];
+                    foreach (var labelElement in labelsElement.EnumerateArray())
+                    {
+                        if (labelElement.ValueKind is not JsonValueKind.String
+                            || string.IsNullOrWhiteSpace(labelElement.GetString()))
+                            throw new JsonException($"labels contain an invalid value for issue '{id}'");
+                        labels.Add(labelElement.GetString()!);
+                    }
+                }
 
-                issues.Add(ReadRoutingMetadata(new BeadsIssue(id, ParseStatus(status), title, assignee), element));
+                issues.Add(ReadRoutingMetadata(
+                    new BeadsIssue(id, ParseStatus(status), title, assignee, Labels: labels), element));
             }
 
             return issues;

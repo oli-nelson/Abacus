@@ -233,6 +233,20 @@ public sealed class HealthTests
         Assert.Contains("Target configuration", report.Render());
     }
 
+    [Fact]
+    public async Task InvalidReasoningConfigurationFailsHealth()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var environment = await HealthEnvironment.CreateAsync(true, 1,
+            new Dictionary<string, string> { ["opencode"] = "1.18.20" },
+            reasoningConfiguration: "not json");
+        var report = await environment.CheckAsync();
+        Assert.False(report.IsHealthy);
+        Assert.False(report.SingleAgentReady);
+        Assert.False(report.ReasoningConfiguration!.IsReady);
+        Assert.Contains("Reasoning model routing", report.Render());
+    }
+
     private sealed class HealthEnvironment : IDisposable
     {
         private readonly DirectoryInfo root;
@@ -255,7 +269,8 @@ public sealed class HealthTests
             string? mergeSlotHolder = null,
             bool noGitOps = false,
             string? targetConfiguration = "valid",
-            bool targetExists = true)
+            bool targetExists = true,
+            string? reasoningConfiguration = null)
         {
             var root = Directory.CreateTempSubdirectory("abacus-health-");
             var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
@@ -265,6 +280,9 @@ public sealed class HealthTests
             if (targetConfiguration is not null)
                 await File.WriteAllTextAsync(Path.Combine(repository, ".abacus", "targets.json"),
                     targetConfiguration == "valid" ? """{"version":1,"targets":{"main":{}}}""" : targetConfiguration);
+            if (reasoningConfiguration is not null)
+                await File.WriteAllTextAsync(Path.Combine(repository, ".abacus", "reasoning.json"),
+                    reasoningConfiguration);
             var worktrees = new List<string>();
             if (worktreeCount > 0)
             {

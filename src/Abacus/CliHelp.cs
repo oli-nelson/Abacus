@@ -29,7 +29,8 @@ internal static class CliHelp
           --repo <path> selects the main Git checkout (default: cwd inside that checkout).
           Accepted before or after repository-scoped commands, not new or models.
           Linked worktrees cannot be controller roots; agent worktrees are supported.
-          Targets load from <repo>/.abacus/targets.json.
+          Targets load from <repo>/.abacus/targets.json; reasoning policy loads
+          from <repo>/.abacus/reasoning.json when present.
 
         Use -- to end option parsing before positional arguments. Single-value options
         accept --option=value. Quote multi-word values. Commands and options are exact;
@@ -40,7 +41,9 @@ internal static class CliHelp
         Agent and model:
           --agent, -a <name> <workspace>  Required, repeatable; names and workspaces must be unique.
           --mode <opencode|codex|claude|opencode-server>  Default: opencode.
-          --model <model>                Required; OpenCode uses provider/model IDs.
+          --model <model>                Required fallback; OpenCode uses provider/model IDs.
+          --reasoning-model <tier> <model>
+                                        Repeatable mapping for high, medium, or low ticket labels.
           --effort <effort>              Default: high; provider-specific value.
                                         Interactive OpenCode uses its configured variant.
           --remote-control              Claude only; enables interactive Remote Control.
@@ -76,6 +79,7 @@ internal static class CliHelp
           --repo <path>                 Main checkout; default: cwd inside that checkout.
                                         Targets load from .abacus/targets.json. Missing metadata
                                         uses defaultTarget unless enforceTargetBranch is true.
+                                        Reasoning policy loads from .abacus/reasoning.json when present.
         """;
 
     public static string For(string command) => command switch
@@ -116,7 +120,8 @@ internal static class CliHelp
             Usage: abacus init [--repo <path>]
             Requires initialized readable Beads in the main Git checkout. Validates local targets,
             installs bundled skills with overwrite confirmation, and creates absent .abacus/targets.json
-            with main as the default target and enforcement off. Preserves existing configuration.
+            with main as the default target plus absent .abacus/reasoning.json with enforcement off.
+            Preserves existing configuration.
             Does not initialize Beads, change branches or tickets, stage files, or commit.
             """,
         "skills" => "Usage: abacus skills install [--repo <path>]\nInstall the bundled agent skills.",

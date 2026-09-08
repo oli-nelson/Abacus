@@ -48,8 +48,16 @@ and starting commit, use `abacus targets set <branch> <id>
 This adoption changes metadata only and cannot replace an existing binding.
 Rerun `abacus targets check <id> ...` after each repair batch.
 
+Read `.abacus/reasoning.json` when present. For executable tickets, treat more
+than one of `abacus:high_reasoning`, `abacus:medium_reasoning`, and
+`abacus:low_reasoning` as a conflict. When `enforceLabels` is true, also report
+an executable ticket with none of those labels. When enforcement is false or
+the file is absent, zero or one is valid. Do not copy reasoning labels from
+parents automatically; propose a tier from the ticket's actual complexity and
+ask the user when the intended tier is ambiguous.
+
 Dispatch atomically claims invalid candidates only to block them, add
-`abacus:needs-user-attention`, and append the precise target-validation reason;
+`abacus:needs-user-attention`, and append the precise validation reason;
 no coding agent starts and no workspace files are changed. Once the check passes,
 use `abacus attention resolve <id> --reopen` only with the user's lifecycle approval.
 

@@ -34,9 +34,20 @@ After creation, while dispatch is paused, stamp targets when enforcement require
 them or work is intended for a non-default branch, using
 `abacus targets set <branch> <id> ...` and verify with
 `abacus targets check <id> ...`. Pass `--repo <path>` to both commands
-when outside the main checkout. Never use a linked worktree as `--repo`. Defaulted tickets need no metadata backfill. If required stamping fails, report the incomplete graph rather than declaring
-it execution-ready. Never create or modify `abacus_execution` yourself; Abacus
-records that binding before it prepares an issue branch.
+when outside the main checkout. Never use a linked worktree as `--repo`.
+Defaulted tickets need no metadata backfill. If required stamping fails, report
+the incomplete graph rather than declaring it execution-ready. Never create or
+modify `abacus_execution` yourself; Abacus records that binding before it
+prepares an issue branch.
+
+Read `.abacus/reasoning.json` from the same controller checkout when present.
+The executable-ticket reasoning labels are exactly `abacus:high_reasoning`,
+`abacus:medium_reasoning`, and `abacus:low_reasoning`. When `enforceLabels` is
+true, every executable ticket must receive exactly one of them. When enforcement
+is false or the file is absent, add at most one when the user has expressed the
+appropriate model tier; otherwise leave it absent so Abacus uses its default
+model. Never place multiple reasoning labels on one ticket, and do not inherit a
+parent's reasoning label automatically.
 
 ## Design the Graph
 

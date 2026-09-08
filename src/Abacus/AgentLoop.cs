@@ -1,6 +1,6 @@
 namespace Abacus;
 
-public sealed record PreparedClaim(BeadsIssue Issue, string Branch);
+public sealed record PreparedClaim(BeadsIssue Issue, string Branch, string? Model = null);
 
 public sealed partial class ClaimCoordinator(
     Beads beads,
@@ -12,11 +12,15 @@ public sealed partial class ClaimCoordinator(
     DispatchFilters? dispatchFilters = null,
     DesktopNotifier? notifier = null,
     ClaimGate? claimGate = null,
-    InitialClaimBarrier? initialClaimBarrier = null)
+    InitialClaimBarrier? initialClaimBarrier = null,
+    IReadOnlyDictionary<string, string>? reasoningModels = null,
+    string? defaultModel = null)
 {
     private readonly DispatchFilters filters = dispatchFilters ?? DispatchFilters.Empty;
     private readonly ClaimGate claimsAllowed = claimGate ?? new ClaimGate();
     private readonly InitialClaimBarrier initialRecovery = initialClaimBarrier ?? new InitialClaimBarrier(1);
+    private readonly IReadOnlyDictionary<string, string> modelMappings = reasoningModels
+        ?? new Dictionary<string, string>(StringComparer.Ordinal);
     private bool initialRecoveryPending = true;
     public TimeSpan PollingInterval { get; } = pollingInterval ?? TimeSpan.FromSeconds(5);
 
@@ -175,13 +179,18 @@ public sealed partial class ClaimCoordinator(
 
             try
             {
+                ModelResolution? modelResolution = null;
+                if (agent.Reasoning is not null)
+                    modelResolution = await ResolveReasoningAsync(agent, issue, cancellationToken);
                 if (agent.Targets is not null)
                     issue = await BindTargetAsync(agent, issue, interruptedIssueId is not null, cancellationToken);
                 await log.SetTicketAsync(agent.Name, issue.Id, issue.Title);
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Preparing,
-                    $"{issue.Id} • preparing workspace and branch");
+                    modelResolution is null
+                        ? $"{issue.Id} • preparing workspace and branch"
+                        : $"{issue.Id} • model {modelResolution.Model} • preparing workspace and branch");
                 var branch = interruptedIssueId is not null
                     ? $"abacus/{interruptedIssueId}"
                     : await git.PrepareIssueBranchAsync(
@@ -202,9 +211,17 @@ public sealed partial class ClaimCoordinator(
                         issue.Binding!.StartCommit, branch, cancellationToken);
                     issue = verified;
                 }
-                return new PreparedClaim(issue, branch);
+                return new PreparedClaim(issue, branch, modelResolution?.Model);
             }
             catch (AgentHaltedException) { throw; }
+            catch (ReasoningLabelException exception)
+            {
+                await RejectReasoningAsync(agent, issue, exception.Message, cancellationToken);
+                if (interruptedIssueId is not null)
+                    await HaltAsync(agent.Name, $"{issue.Id}: {exception.Message}. Workspace preserved.");
+                await log.ClearTicketAsync(agent.Name);
+                if (executionMode is ExecutionMode.Once) return null;
+            }
             catch (TargetException exception)
             {
                 await RejectTargetAsync(agent, issue, exception.Message, cancellationToken);
@@ -320,6 +337,20 @@ public sealed partial class ClaimCoordinator(
             return null;
         }
 
+        ModelResolution? modelResolution = null;
+        if (agent.Reasoning is not null)
+        {
+            try
+            {
+                modelResolution = await ResolveReasoningAsync(agent, resumed, cancellationToken);
+            }
+            catch (ReasoningLabelException exception)
+            {
+                await RejectReasoningAsync(agent, resumed, exception.Message, cancellationToken);
+                await HaltAsync(agent.Name, $"{resumed.Id}: {exception.Message}. Workspace preserved.");
+            }
+        }
+
         if (agent.Targets is not null)
         {
             try { resumed = await BindTargetAsync(agent, resumed, requireExisting: true, cancellationToken); }
@@ -331,7 +362,50 @@ public sealed partial class ClaimCoordinator(
         }
         return new PreparedClaim(
             resumed with { Title = resumed.Title ?? reservedIssue.Title },
-            expectedBranch);
+            expectedBranch,
+            modelResolution?.Model);
+    }
+
+    private async Task<ModelResolution> ResolveReasoningAsync(
+        ValidatedAgent agent,
+        BeadsIssue claim,
+        CancellationToken token)
+    {
+        var current = await beads.GetIssueAsync(agent.WorkspacePath, agent.Name, claim.Id, token)
+            ?? throw new ReasoningLabelException($"ticket '{claim.Id}' disappeared after claim");
+        if (current.Status != IssueStatus.InProgress || current.Assignee != agent.Name)
+            throw new ReasoningLabelException("ticket ownership changed after claim");
+        return agent.Reasoning!.ResolveModel(
+            current,
+            modelMappings,
+            defaultModel ?? throw new ReasoningPolicyException("the default model is unavailable"));
+    }
+
+    private async Task RejectReasoningAsync(
+        ValidatedAgent agent,
+        BeadsIssue issue,
+        string detail,
+        CancellationToken token)
+    {
+        var reason = $"Abacus reasoning-label validation failed: {detail}. "
+            + $"Remove all but at most one of {string.Join(", ", ReasoningPolicy.Labels)}; "
+            + "when enforcement is enabled, keep exactly one. "
+            + $"Then run abacus attention resolve {issue.Id} --reopen after review.";
+        try
+        {
+            await beads.BlockReasoningIssueAsync(
+                agent.WorkspacePath, agent.Name, issue.Id, reason, token);
+            summary?.Record(agent.Name, TicketOutcome.Blocked, issue.Id, issue.Title);
+            await WarnAsync(agent.Name, reason);
+            if (await recovery.PushWithRetryAsync(agent, token) == PushOutcome.Failed)
+                await HaltAsync(agent.Name, $"Could not synchronize reasoning-label block for {issue.Id}");
+        }
+        catch (Exception exception) when (exception is not (OperationCanceledException or AgentHaltedException))
+        {
+            await HaltAsync(
+                agent.Name,
+                $"Could not safely block {issue.Id}: {exception.Message}. Workspace preserved.");
+        }
     }
 
     private async Task WaitForClaimPermissionAsync(
@@ -553,6 +627,7 @@ public sealed class AgentLoop(
                 }
 
                 IAgentRun run;
+                var resolvedModel = claim.Model ?? model;
                 try
                 {
                     var launchAgent = agent.Targets is null ? agent : agent with
@@ -562,7 +637,7 @@ public sealed class AgentLoop(
                     run = await agentHost.StartAgentAsync(
                         launchAgent,
                         claim.Issue,
-                        model,
+                        resolvedModel,
                         effort,
                         serverUrl,
                         cancellationToken);
@@ -603,7 +678,7 @@ public sealed class AgentLoop(
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Working,
-                    $"{claim.Issue.Id} • agent CLI in {run.Location}");
+                    $"{claim.Issue.Id} • {resolvedModel} • agent CLI in {run.Location}");
                 try
                 {
                     await supervisor.SuperviseAsync(agent, claim.Issue, run, cancellationToken);

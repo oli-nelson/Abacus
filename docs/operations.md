@@ -17,12 +17,17 @@ abacus preflight --repo /work/main-repo \
   -a alice /work/repo-a
 ```
 
-Preflight validates the selected main checkout, target configuration, local
+Preflight validates the selected main checkout, target and reasoning configuration, local
 target refs, selected harness, Git workspaces, Beads projects,
 `no-git-ops`, Dolt identity, server-address syntax when applicable, and the
 required tmux executable when applicable. It does not clean workspaces, claim
 issues, create panes, sessions, or windows, or print a run summary. Missing tmux
 targets are created by `run` only after preflight succeeds.
+
+When `.abacus/reasoning.json` enables `enforceLabels`, preflight also requires
+runtime model mappings for all of `high`, `medium`, and `low`. This prevents a
+valid ticket from being blocked because the operator started Abacus with an
+incomplete mapping table.
 
 `abacus health` answers the broader question “is this repository generally
 ready?”; `preflight` answers “would this exact agent configuration pass

@@ -112,7 +112,7 @@ abacus new my-project --agents 4
 ```
 
 It creates a Git repository, a shared-server Beads database, four detached
-worktrees, a committed `.abacus/targets.json` allowing `main`, the bundled skills,
+worktrees, committed `.abacus/targets.json` and `.abacus/reasoning.json` defaults, the bundled skills,
 and ready-to-use launch scripts that pass `--repo "$root/repo"`:
 
 ```text
@@ -150,7 +150,8 @@ for launcher overrides and the complete setup contract.
 ### Use an existing Git/Beads repository
 
 From the main Git checkout, run `abacus init` to install or update the bundled
-skills and create a missing `.abacus/targets.json` allowing `main`. Beads must
+skills and create missing `.abacus/targets.json` and `.abacus/reasoning.json`
+defaults. Beads must
 already be initialized; existing configuration is preserved. Then run
 `abacus health` and `abacus targets check`, and review default routing versus
 explicit ticket destinations.
@@ -177,6 +178,9 @@ abacus run --mode codex \
   --tmux-session work \
   --tmux-window agents \
   --model gpt-5.6-terra \
+  --reasoning-model high gpt-6-astra \
+  --reasoning-model medium gpt-5.6-terra \
+  --reasoning-model low gpt-5.6-luna \
   --effort high \
   -a alice /work/repo-a \
   -a bob /work/repo-b
@@ -194,12 +198,32 @@ Each configured agent repeats one focused loop:
 
 1. Inspect its assigned workspace and recover resumable interrupted work.
 2. Find eligible ready work and atomically claim one issue.
-3. Create or reuse `abacus/<issue-id>`.
-4. Start the selected coding agent with the issue context and Git instructions.
-5. Watch both the Beads status and the hosted process.
-6. Stop the session when the issue becomes `closed`, `open`, or `blocked`.
-7. Reopen work left `in_progress` by an unexpected exit or timeout.
-8. Synchronize Beads when a Dolt remote is configured, then continue.
+3. Resolve its reasoning label to a model, quarantining invalid labels before Git changes.
+4. Create or reuse `abacus/<issue-id>`.
+5. Start the selected coding agent with the issue context and Git instructions.
+6. Watch both the Beads status and the hosted process.
+7. Stop the session when the issue becomes `closed`, `open`, or `blocked`.
+8. Reopen work left `in_progress` by an unexpected exit or timeout.
+9. Synchronize Beads when a Dolt remote is configured, then continue.
+
+### Reasoning-based model routing
+
+Add one of `abacus:high_reasoning`, `abacus:medium_reasoning`, or
+`abacus:low_reasoning` to a Beads ticket, then map tiers when Abacus starts:
+
+```sh
+abacus run --mode codex --model default-model \
+  --reasoning-model high high-model \
+  --reasoning-model medium medium-model \
+  --reasoning-model low low-model \
+  -a alice /work/repo-a
+```
+
+`.abacus/reasoning.json` controls whether every executable ticket must carry
+exactly one reasoning label. Enforcement defaults to off. In optional mode,
+unlabelled tickets and labels without a mapping use `--model`. Multiple reasoning
+labels always block the ticket and add `abacus:needs-user-attention` with repair
+instructions. Model routing does not change the global `--effort` value.
 
 ### Interrupted workspaces
 
@@ -218,7 +242,7 @@ Explore the [visual agent-loop guide](docs/agent-loop-flow.html), or read the
 | Command | Purpose |
 | --- | --- |
 | `abacus new <name> --agents <count>` | Create a complete new multi-agent project layout. |
-| `abacus init` | Install skills and create missing target config in an existing Git/Beads project. |
+| `abacus init` | Install skills and create missing target/reasoning configs in an existing Git/Beads project. |
 | `abacus skills install` | Install only the four bundled skills into the selected main checkout. |
 | `abacus targets check [<id> ...]` | Audit resolved ticket targets, bindings, and branch history. |
 | `abacus targets set <branch> <id> ...` | Set or repair inactive ticket target metadata. |

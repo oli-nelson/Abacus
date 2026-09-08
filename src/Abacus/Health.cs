@@ -61,6 +61,15 @@ public sealed record TargetConfigurationHealth(string Path, IReadOnlyList<string
     public bool IsReady => Error is null;
 }
 
+public sealed record ReasoningConfigurationHealth(
+    string Path,
+    bool Exists,
+    bool EnforceLabels,
+    string? Error)
+{
+    public bool IsReady => Error is null;
+}
+
 public sealed record HealthReport(
     string? RepositoryRoot,
     ToolHealth Git,
@@ -79,7 +88,8 @@ public sealed record HealthReport(
     IReadOnlyList<string> AvailableModes,
     bool SingleAgentReady,
     bool MultiAgentReady,
-    TargetConfigurationHealth? TargetConfiguration = null)
+    TargetConfigurationHealth? TargetConfiguration = null,
+    ReasoningConfigurationHealth? ReasoningConfiguration = null)
 {
     private const string Reset = "\u001b[0m";
     private const string Bold = "\u001b[1m";
@@ -90,7 +100,8 @@ public sealed record HealthReport(
 
     public bool AreSkillsInstalled => Skills.All(static skill => skill.IsInstalled);
 
-    public bool IsHealthy => SingleAgentReady && AreSkillsInstalled;
+    public bool IsHealthy => SingleAgentReady && AreSkillsInstalled
+        && ReasoningConfiguration is not { IsReady: false };
 
     public string Render(bool color = false)
     {
@@ -120,6 +131,24 @@ public sealed record HealthReport(
         {
             AppendStatus(text, "FAIL", TargetConfiguration?.Error ?? "Target configuration was not checked", color);
             text.AppendLine("  Create .abacus/targets.json with abacus init, or repair the existing version-1 targets allowlist explicitly.");
+        }
+        text.AppendLine();
+        AppendHeading(text, "Reasoning model routing", color);
+        if (ReasoningConfiguration is { IsReady: true } reasoningConfig)
+        {
+            AppendStatus(text, reasoningConfig.Exists ? "PASS" : "INFO",
+                reasoningConfig.Exists
+                    ? reasoningConfig.Path
+                    : $"{reasoningConfig.Path} is absent; reasoning-label enforcement defaults to disabled.", color);
+            text.AppendLine(reasoningConfig.EnforceLabels
+                ? "  Reasoning-label enforcement: enabled (all three runtime mappings are required)"
+                : "  Reasoning-label enforcement: disabled (unmapped or unlabelled tickets use --model)");
+        }
+        else
+        {
+            AppendStatus(text, "FAIL",
+                ReasoningConfiguration?.Error ?? "Reasoning configuration was not checked", color);
+            text.AppendLine("  Repair .abacus/reasoning.json or recreate its version-1 default with abacus init.");
         }
         text.AppendLine();
         AppendHeading(text, "Beads", color);
@@ -386,6 +415,24 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
             targetConfiguration = new(targetConfigPath, [], exception.Message);
         }
 
+        ReasoningConfigurationHealth reasoningConfiguration;
+        var reasoningConfigPath = Path.Combine(
+            repositoryRoot ?? repositoryPath ?? workingDirectory, ".abacus", "reasoning.json");
+        try
+        {
+            if (repositoryRoot is null)
+                throw new ReasoningPolicyException(
+                    "Git repository is unavailable; reasoning configuration cannot be checked");
+            var exists = File.Exists(reasoningConfigPath);
+            var policy = await ReasoningPolicy.LoadAsync(reasoningConfigPath, cancellationToken);
+            reasoningConfiguration = new(
+                reasoningConfigPath, exists, policy.EnforceLabels, Error: null);
+        }
+        catch (ReasoningPolicyException exception)
+        {
+            reasoningConfiguration = new(reasoningConfigPath, false, false, exception.Message);
+        }
+
         var skills = InspectSkills(repositoryRoot);
 
         DoltIdentity? identity = null;
@@ -471,7 +518,8 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
             modes.Add("codex (tmux-hosted)");
         }
 
-        var singleAgentReady = repositoryRoot is not null && modes.Count > 0 && targetConfiguration.IsReady;
+        var singleAgentReady = repositoryRoot is not null && modes.Count > 0
+            && targetConfiguration.IsReady && reasoningConfiguration.IsReady;
         var multiAgentReady = singleAgentReady
             && identity?.IsShared is true
             && worktreeError is null
@@ -495,7 +543,8 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
             modes,
             singleAgentReady,
             multiAgentReady,
-            targetConfiguration);
+            targetConfiguration,
+            reasoningConfiguration);
     }
 
     private async Task<MergeSlotHealth> CheckMergeSlotAsync(

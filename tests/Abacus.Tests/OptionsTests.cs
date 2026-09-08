@@ -133,6 +133,58 @@ public sealed class OptionsTests
     }
 
     [Fact]
+    public void ParsesReasoningModelMappings()
+    {
+        var result = Options.Parse([
+            "run",
+            "--mode", "codex",
+            "--model", "default-model",
+            "--reasoning-model", "high", "high-model",
+            "--reasoning-model", "medium", "medium-model",
+            "--reasoning-model", "low", "low-model",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Equal("high-model", result.Value!.EffectiveReasoningModels[ReasoningPolicy.HighLabel]);
+        Assert.Equal("medium-model", result.Value.EffectiveReasoningModels[ReasoningPolicy.MediumLabel]);
+        Assert.Equal("low-model", result.Value.EffectiveReasoningModels[ReasoningPolicy.LowLabel]);
+    }
+
+    [Theory]
+    [InlineData("highest")]
+    [InlineData("HIGH")]
+    public void RejectsUnknownReasoningTier(string tier)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "run", "--mode", "codex", "--model", "default-model",
+            "--reasoning-model", tier, "mapped-model",
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
+    [Fact]
+    public void RejectsDuplicateReasoningTier()
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "run", "--mode", "codex", "--model", "default-model",
+            "--reasoning-model", "high", "one",
+            "--reasoning-model", "high", "two",
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
+    [Fact]
+    public void ValidatesMappedModelsForSelectedHarness()
+    {
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse([
+            "run", "--model", "provider/default",
+            "--reasoning-model", "high", "not-an-opencode-id",
+            "-a", "alice", "/tmp/a",
+        ]));
+        Assert.Contains("provider/model", exception.Message);
+    }
+
+    [Fact]
     public void RejectsDuplicateAdditionalAgentPrompt()
     {
         Assert.Throws<OptionsException>(() => Options.Parse([

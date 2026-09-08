@@ -83,6 +83,7 @@ abacus init
 Validates an existing, readable Beads project belonging to this Git repository,
 installs the bundled skills, and creates `.abacus/targets.json` allowing `main`
 only if absent, with `enforceTargetBranch: false` and `defaultTarget: "main"`.
+It also creates an absent `.abacus/reasoning.json` with `enforceLabels: false`.
 Existing configuration is never overwritten. All configured
 local branches must exist; without a local `main`, supply your own config first.
 Existing bundled skills require replacement confirmation; declining changes
@@ -201,6 +202,7 @@ abacus run [--mode <opencode|codex|claude|opencode-server>] \
   [--tmux-window <name-or-index>] \
   [--tmux-layout <layout>] [--disown-tmux-session] \
   --model <model> \
+  [--reasoning-model <high|medium|low> <model>] \
   [--effort <effort>] \
   [--remote-control] \
   [--append-prompt <prompt>] \
@@ -234,12 +236,36 @@ claims, workspace changes, hosted agents, cleanup, or a run summary. It rejects
 | --- | --- | --- |
 | `--agent <name> <workspace>`, `-a <name> <workspace>` | — | Adds an agent and its dedicated Git workspace. Repeat for a pool. |
 | `--mode <mode>` | `opencode` | Selects one of the four supported modes. |
-| `--model <model>` | — | Required; passed to every selected harness. |
+| `--model <model>` | — | Required fallback model; used when no mapped reasoning route applies. |
+| `--reasoning-model <tier> <model>` | — | Repeatable mapping for `high`, `medium`, and `low`. |
 | `--effort <effort>` | `high` | Nonempty provider-specific value without whitespace. |
 | `--remote-control` | off | Enables Claude Remote Control; rejected in every other mode. |
 
 OpenCode modes require `provider/model`. Codex and Claude accept their native
 IDs or aliases. Harnesses remain responsible for validating model availability.
+
+### Reasoning labels and model selection
+
+The three exact routing labels are `abacus:high_reasoning`,
+`abacus:medium_reasoning`, and `abacus:low_reasoning`. Model mappings belong to
+the run configuration because available IDs vary by harness and machine. Project
+enforcement belongs to `<repo>/.abacus/reasoning.json`:
+
+```json
+{
+  "version": 1,
+  "enforceLabels": false
+}
+```
+
+With enforcement disabled or the file absent, tickets without a reasoning label
+use `--model`; a single labelled ticket with no corresponding mapping also uses
+`--model`. With enforcement enabled, preflight requires all three mappings and
+claimed tickets require exactly one label. Multiple reasoning labels are always
+invalid. Abacus atomically claims and re-reads such a ticket before setting it
+to `blocked`, clearing its assignee, adding `abacus:needs-user-attention`, and
+recording repair instructions. The selected model is fixed for that agent
+session. `--effort` remains global and is not derived from the label.
 
 ### Hosting
 

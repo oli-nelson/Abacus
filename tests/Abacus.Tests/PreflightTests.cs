@@ -38,6 +38,48 @@ public sealed class PreflightTests
     }
 
     [Fact]
+    public async Task EnforcedReasoningPolicyRequiresAllRuntimeMappings()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = await PreflightFixture.CreateAsync();
+        var workspace = await fixture.AddWorkspaceAsync("one", EmbeddedIdentity, "[]");
+        var directory = Directory.CreateDirectory(Path.Combine(workspace, ".abacus"));
+        await File.WriteAllTextAsync(Path.Combine(directory.FullName, "reasoning.json"),
+            """{"version":1,"enforceLabels":true}""");
+        var exception = await Assert.ThrowsAsync<PreflightException>(() => fixture.RunAsync(
+            new Options(
+                "workers",
+                "provider/default",
+                null,
+                [new("alice", workspace)],
+                ReasoningModels: new Dictionary<string, string>
+                {
+                    [ReasoningPolicy.HighLabel] = "provider/high",
+                })));
+        Assert.Contains(ReasoningPolicy.MediumLabel, exception.Message);
+        Assert.Contains(ReasoningPolicy.LowLabel, exception.Message);
+    }
+
+    [Fact]
+    public async Task EnforcedReasoningPolicyAcceptsCompleteRuntimeMappings()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = await PreflightFixture.CreateAsync();
+        var workspace = await fixture.AddWorkspaceAsync("one", EmbeddedIdentity, "[]");
+        var directory = Directory.CreateDirectory(Path.Combine(workspace, ".abacus"));
+        await File.WriteAllTextAsync(Path.Combine(directory.FullName, "reasoning.json"),
+            """{"version":1,"enforceLabels":true}""");
+        var mappings = ReasoningPolicy.Labels.ToDictionary(
+            static label => label,
+            static label => "provider/" + label,
+            StringComparer.Ordinal);
+        var result = await fixture.RunAsync(new Options(
+            "workers", "provider/default", null, [new("alice", workspace)],
+            ReasoningModels: mappings));
+        Assert.True(Assert.Single(result.Agents).Reasoning!.EnforceLabels);
+    }
+
+    [Fact]
     public async Task EnabledNoGitOpsStopsPreflightWithCorrectionCommand()
     {
         if (OperatingSystem.IsWindows())

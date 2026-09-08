@@ -37,8 +37,10 @@ public sealed class RepositoryInitializerTests
         var nested = Directory.CreateDirectory(Path.Combine(f.Repo, "src", "nested")).FullName;
         var result = await f.InitAsync(nested);
         Assert.True(result.CreatedTargets);
+        Assert.True(result.CreatedReasoning);
         Assert.False(result.Skills.Cancelled);
         Assert.Equal(TargetRegistry.DefaultConfiguration, await File.ReadAllTextAsync(f.Config));
+        Assert.Equal(ReasoningPolicy.DefaultConfiguration, await File.ReadAllTextAsync(f.ReasoningConfig));
         Assert.Equal(4, result.Skills.InstalledSkills.Count);
         var registry = await TargetRegistry.LoadAsync(f.Config, CancellationToken.None);
         Assert.False(registry.EnforceTargetBranch);
@@ -66,6 +68,7 @@ public sealed class RepositoryInitializerTests
         var confirmations = 0;
         var second = await f.InitAsync(confirm: skills => { confirmations++; Assert.Equal(4, skills.Count); return true; });
         Assert.False(second.CreatedTargets);
+        Assert.False(second.CreatedReasoning);
         Assert.Equal(1, confirmations);
         Assert.Equal(custom, await File.ReadAllTextAsync(f.Config));
         Assert.Equal("keep this policy\n", await File.ReadAllTextAsync(instructions));
@@ -82,6 +85,7 @@ public sealed class RepositoryInitializerTests
         var result = await f.InitAsync(confirm: _ => false);
         Assert.True(result.Skills.Cancelled);
         Assert.False(File.Exists(f.Config));
+        Assert.False(File.Exists(f.ReasoningConfig));
         Assert.Equal("custom", await File.ReadAllTextAsync(skill));
     }
 
@@ -204,6 +208,7 @@ public sealed class RepositoryInitializerTests
         public string Root { get; } = Directory.CreateTempSubdirectory("abacus-init-").FullName;
         public string Repo => Path.Combine(Root, "repo");
         public string Config => Path.Combine(Repo, ".abacus", "targets.json");
+        public string ReasoningConfig => Path.Combine(Repo, ".abacus", "reasoning.json");
         public string WhereJson => Path.Combine(Root, "where.json");
         public string WhereExit => Path.Combine(Root, "where.exit");
         public string ListJson => Path.Combine(Root, "list.json");

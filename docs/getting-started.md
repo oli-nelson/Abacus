@@ -3,6 +3,11 @@
 > **Ticket targets:** Configure the target allowlist and default destination.
 > Missing ticket metadata is allowed unless `enforceTargetBranch` is enabled. See [target setup, audit, and recovery](targets.md).
 
+> **Reasoning routing:** `.abacus/reasoning.json` optionally requires one of
+> `abacus:high_reasoning`, `abacus:medium_reasoning`, or
+> `abacus:low_reasoning` on executable tickets. Runtime `--reasoning-model`
+> options map those tiers to models; otherwise `--model` is the fallback.
+
 This guide takes you from an installed binary to a running agent. Choose one
 setup path; you do not need to perform every walkthrough.
 
@@ -91,8 +96,9 @@ The initializer:
 2. Initializes a uniquely named shared-server Beads database non-interactively
    with the maintainer role.
 3. Sets `no-git-ops=false`, marks Dolt local-only, and creates a merge slot.
-4. Installs the four bundled Abacus skills and writes `.abacus/targets.json`
-   with `enforceTargetBranch: false`, `defaultTarget: "main"`, and `main` allowed.
+4. Installs the four bundled Abacus skills, writes `.abacus/targets.json`
+   with `enforceTargetBranch: false`, `defaultTarget: "main"`, and `main` allowed,
+   and writes `.abacus/reasoning.json` with `enforceLabels: false`.
 5. Commits the initial repository state.
 6. Adds the requested detached worktrees.
 7. Writes executable launchers that discover `worktrees/*` at runtime and
@@ -120,6 +126,9 @@ Launchers accept model and effort as their first two arguments. You can also use
 | `ABACUS_BIN` | Override the Abacus executable |
 | `ABACUS_MODEL` | Set the default model |
 | `ABACUS_EFFORT` | Set the default effort or variant |
+| `ABACUS_HIGH_REASONING_MODEL` | Map `abacus:high_reasoning` tickets |
+| `ABACUS_MEDIUM_REASONING_MODEL` | Map `abacus:medium_reasoning` tickets |
+| `ABACUS_LOW_REASONING_MODEL` | Map `abacus:low_reasoning` tickets |
 | `ABACUS_TMUX_SESSION` | Supply an explicit user-owned session; when unset Abacus derives and owns its default session |
 
 ## Path B: use an existing repository

@@ -102,6 +102,8 @@ public sealed partial class MultiAgentRepositoryInitializer(
         Directory.CreateDirectory(Path.Combine(repositoryPath, ".abacus"));
         await File.WriteAllTextAsync(Path.Combine(repositoryPath, ".abacus", "targets.json"),
             TargetRegistry.DefaultConfiguration, cancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(repositoryPath, ".abacus", "reasoning.json"),
+            ReasoningPolicy.DefaultConfiguration, cancellationToken);
 
         await RunRequiredAsync(
             gitExecutable,
@@ -188,6 +190,9 @@ public sealed partial class MultiAgentRepositoryInitializer(
             tmux_session="${ABACUS_TMUX_SESSION:-}"
             model="${1:-${ABACUS_MODEL:-{{{defaultModel}}}}}"
             effort="${2:-${ABACUS_EFFORT:-high}}"
+            high_reasoning_model="${ABACUS_HIGH_REASONING_MODEL:-}"
+            medium_reasoning_model="${ABACUS_MEDIUM_REASONING_MODEL:-}"
+            low_reasoning_model="${ABACUS_LOW_REASONING_MODEL:-}"
 
             [[ -d "$root/repo/.git" ]] || die "missing repository: $root/repo"
             [[ -d "$worktrees" ]] || die "missing worktrees directory: $worktrees"
@@ -206,6 +211,9 @@ public sealed partial class MultiAgentRepositoryInitializer(
             run_args=(run --repo "$root/repo" --mode {{{mode}}})
             [[ -z "$tmux_session" ]] || run_args+=(--tmux-session "$tmux_session")
             run_args+=(--model "$model" --effort "$effort")
+            [[ -z "$high_reasoning_model" ]] || run_args+=(--reasoning-model high "$high_reasoning_model")
+            [[ -z "$medium_reasoning_model" ]] || run_args+=(--reasoning-model medium "$medium_reasoning_model")
+            [[ -z "$low_reasoning_model" ]] || run_args+=(--reasoning-model low "$low_reasoning_model")
 
             exec "$abacus_bin" "${run_args[@]}" "${agent_args[@]}"
             """;

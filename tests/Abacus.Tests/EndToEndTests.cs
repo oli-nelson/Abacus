@@ -46,6 +46,36 @@ public sealed partial class EndToEndTests
     }
 
     [Fact]
+    public async Task ReasoningLabelLaunchesAgentWithMappedModel()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-reasoning-");
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+            var startInfo = DirectStartInfo(root.FullName, bin, workspace, "--once");
+            startInfo.ArgumentList.Add("--reasoning-model");
+            startInfo.ArgumentList.Add("high");
+            startInfo.ArgumentList.Add("provider/mapped-model");
+            startInfo.Environment["ABACUS_TEST_REASONING_LABEL"] = ReasoningPolicy.HighLabel;
+            using var process = Process.Start(startInfo)!;
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await process.WaitForExitAsync(timeout.Token);
+            Assert.Equal(0, process.ExitCode);
+            Assert.Contains("provider/mapped-model",
+                await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
+            Assert.Contains("closed 1", await stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task FiniteRunExitsNonzeroWhenAllPushAttemptsFail()
     {
         if (OperatingSystem.IsWindows())
@@ -489,7 +519,9 @@ public sealed partial class EndToEndTests
                 test -f "$root/binding" && binding=",\"abacus_execution\":$(cat "$root/binding")"
                 assignee=
                 test -f "$root/claimed" && assignee=alice
-                printf '[{"id":"abc-1","title":"Implement remote control","status":"%s","assignee":"%s","metadata":{"abacus_target":"main"%s}}]\n' "$status" "$assignee" "$binding"
+                labels='[]'
+                test -n "$ABACUS_TEST_REASONING_LABEL" && labels="[\"$ABACUS_TEST_REASONING_LABEL\"]"
+                printf '[{"id":"abc-1","title":"Implement remote control","status":"%s","assignee":"%s","labels":%s,"metadata":{"abacus_target":"main"%s}}]\n' "$status" "$assignee" "$labels" "$binding"
               fi
             elif test "$1" = update; then
               if test "$3" = --claim; then

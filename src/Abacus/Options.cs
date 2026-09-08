@@ -62,7 +62,8 @@ public sealed record Options(
     string? EventLogPath = null,
     bool NoIntro = false,
     bool StartPaused = false,
-    bool DisownTmuxSession = false)
+    bool DisownTmuxSession = false,
+    IReadOnlyDictionary<string, string>? ReasoningModels = null)
 {
     public const string DefaultTmuxLayout = "tiled";
 
@@ -75,6 +76,9 @@ public sealed record Options(
     public string? EffectiveTmuxLayout => UsesTmux
         ? TmuxLayout ?? DefaultTmuxLayout
         : null;
+
+    public IReadOnlyDictionary<string, string> EffectiveReasoningModels =>
+        ReasoningModels ?? new Dictionary<string, string>(StringComparer.Ordinal);
 
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -143,7 +147,7 @@ public sealed record Options(
             var canonical = option switch { "-a" => "--agent", "-v" => "--verbose", _ => option };
             var arity = OptionArity(command, canonical);
             if (arity < 0) throw new OptionsException($"unknown option '{option}' for {command}");
-            if (!seen.Add(canonical) && canonical is not ("--agent" or "--label" or "--exclude-label" or "--target-filter"))
+            if (!seen.Add(canonical) && canonical is not ("--agent" or "--label" or "--exclude-label" or "--target-filter" or "--reasoning-model"))
                 throw new OptionsException($"{option} can only be specified once");
             if (equals >= 0 && arity != 1) throw new OptionsException($"{option} does not accept an equals value");
             var values = new List<string>();
@@ -243,7 +247,7 @@ public sealed record Options(
         if (command is "run" or "preflight")
             return option switch
             {
-                "--agent" => 2,
+                "--agent" or "--reasoning-model" => 2,
                 "--mode" or "--model" or "--effort" or "--tmux-session" or "--tmux-window" or "--tmux-layout"
                     or "--opencode-server" or "--target-filter" or "--append-prompt" or "--label" or "--exclude-label"
                     or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify" => 1,
@@ -293,6 +297,7 @@ public sealed record Options(
         string? appendAgentPrompt = null;
         var appendAgentPromptSpecified = false;
         var agents = new List<AgentOptions>();
+        var reasoningModels = new Dictionary<string, string>(StringComparer.Ordinal);
 
         for (var index = 0; index < arguments.Count; index++)
         {
@@ -326,6 +331,18 @@ public sealed record Options(
                     break;
                 case "--model":
                     model = ReadValue(arguments, ref index, argument);
+                    break;
+                case "--reasoning-model":
+                    var tier = ReadValue(arguments, ref index, argument);
+                    string label;
+                    try { label = ReasoningPolicy.LabelForTier(tier); }
+                    catch (ArgumentException)
+                    {
+                        throw new OptionsException("--reasoning-model tier must be high, medium, or low");
+                    }
+                    var reasoningModel = ReadValue(arguments, ref index, argument);
+                    if (!reasoningModels.TryAdd(label, reasoningModel))
+                        throw new OptionsException($"--reasoning-model {tier} can only be specified once");
                     break;
                 case "--effort":
                     effort = ReadValue(arguments, ref index, argument);
@@ -490,6 +507,17 @@ public sealed record Options(
                 : "--model cannot contain whitespace");
         }
 
+        foreach (var (label, mappedModel) in reasoningModels)
+        {
+            if (!IsValidModel(mappedModel, agentMode))
+            {
+                var tier = label["abacus:".Length..^"_reasoning".Length];
+                throw new OptionsException(agentMode is AgentMode.OpenCode or AgentMode.OpenCodeServer
+                    ? $"--reasoning-model {tier} must use OpenCode's provider/model format"
+                    : $"--reasoning-model {tier} cannot contain whitespace");
+            }
+        }
+
         if (string.IsNullOrEmpty(effort)
             || effort.Any(char.IsWhiteSpace)
             || effort.Contains('#', StringComparison.Ordinal))
@@ -557,7 +585,8 @@ public sealed record Options(
                 null,
                 targetBranches.AsReadOnly(),
                 stdio, eventLogPath, noIntro, startPaused,
-                DisownTmuxSession: disownTmuxSession),
+                DisownTmuxSession: disownTmuxSession,
+                ReasoningModels: reasoningModels),
             ShowHelp: false);
     }
 

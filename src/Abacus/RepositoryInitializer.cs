@@ -3,7 +3,8 @@ using System.Text.Json;
 namespace Abacus;
 
 public sealed record RepositoryInitializationResult(
-    string TargetsPath, bool CreatedTargets, SkillInstallationResult Skills);
+    string TargetsPath, bool CreatedTargets, SkillInstallationResult Skills,
+    string? ReasoningPath = null, bool CreatedReasoning = false);
 
 /// <summary>Opt-in setup for an existing Git/Beads project, not a database bootstrapper.</summary>
 public sealed class RepositoryInitializer(
@@ -64,10 +65,14 @@ public sealed class RepositoryInitializer(
         }
 
         var targetsPath = Path.Combine(repositoryRoot, ".abacus", "targets.json");
-        var existing = File.Exists(targetsPath) || Directory.Exists(targetsPath);
-        var branches = existing
+        var targetsExisting = File.Exists(targetsPath) || Directory.Exists(targetsPath);
+        var reasoningPath = Path.Combine(repositoryRoot, ".abacus", "reasoning.json");
+        var reasoningExisting = File.Exists(reasoningPath) || Directory.Exists(reasoningPath);
+        var branches = targetsExisting
             ? (await TargetRegistry.LoadAsync(targetsPath, cancellationToken)).Targets.Keys.ToArray()
             : ["main"];
+        if (reasoningExisting)
+            await ReasoningPolicy.LoadAsync(reasoningPath, cancellationToken, allowMissing: false);
         var git = new Git(runner, gitExecutable);
         foreach (var branch in branches)
         {
@@ -81,22 +86,34 @@ public sealed class RepositoryInitializer(
 
         var skills = await new SkillInstaller(runner, gitExecutable)
             .InstallAsync(repositoryRoot, confirmOverwrite, cancellationToken);
-        if (skills.Cancelled || existing)
-            return new(targetsPath, CreatedTargets: false, skills);
+        if (skills.Cancelled)
+            return new(targetsPath, CreatedTargets: false, skills, reasoningPath, CreatedReasoning: false);
 
-        // Publish a complete file without ever replacing a concurrently created config.
-        Directory.CreateDirectory(Path.GetDirectoryName(targetsPath)!);
-        var temporaryPath = targetsPath + $".{Guid.NewGuid():N}.tmp";
+        // Publish complete files without ever replacing concurrently created configs.
+        var createdTargets = !targetsExisting
+            && await CreateConfigurationAsync(targetsPath, TargetRegistry.DefaultConfiguration, cancellationToken);
+        var createdReasoning = !reasoningExisting
+            && await CreateConfigurationAsync(reasoningPath, ReasoningPolicy.DefaultConfiguration, cancellationToken);
+        return new(targetsPath, createdTargets, skills, reasoningPath, createdReasoning);
+    }
+
+    private static async Task<bool> CreateConfigurationAsync(
+        string path,
+        string contents,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var temporaryPath = path + $".{Guid.NewGuid():N}.tmp";
         try
         {
-            await File.WriteAllTextAsync(temporaryPath, TargetRegistry.DefaultConfiguration, cancellationToken);
-            File.Move(temporaryPath, targetsPath, overwrite: false);
+            await File.WriteAllTextAsync(temporaryPath, contents, cancellationToken);
+            File.Move(temporaryPath, path, overwrite: false);
+            return true;
         }
         finally
         {
             if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
         }
-        return new(targetsPath, CreatedTargets: true, skills);
     }
 
     private async Task<string> RequiredAsync(string executable, IReadOnlyList<string> arguments,

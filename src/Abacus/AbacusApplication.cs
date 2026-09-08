@@ -103,7 +103,9 @@ public sealed class AbacusApplication(
                     dispatchFilters: preflight.Options.DispatchFilters,
                     notifier: notifier,
                     claimGate: claimGate,
-                    initialClaimBarrier: initialClaimBarrier);
+                    initialClaimBarrier: initialClaimBarrier,
+                    reasoningModels: preflight.Options.EffectiveReasoningModels,
+                    defaultModel: preflight.Options.Model);
                 var supervisor = new TicketSupervisor(
                     beads,
                     agentHost,

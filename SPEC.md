@@ -43,14 +43,15 @@ The project root also receives executable `run_abacus_opencode.sh`,
 discover the worktree directories at run time and pass one uniquely named agent
 per worktree to Abacus. Each launcher passes `--repo "$root/repo"` explicitly
 so invocation does not depend on the caller's working directory. Launchers accept
-model and effort overrides and let `abacus run` resolve or create its default
+default model and effort overrides plus optional high/medium/low reasoning-model
+environment overrides, and let `abacus run` resolve or create its default
 tmux target unless `ABACUS_TMUX_SESSION` supplies an explicit session.
 
 Before running Abacus:
 
 1. Set up a Beads project in your main Git checkout, then run `abacus init`
-   to install skills and create missing target configuration. Review the target
-   policy and use `targets check` before dispatch.
+   to install skills and create missing target and reasoning configuration.
+   Review the policies and use `targets check` before dispatch.
 2. For OpenCode, Codex, or Claude mode, Abacus creates or reuses a detached tmux
    session and agent window. Supplying explicit names remains optional.
 3. For OpenCode Server mode, start an OpenCode server. A tmux session is optional in this mode.
@@ -85,7 +86,8 @@ Install the bundled skills using the same confirmation contract as
 `skills install`. A declined confirmation leaves both skills and configuration
 unchanged. Create `.abacus/targets.json` allowing only `main` when absent, with
 `enforceTargetBranch: false` and `defaultTarget: "main"`;
-preserve existing configuration byte-for-byte. If no local `main` exists, require
+also create an absent `.abacus/reasoning.json` version-1 policy with
+`enforceLabels: false`. Preserve existing configuration byte-for-byte. If no local `main` exists, require
 an explicit configuration naming an existing target or an operator-created branch.
 Do not create branches, assign tickets, change Beads settings, stage, or commit.
 Report created/preserved config, installed skills, and next steps: review/commit
@@ -181,6 +183,7 @@ abacus run [--tmux-session <session_name>] \
   [--tmux-layout <layout>] \
   [--disown-tmux-session] \
   --model <model> \
+  [--reasoning-model <high|medium|low> <model>] \
   [--effort <effort>] \
   [--remote-control] \
   [--repo <main-checkout>] [--target-filter <branch>] \
@@ -196,6 +199,31 @@ abacus run [--tmux-session <session_name>] \
 ```
 
 `--mode` defaults to `opencode`. `--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific variant name without whitespace. OpenCode modes require a `provider/model` ID; Codex and Claude accept their native model IDs and aliases. Model and effort availability remain the selected CLI's responsibility. Interactive OpenCode is the exception: OpenCode 1.18.20's TUI entry point does not expose variant selection, so Abacus passes the model unchanged and OpenCode uses its configured or session-selected variant.
+
+`--reasoning-model <tier> <model>` is repeatable for the exact tiers `high`,
+`medium`, and `low`. It maps the Beads labels `abacus:high_reasoning`,
+`abacus:medium_reasoning`, and `abacus:low_reasoning` to model IDs valid for the
+selected harness. The global `--effort` remains unchanged; reasoning labels route
+only the model. Project policy loads from `<repo>/.abacus/reasoning.json`:
+
+```json
+{
+  "version": 1,
+  "enforceLabels": false
+}
+```
+
+When the file is absent, enforcement defaults to off for compatibility. With
+enforcement off, an unlabelled ticket or a single reasoning label without a
+runtime mapping uses `--model`. With enforcement on, every run must configure
+all three model mappings during preflight, and every executable ticket must have
+exactly one reasoning label. A ticket carrying multiple reasoning labels is
+invalid regardless of enforcement. After winning the atomic claim, Abacus
+re-reads the issue and validates its reasoning labels before changing Git or
+starting an agent. Invalid tickets are set to `blocked`, unassigned, labelled
+`abacus:needs-user-attention`, and given a precise repair note. Interrupted and
+reserved-ticket recovery uses the same routing rules. The resolved model remains
+fixed for that hosted agent session.
 
 `--remote-control` is valid only with Claude Code. Abacus adds `--remote-control '<issue-id> • <issue-title>'` to the normal interactive command. Codex and both OpenCode modes reject the option.
 
@@ -250,7 +278,9 @@ reported with guidance to use its interactive `/model` picker. The command
 exits zero when at least one model ID was discovered and one otherwise. It does
 not require a Git repository, Beads project, model, agent, or tmux session.
 
-Each local agent runs interactively in its own tmux pane using its assigned Git workspace and requested model:
+Each local agent runs interactively in its own tmux pane using its assigned Git
+workspace and ticket-resolved model (the matching reasoning route, or the
+requested default model):
 
 - OpenCode: `opencode --prompt <prompt> --model <provider/model>`
 - Codex: `codex --cd <workspace> --model <model> --config model_reasoning_effort=<effort> --approve-for-me <prompt>`
@@ -317,14 +347,14 @@ operations, redirected stdin/stdout/stderr, or dumb terminals. Honor `NO_COLOR`
 and terminal dimensions, and restore cursor visibility on skip or cancellation.
 All four new flags above are run-only.
 
-Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `preflight` runs the complete non-mutating preflight and exits without changing workspaces, tmux sessions or windows, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected main repository, target registry and local refs, required executables, workspace, Beads `no-git-ops` setting, and Dolt configuration, plus the OpenCode server address when applicable. Missing tmux targets are created only by `run`, after preflight succeeds. `--once` and `--drain` are mutually exclusive run options; `preflight` is a separate command and rejects both.
+Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `preflight` runs the complete non-mutating preflight and exits without changing workspaces, tmux sessions or windows, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected main repository, target registry and local refs, reasoning policy and strict-mode model mappings, required executables, workspace, Beads `no-git-ops` setting, and Dolt configuration, plus the OpenCode server address when applicable. Missing tmux targets are created only by `run`, after preflight succeeds. `--once` and `--drain` are mutually exclusive run options; `preflight` is a separate command and rejects both.
 
 ### Repository health
 
 `health` is a standalone, read-only diagnostic. From the selected main Git
 repository it reports:
 
-- whether target configuration, instruction files, and local target branches are valid;
+- whether target and reasoning configuration, instruction files, and local target branches are valid;
 - whether Git and Beads meet their minimum versions and Beads is initialized;
 - whether Beads uses embedded single-writer storage or a reachable shared,
   server-backed Dolt database suitable for multiple agents;
@@ -348,7 +378,7 @@ also provide distinct workspaces, but health deliberately does not search for
 them. Merge-slot availability is advisory because repositories may serialize
 merges another way. The command exits zero when at least one single-agent mode is
 runnable, `no-git-ops` is disabled, and all bundled skills are installed;
-otherwise it exits one. Target configuration must also be valid.
+otherwise it exits one. Target and reasoning configuration must also be valid.
 On an interactive color-capable terminal, headings and status markers are
 color-coded: green for pass/ready, yellow for warnings, red for failures/not
 ready, and cyan for informational results. Redirected output and dumb terminals

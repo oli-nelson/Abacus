@@ -426,6 +426,58 @@ public sealed class TargetRoutingTests
         Assert.Equal("", await f.RunGitAsync("status", "--porcelain"));
     }
 
+    [Theory]
+    [InlineData(null, null, "default-model")]
+    [InlineData(ReasoningPolicy.HighLabel, null, "default-model")]
+    [InlineData(ReasoningPolicy.HighLabel, "high-model", "high-model")]
+    public async Task OptionalReasoningRoutingUsesMappingOrDefault(
+        string? label,
+        string? mappedModel,
+        string expectedModel)
+    {
+        using var f = await RoutingFixture.CreateAsync();
+        await f.AddIssueAsync("abc-1", "main", labels: label is null ? [] : [label]);
+        var mappings = mappedModel is null
+            ? new Dictionary<string, string>()
+            : new Dictionary<string, string> { [ReasoningPolicy.HighLabel] = mappedModel };
+        var claim = await f.ClaimAsync(
+            reasoning: new ReasoningPolicy(), mappings: mappings);
+        Assert.Equal(expectedModel, claim!.Model);
+    }
+
+    [Fact]
+    public async Task MultipleReasoningLabelsAreBlockedBeforeGitMutation()
+    {
+        using var f = await RoutingFixture.CreateAsync();
+        await f.AddIssueAsync("abc-1", "main", labels:
+            [ReasoningPolicy.HighLabel, ReasoningPolicy.LowLabel]);
+        var before = await f.RunGitAsync("rev-parse", "HEAD");
+        Assert.Null(await f.ClaimAsync(reasoning: new ReasoningPolicy()));
+        var issue = f.ReadIssue("abc-1");
+        Assert.Equal("blocked", issue["status"]!.GetValue<string>());
+        Assert.Contains(Beads.NeedsUserAttentionLabel, issue["labels"]!.ToJsonString());
+        Assert.Contains("multiple reasoning labels", issue["notes"]!.GetValue<string>());
+        Assert.Equal(before, await f.RunGitAsync("rev-parse", "HEAD"));
+        Assert.False(await f.Git.IssueBranchExistsAsync(
+            f.Workspace, "alice", "abc-1", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EnforcedReasoningLabelIsRequired()
+    {
+        using var f = await RoutingFixture.CreateAsync();
+        await f.AddIssueAsync("abc-1", "main");
+        var mappings = ReasoningPolicy.Labels.ToDictionary(
+            static label => label,
+            static label => label + "-model",
+            StringComparer.Ordinal);
+        Assert.Null(await f.ClaimAsync(
+            reasoning: new ReasoningPolicy(enforceLabels: true), mappings: mappings));
+        Assert.Equal("blocked", f.ReadIssue("abc-1")["status"]!.GetValue<string>());
+        Assert.Contains("requires exactly one reasoning label",
+            f.ReadIssue("abc-1")["notes"]!.GetValue<string>());
+    }
+
     private sealed class RoutingFixture : IDisposable
     {
         public string Root { get; } = Directory.CreateTempSubdirectory("abacus-routing-").FullName;
@@ -498,13 +550,26 @@ public sealed class TargetRoutingTests
             return f;
         }
 
-        public Task AddIssueAsync(string id, string? target, int priority = 1)
+        public Task AddIssueAsync(
+            string id,
+            string? target,
+            int priority = 1,
+            IReadOnlyList<string>? labels = null)
         {
             var issues = JsonNode.Parse(File.ReadAllText(StatePath))!;
             var metadata = new JsonObject();
             if (target is not null) metadata["abacus_target"] = target;
-            issues[id] = new JsonObject { ["id"] = id, ["status"] = "open", ["assignee"] = "",
-                ["priority"] = priority, ["comment_count"] = 0, ["metadata"] = metadata };
+            issues[id] = new JsonObject
+            {
+                ["id"] = id,
+                ["status"] = "open",
+                ["assignee"] = "",
+                ["priority"] = priority,
+                ["comment_count"] = 0,
+                ["metadata"] = metadata,
+                ["labels"] = new JsonArray((labels ?? [])
+                    .Select(static label => (JsonNode?)JsonValue.Create(label)).ToArray()),
+            };
             File.WriteAllText(StatePath, issues.ToJsonString());
             return Task.CompletedTask;
         }
@@ -516,13 +581,27 @@ public sealed class TargetRoutingTests
             edit(issues[id]!);
             File.WriteAllText(StatePath, issues.ToJsonString());
         }
-        public ValidatedAgent Agent(IReadOnlyList<string>? filters = null) => new("alice", Workspace,
-            new(true, "test", null, null, true), false, Targets: registry, TargetBranches: filters);
-        public async Task<PreparedClaim?> ClaimAsync(IReadOnlyList<string>? filters = null, ExecutionMode mode = ExecutionMode.Once)
+        public ValidatedAgent Agent(
+            IReadOnlyList<string>? filters = null,
+            ReasoningPolicy? reasoning = null) => new("alice", Workspace,
+            new(true, "test", null, null, true), false, Targets: registry,
+            TargetBranches: filters, Reasoning: reasoning);
+        public async Task<PreparedClaim?> ClaimAsync(
+            IReadOnlyList<string>? filters = null,
+            ExecutionMode mode = ExecutionMode.Once,
+            ReasoningPolicy? reasoning = null,
+            IReadOnlyDictionary<string, string>? mappings = null,
+            string defaultModel = "default-model")
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            return await new ClaimCoordinator(Beads, Git, new TicketRecovery(Beads, TextWriter.Null), TextWriter.Null)
-                .WaitForPreparedClaimAsync(Agent(filters), true, mode, timeout.Token);
+            return await new ClaimCoordinator(
+                    Beads,
+                    Git,
+                    new TicketRecovery(Beads, TextWriter.Null),
+                    TextWriter.Null,
+                    reasoningModels: mappings,
+                    defaultModel: defaultModel)
+                .WaitForPreparedClaimAsync(Agent(filters, reasoning), true, mode, timeout.Token);
         }
         public async Task<string> RunGitAsync(params string[] args)
         {

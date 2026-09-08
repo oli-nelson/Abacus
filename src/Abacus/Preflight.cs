@@ -10,7 +10,8 @@ public sealed record ValidatedAgent(
     string? AppendedPrompt = null,
     string? MergeInstructionsOverride = null,
     TargetRegistry? Targets = null,
-    IReadOnlyList<string>? TargetBranches = null);
+    IReadOnlyList<string>? TargetBranches = null,
+    ReasoningPolicy? Reasoning = null);
 
 public sealed record PreflightResult(
     Options Options,
@@ -96,12 +97,28 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
 
         var targets = await TargetRegistry.LoadAsync(
             Path.Combine(controllerRoot, ".abacus", "targets.json"), cancellationToken);
+        ReasoningPolicy reasoning;
+        try
+        {
+            reasoning = await ReasoningPolicy.LoadAsync(
+                Path.Combine(controllerRoot, ".abacus", "reasoning.json"), cancellationToken);
+            reasoning.ValidateMappings(options.EffectiveReasoningModels);
+        }
+        catch (ReasoningPolicyException exception)
+        {
+            throw new PreflightException(exception.Message);
+        }
         foreach (var branch in options.TargetBranches ?? []) targets.Resolve(branch);
         for (var i = 0; i < validated.Count; i++)
         {
             foreach (var target in targets.Targets.Keys)
                 await git.ResolveTargetCommitAsync(validated[i].WorkspacePath, validated[i].Name, target, cancellationToken);
-            validated[i] = validated[i] with { Targets = targets, TargetBranches = options.TargetBranches };
+            validated[i] = validated[i] with
+            {
+                Targets = targets,
+                TargetBranches = options.TargetBranches,
+                Reasoning = reasoning,
+            };
         }
 
 

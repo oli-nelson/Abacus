@@ -44,7 +44,8 @@ Waiting → Claimed → Preparing → Running → Finalizing → Waiting
 ```
 
 The loops share no scheduler or internal queue. Each one asks Beads for ready
-work and uses `bd update <id> --claim` for atomic ownership. Target-validation failures quarantine the claim before any harness starts;
+work and uses `bd update <id> --claim` for atomic ownership. Target- and
+reasoning-label-validation failures quarantine the claim before any harness starts;
 ordinary recoverable failures use the reopen path. The visual
 walkthrough is in [The Abacus agent loop](agent-loop-flow.html).
 
@@ -64,6 +65,11 @@ because it is a single-writer mode.
 
 Abacus does not share in-memory assignments across loops or rely on timing to
 avoid claim races. Beads remains authoritative.
+
+After a claim wins, Abacus re-reads the ticket and resolves its optional
+reasoning label through the run-local model mapping. The project-owned
+`.abacus/reasoning.json` decides whether one label is mandatory. Model IDs stay
+run-local because they depend on the selected harness and machine.
 
 ## Hosting model
 
@@ -134,8 +140,8 @@ During normal orchestration, Abacus does **not**:
 - delete an explicitly named or pre-existing tmux session or window;
 - start, stop, or directly query an OpenCode server;
 - merge agent branches or decide whether their work is correct;
-- decide successful delivery for an agent (it does block invalid target claims
-  and reopen unfinished claims during recovery);
+- decide successful delivery for an agent (it does block invalid target or
+  reasoning-label claims and reopen unfinished claims during recovery);
 - push Git commits;
 - integrate with Git, tmux, Beads, Dolt, OpenCode, Codex, or Claude APIs and
   protocols beyond invoking supported CLI commands;
@@ -148,7 +154,7 @@ exception: it creates a brand-new repository, shared-server Beads configuration,
 skills, worktrees, and launch scripts. It still does not create tmux sessions.
 The standalone `init` handles existing Git/Beads repositories: validate setup,
 install bundled skills with confirmation, and create a missing default targets
-config without changing Beads settings or Git branches.
+and reasoning config without changing Beads settings or Git branches.
 
 ## Design constraints
 

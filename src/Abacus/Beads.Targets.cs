@@ -61,6 +61,16 @@ public sealed partial class Beads
 
     public async Task BlockTargetIssueAsync(string workspace, string agentName, string issueId,
         string reason, CancellationToken cancellationToken)
+        => await BlockIssueForAttentionAsync(
+            workspace, agentName, issueId, reason, "target-validation", cancellationToken);
+
+    public async Task BlockReasoningIssueAsync(string workspace, string agentName, string issueId,
+        string reason, CancellationToken cancellationToken)
+        => await BlockIssueForAttentionAsync(
+            workspace, agentName, issueId, reason, "reasoning-label", cancellationToken);
+
+    private async Task BlockIssueForAttentionAsync(string workspace, string agentName, string issueId,
+        string reason, string context, CancellationToken cancellationToken)
     {
         // Only mutate a claim we still own; do not overwrite an observed terminal-state race.
         var current = await GetIssueAsync(workspace, agentName, issueId, cancellationToken);
@@ -69,19 +79,19 @@ public sealed partial class Beads
         var result = await RunWithActorAsync(workspace, agentName,
             ["update", issueId, "--status", "blocked", "--assignee", "",
                 "--add-label", NeedsUserAttentionLabel, "--append-notes", $"BLOCKED: {reason}", "--json"], cancellationToken);
-        EnsureCommandSuccess(result, $"block invalid target on '{issueId}'");
+        EnsureCommandSuccess(result, $"block invalid {context} ticket '{issueId}'");
         var verification = await RunWithActorAsync(workspace, agentName,
             ["show", issueId, "--json"], cancellationToken);
-        EnsureCommandSuccess(verification, $"verify target-validation block for '{issueId}'");
+        EnsureCommandSuccess(verification, $"verify {context} block for '{issueId}'");
         var verified = ParseIssues(verification.StandardOutput, "target block verification").SingleOrDefault();
         if (verified?.Id != issueId || verified.Status != IssueStatus.Blocked || !string.IsNullOrEmpty(verified.Assignee))
-            throw new BeadsException($"could not verify target-validation block for '{issueId}'");
+            throw new BeadsException($"could not verify {context} block for '{issueId}'");
         using var document = JsonDocument.Parse(verification.StandardOutput);
         var element = document.RootElement[0];
         if (!element.TryGetProperty("labels", out var labels) || labels.ValueKind != JsonValueKind.Array
             || !labels.EnumerateArray().Any(l => l.ValueKind == JsonValueKind.String && l.GetString() == NeedsUserAttentionLabel)
             || !element.TryGetProperty("notes", out var notes) || notes.ValueKind != JsonValueKind.String
             || !notes.GetString()!.Contains(reason, StringComparison.Ordinal))
-            throw new BeadsException($"could not verify attention label and target-validation reason for '{issueId}'");
+            throw new BeadsException($"could not verify attention label and {context} reason for '{issueId}'");
     }
 }

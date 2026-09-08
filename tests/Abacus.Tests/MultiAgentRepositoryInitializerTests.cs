@@ -39,12 +39,16 @@ public sealed class MultiAgentRepositoryInitializerTests
             Assert.False(File.Exists(Path.Combine(result.RepositoryPath, ".gitignore")));
             var targetConfig = await TargetRegistry.LoadAsync(
                 Path.Combine(result.RepositoryPath, ".abacus", "targets.json"), CancellationToken.None);
+            var reasoningConfig = await ReasoningPolicy.LoadAsync(
+                Path.Combine(result.RepositoryPath, ".abacus", "reasoning.json"), CancellationToken.None);
             Assert.DoesNotContain("repositoryId", await File.ReadAllTextAsync(Path.Combine(result.RepositoryPath, ".abacus", "targets.json")));
             Assert.Single(targetConfig.Targets);
             Assert.False(targetConfig.EnforceTargetBranch);
             Assert.Equal("main", targetConfig.DefaultTarget);
             Assert.Contains("main", targetConfig.Targets.Keys);
+            Assert.False(reasoningConfig.EnforceLabels);
             Assert.Equal(".abacus/targets.json", await RunGitAsync(result.RepositoryPath, "ls-files", ".abacus/targets.json"));
+            Assert.Equal(".abacus/reasoning.json", await RunGitAsync(result.RepositoryPath, "ls-files", ".abacus/reasoning.json"));
 
             for (var index = 0; index < 3; index++)
             {
@@ -52,6 +56,7 @@ public sealed class MultiAgentRepositoryInitializerTests
                 Assert.True(Directory.Exists(worktree));
                 Assert.True(File.Exists(Path.Combine(worktree, ".git")));
                 Assert.True(File.Exists(Path.Combine(worktree, ".abacus", "targets.json")));
+                Assert.True(File.Exists(Path.Combine(worktree, ".abacus", "reasoning.json")));
                 Assert.True(File.Exists(Path.Combine(
                     worktree,
                     ".agents",
@@ -109,6 +114,9 @@ public sealed class MultiAgentRepositoryInitializerTests
                     {
                         ["ABACUS_BIN"] = fakeAbacus,
                         ["ABACUS_TMUX_SESSION"] = "test-session",
+                        ["ABACUS_HIGH_REASONING_MODEL"] = "high-model",
+                        ["ABACUS_MEDIUM_REASONING_MODEL"] = "medium-model",
+                        ["ABACUS_LOW_REASONING_MODEL"] = "low-model",
                     }));
 
             Assert.True(launch.Succeeded, launch.StandardError);
@@ -118,6 +126,9 @@ public sealed class MultiAgentRepositoryInitializerTests
             var parsedLaunch = Options.Parse(launchedArguments).Value!;
             Assert.Equal(AgentMode.Codex, parsedLaunch.AgentMode);
             Assert.Equal(3, parsedLaunch.Agents.Count);
+            Assert.Equal("high-model", parsedLaunch.EffectiveReasoningModels[ReasoningPolicy.HighLabel]);
+            Assert.Equal("medium-model", parsedLaunch.EffectiveReasoningModels[ReasoningPolicy.MediumLabel]);
+            Assert.Equal("low-model", parsedLaunch.EffectiveReasoningModels[ReasoningPolicy.LowLabel]);
             Assert.Contains("codex", launchedArguments);
             Assert.Equal(result.RepositoryPath, launchedArguments[Array.IndexOf(launchedArguments, "--repo") + 1]);
             Assert.Contains("test-session", launchedArguments);

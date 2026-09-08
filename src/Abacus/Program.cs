@@ -56,7 +56,8 @@ public static class Program
                 }
                 Console.Out.WriteLine($"Installed bundled skills in {result.Skills.SkillsRoot}");
                 Console.Out.WriteLine($"{(result.CreatedTargets ? "Created" : "Preserved")} target configuration: {result.TargetsPath}");
-                Console.Out.WriteLine("Next: review and commit .abacus/targets.json and .agents/skills; run abacus health and abacus targets check.");
+                Console.Out.WriteLine($"{(result.CreatedReasoning ? "Created" : "Preserved")} reasoning configuration: {result.ReasoningPath}");
+                Console.Out.WriteLine("Next: review and commit .abacus/targets.json, .abacus/reasoning.json, and .agents/skills; run abacus health and abacus targets check.");
                 Console.Out.WriteLine("Missing ticket targets use defaultTarget unless enforceTargetBranch is true. Set explicit targets with abacus targets set <branch> <issue-id> [...]. No Beads settings, tickets, branches, or commits were changed.");
                 return 0;
             }
@@ -193,7 +194,14 @@ public static class Program
         };
         Console.CancelKeyPress += cancelHandler;
         var exitCode = 0;
-        events?.Emit("run.starting", new { options.Model, options.AgentMode, options.ExecutionMode, options.Agents });
+        events?.Emit("run.starting", new
+        {
+            options.Model,
+            ReasoningModels = options.EffectiveReasoningModels,
+            options.AgentMode,
+            options.ExecutionMode,
+            options.Agents,
+        });
         try
         {
             if (AsciiIntro.ShouldPlay(options, Console.IsInputRedirected, Console.IsOutputRedirected,
