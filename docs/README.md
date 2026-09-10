@@ -9,6 +9,7 @@ complete rather than reading every page in order.
 | --- | --- |
 | [Quick start](quick-start.html) | A visual, end-to-end tour of setup and daily use |
 | [Getting started](getting-started.md) | Copyable setup paths for new and existing repositories |
+| [Shared-file tree demo](tree-demo.md) | Demonstrating parent-first tasks, human attention, and multiple agents editing one HTML file |
 | [Ticket targets](targets.md) | Configuring release tracks, auditing metadata, and recovering bound branches |
 | [CLI reference](cli-reference.md) | Looking up commands, modes, and option behavior |
 | [Events and stdio control](events-and-stdio.md) | Recording JSONL activity and controlling Abacus from another agent |
