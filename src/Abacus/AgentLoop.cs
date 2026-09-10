@@ -137,10 +137,12 @@ public sealed partial class ClaimCoordinator(
                         agent.Name,
                         filters,
                         cancellationToken,
-                        agent.Targets is null ? null : candidate => IsTargetEligible(agent, candidate));
+                        agent.Targets is null ? null : candidate => IsTargetEligible(agent, candidate),
+                        candidate => git.CanUseIssueBranchAsync(
+                            agent.WorkspacePath, agent.Name, candidate.Id, cancellationToken));
                 }
             }
-            catch (BeadsException exception)
+            catch (Exception exception) when (exception is BeadsException or WorkspacePreparationException or PreflightException)
             {
                 if (interruptedIssueId is not null)
                 {
@@ -188,9 +190,7 @@ public sealed partial class ClaimCoordinator(
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Preparing,
-                    modelResolution is null
-                        ? $"{issue.Id} • preparing workspace and branch"
-                        : $"{issue.Id} • model {modelResolution.Model} • preparing workspace and branch");
+                    $"{issue.Id} • preparing workspace and branch");
                 var branch = interruptedIssueId is not null
                     ? $"abacus/{interruptedIssueId}"
                     : await git.PrepareIssueBranchAsync(
@@ -628,6 +628,7 @@ public sealed class AgentLoop(
 
                 IAgentRun run;
                 var resolvedModel = claim.Model ?? model;
+                await log.SetModelAsync(agent.Name, resolvedModel, effort);
                 try
                 {
                     var launchAgent = agent.Targets is null ? agent : agent with
@@ -678,7 +679,7 @@ public sealed class AgentLoop(
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Working,
-                    $"{claim.Issue.Id} • {resolvedModel} • agent CLI in {run.Location}");
+                    $"{claim.Issue.Id} • agent CLI running");
                 try
                 {
                     await supervisor.SuperviseAsync(agent, claim.Issue, run, cancellationToken);

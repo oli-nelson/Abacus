@@ -4,6 +4,152 @@ namespace Abacus.Tests;
 
 public sealed class OutputTests
 {
+    [Theory]
+    [InlineData(ConsoleKey.DownArrow, '\0', ConsoleKey.UpArrow, '\0')]
+    [InlineData(ConsoleKey.J, 'j', ConsoleKey.K, 'k')]
+    public async Task ArrowAndVimKeysShareSelectionWrappingAndCommentScrolling(
+        ConsoleKey down, char downChar, ConsoleKey up, char upChar)
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice", "bob"], "p/model", false,
+            interactive: true, color: false);
+        await output.SetLatestCommentsAsync([
+            Comment("c1", "abc-1", "Long comment", "reviewer",
+                string.Join('\n', Enumerable.Range(1, 100).Select(i => $"line {i}"))),
+        ]);
+        var gate = new ClaimGate();
+        string Frame() => writer.ToString().Split("\u001b[H")[^1];
+        Assert.True(output.HandleDashboardKey(Key(down, downChar), gate));
+        Assert.Contains("›○ alice", Frame());
+        Assert.True(output.HandleDashboardKey(Key(down, downChar), gate));
+        Assert.Contains("›○ bob", Frame());
+        Assert.True(output.HandleDashboardKey(Key(up, upChar), gate));
+        Assert.Contains("›○ alice", Frame());
+        Assert.True(output.HandleDashboardKey(Key(up, upChar), gate)); // Wrap to comment.
+        Assert.Contains("›• abc-1", Frame());
+        output.HandleDashboardKey(Key(ConsoleKey.Enter), gate);
+        Assert.True(output.HandleDashboardKey(Key(down, downChar), gate));
+        Assert.DoesNotContain("line 1\u001b[K", Frame());
+        Assert.True(output.HandleDashboardKey(Key(up, upChar), gate));
+        Assert.Contains("line 1\u001b[K", Frame());
+        output.HandleDashboardKey(Key(ConsoleKey.Escape), gate);
+        output.HandleDashboardKey(Key(down, downChar), gate); // Wrap back to agent.
+        Assert.Contains("›○ alice", Frame());
+    }
+
+    [Theory]
+    [InlineData(80, false, 2)]
+    [InlineData(80, true, 3)]
+    [InlineData(140, true, 2)]
+    public void HeaderPacksSettingsAndControlsIntoAvailableWidth(int width, bool tmux, int expectedLines)
+    {
+        var lines = ConsoleOutput.FormatHeaderLines(width, 4, "p/model", "high", false, true,
+            tmux ? "demo" : null, tmux ? "Agents" : null);
+        Assert.Equal(expectedLines, lines.Count);
+        Assert.All(lines, line => Assert.True(line.Length <= width));
+        var text = string.Join('\n', lines);
+        foreach (var field in new[] { "ABACUS", "4 agents", "CLAIMS ON", "p/model", "effort high", "↑↓", "Enter", "Shift-Tab", "Ctrl-C" })
+            Assert.Contains(field, text);
+        if (tmux) { Assert.Contains("demo", text); Assert.Contains("Agents", text); }
+    }
+
+    [Fact]
+    public void NarrowHeaderBoundsLongNamesWithoutHidingEffortOrControls()
+    {
+        var lines = ConsoleOutput.FormatHeaderLines(52, 4, new string('m', 100), "high", true, false,
+            new string('s', 100), new string('w', 100));
+        Assert.Equal(4, lines.Count);
+        Assert.All(lines, line => Assert.True(line.Length <= 52));
+        var text = string.Join('\n', lines);
+        Assert.Contains("CLAIMS PAUSED", text);
+        Assert.Contains("effort high (requested)", text);
+        Assert.Contains("window:", text);
+        Assert.Contains("Ctrl-C stop", text);
+    }
+
+    [Theory]
+    [InlineData("Name root")]
+    [InlineData(null)]
+    public async Task AgentHeaderContainsTicketWithoutRepeatingItInProgressOrMetadata(string? title)
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "default-model", false,
+            interactive: true, color: false);
+        await output.SetTicketAsync("alice", "abc-1", title);
+        await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI running");
+        var frame = writer.ToString().Split("\u001b[H")[^1];
+        var header = frame.Split('\n').Single(line => line.Contains("alice", StringComparison.Ordinal));
+        Assert.Contains("abc-1", header);
+        if (title is not null) Assert.Contains(title, header);
+        Assert.Equal(1, frame.Split("abc-1", StringSplitOptions.None).Length - 1);
+        Assert.Contains("WORKING", frame);
+        Assert.DoesNotContain("abc-1 • agent CLI", frame);
+        await output.ClearTicketAsync("alice");
+        await output.SetAgentAsync("alice", AgentActivity.Idle, "No ready tickets");
+        frame = writer.ToString().Split("\u001b[H")[^1];
+        Assert.DoesNotContain("abc-1", frame);
+    }
+
+    [Theory]
+    [InlineData("pane %7")]
+    [InlineData("pid 123")]
+    public async Task WorkingAgentShowsLocationInlineWithoutExtraMetadataRow(string location)
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "default-model", false,
+            interactive: true, color: false);
+        await output.SetTicketAsync("alice", "abc-1", "Root");
+        await output.SetRunLocationAsync("alice", location);
+        await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI running");
+        var frame = writer.ToString().Split("\u001b[H")[^1];
+        Assert.Equal(1, frame.Split(location, StringSplitOptions.None).Length - 1);
+        var locationLine = frame.Split('\n').Single(line => line.Contains(location, StringComparison.Ordinal));
+        Assert.Contains("WORKING", locationLine);
+        Assert.DoesNotContain("↳", locationLine);
+        Assert.Equal(2, frame.Split("↳", StringSplitOptions.None).Length - 1);
+    }
+
+    [Theory]
+    [InlineData(AgentActivity.Idle, true)]
+    [InlineData(AgentActivity.Paused, true)]
+    [InlineData(AgentActivity.Stopped, true)]
+    [InlineData(AgentActivity.Working, false)]
+    [InlineData(AgentActivity.Preparing, false)]
+    [InlineData(AgentActivity.Finalizing, false)]
+    public async Task DashboardShowsBranchAndModelEffortWithDirtyMarkerOnlyOutsideActiveWork(
+        AgentActivity activity, bool showDirty)
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "default-model", false,
+            interactive: true, color: false, effort: "high");
+        await output.SetWorkspaceAsync("alice", "abacus/abc-1", true);
+        await output.SetModelAsync("alice", "routed-model", "medium");
+        await output.SetAgentAsync("alice", activity, "status");
+        // Only inspect the newest frame, not dirty markers from prior states.
+        var frame = writer.ToString().Split("\u001b[H")[^1];
+        Assert.Contains("Default model: default-model • effort high", frame);
+        Assert.Contains("branch: abacus/abc-1", frame);
+        Assert.Contains("effort medium • model: routed-model", frame);
+        Assert.Equal(showDirty, frame.Contains("DIRTY", StringComparison.Ordinal));
+        await output.SetWorkspaceAsync("alice", null, null);
+        await output.ClearTicketAsync("alice");
+        frame = writer.ToString().Split("\u001b[H")[^1];
+        Assert.Contains("branch: unknown", frame);
+        Assert.DoesNotContain("DIRTY", frame);
+        Assert.DoesNotContain("routed-model", frame);
+        Assert.Contains("effort high • model: default-model", frame);
+    }
+
+    [Fact]
+    public async Task OpenCodeEffortIsLabelledAsRequestedNotConfirmed()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "provider/model", false,
+            interactive: true, color: false, effort: "high", effortIsRequested: true);
+        await output.SetModelAsync("alice", "provider/routed", "high");
+        Assert.Contains("effort high (requested)", writer.ToString());
+    }
+
     [Fact]
     public async Task DefaultRedirectedOutputShowsStatesButSuppressesCommands()
     {

@@ -4,8 +4,31 @@ public sealed record BranchPruneResult(
     IReadOnlyList<string> DeletedBranches,
     IReadOnlyList<string> SkippedCheckedOutBranches);
 
+public sealed record WorkspaceStatus(string Branch, bool IsDirty);
+
 public sealed partial class Git(CommandRunner runner, string executable = "git")
 {
+    public async Task<WorkspaceStatus> GetWorkspaceStatusAsync(
+        string workspace, string agentName, CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(workspace, agentName,
+            ["-C", workspace, "--no-optional-locks", "status", "--porcelain=v2", "--branch", "--untracked-files=normal", "-z"], cancellationToken);
+        if (!result.Succeeded)
+            throw new WorkspacePreparationException($"could not inspect workspace: {FailureDetail(result)}");
+        var fields = result.StandardOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        var head = fields.FirstOrDefault(field => field.StartsWith("# branch.head ", StringComparison.Ordinal))?[14..];
+        if (string.IsNullOrEmpty(head))
+            throw new WorkspacePreparationException("Git returned workspace status without a branch");
+        if (head == "(detached)")
+        {
+            var oid = fields.FirstOrDefault(field => field.StartsWith("# branch.oid ", StringComparison.Ordinal))?[13..];
+            if (!IsCommitId(oid))
+                throw new WorkspacePreparationException("Git returned detached status without a commit");
+            head = $"detached@{oid![..7]}";
+        }
+        return new WorkspaceStatus(head, fields.Any(field => !field.StartsWith("# ", StringComparison.Ordinal)));
+    }
+
     public async Task<string> ResolveWorkspaceRootAsync(
         string workspace,
         string agentName,
@@ -52,6 +75,40 @@ public sealed partial class Git(CommandRunner runner, string executable = "git")
         {
             throw new PreflightException($"[{agentName}] '{workspace}' is not a Git worktree");
         }
+    }
+
+    public async Task<bool> CanUseIssueBranchAsync(
+        string workspace, string agentName, string issueId, CancellationToken cancellationToken)
+    {
+        // Leave unsafe IDs to the existing post-claim validation/quarantine path.
+        if (!IsValidIssueId(issueId)) return true;
+        var branchRef = $"refs/heads/abacus/{issueId}";
+        var result = await RunAsync(workspace, agentName,
+            ["-C", workspace, "for-each-ref", "--format=%(refname)%00%(worktreepath)%00", branchRef],
+            cancellationToken);
+        if (!result.Succeeded)
+            throw new WorkspacePreparationException($"could not inspect issue branch ownership: {FailureDetail(result)}");
+        if (result.StandardOutput.Length == 0) return true; // New branch.
+
+        // NUL-delimited fields preserve spaces and newlines in worktree paths.
+        var fields = result.StandardOutput.Split('\0');
+        if (fields.Length % 2 != 1 || fields[^1] != "\n")
+            throw new WorkspacePreparationException("Git returned malformed issue branch ownership");
+        for (var i = 0; i < fields.Length - 1; i += 2)
+        {
+            var reference = fields[i].TrimStart('\n');
+            if (!reference.StartsWith("refs/heads/", StringComparison.Ordinal))
+                throw new WorkspacePreparationException("Git returned malformed issue branch ownership");
+            if (reference != branchRef) continue; // for-each-ref also matches descendants.
+            var owner = fields[i + 1];
+            if (owner.Length == 0) return true; // Existing but not checked out.
+            if (!Path.IsPathFullyQualified(owner))
+                throw new WorkspacePreparationException("Git returned an invalid owning worktree path");
+            var root = await ResolveWorkspaceRootAsync(workspace, agentName, cancellationToken);
+            return string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(owner)), root,
+                StringComparison.Ordinal);
+        }
+        return true;
     }
 
     public async Task<string> PrepareIssueBranchAsync(

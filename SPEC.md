@@ -229,6 +229,16 @@ fixed for that hosted agent session.
 
 Dispatch filters are optional and apply to every fresh or same-agent resumed ready claim. `--label` and `--exclude-label` are repeatable literal passthroughs to `bd ready`; `--type` accepts one literal Beads type filter, including comma-separated types; and `--priority` accepts priorities 0 through 4. Abacus always excludes `gt:slot` in addition to user filters. Beads priority remains the primary ordering. When multiple candidates share the highest available priority, Abacus prefers the candidate with the newest comment; if none of those candidates has a comment, it preserves the first candidate returned by Beads. Before claiming that candidate, Abacus checks its direct children and skips it when any child is not closed.
 
+Before a normal ready claim (including the same-agent assigned fallback), inspect
+the candidate's issue branch with Git. If it is checked out in another worktree,
+skip it without claiming, reopening, or changing either worktree; continue with
+other ready candidates. A clean workspace retains eligibility for its own checked-out
+issue branch after a blocked ticket is reopened. This also excludes branches held
+by worktrees outside the configured agent pool; do not force checkout or detach
+another workspace. Failed or malformed ownership reads must not permit a claim.
+Refresh this check on each candidate selection/retry. Git's checkout restriction
+remains the final safety check against external checkout races.
+
 Before normal dispatch, a dirty workspace on `abacus/<issue-id>` is treated as
 an interrupted run. Abacus reads and atomically claims that exact issue when it
 is open and unassigned or already assigned to the configured agent, then validates its target, binding, and history before starting
@@ -311,6 +321,15 @@ abacus run --mode opencode-server --model <provider/model> --effort <effort> \
 With no tmux-related option, each OpenCode Server agent starts as a directly supervised, non-interactive `opencode run --attach` child process connected to the specified server. Direct processes receive their own workspace, prompt, model, and `BEADS_ACTOR`; Abacus drains their output so it does not corrupt the dashboard and stops them when supervision ends. tmux is not looked up or required in this mode.
 
 Server attachment requires explicit `--mode opencode-server` with `--opencode-server <host:port>`; the address alone never changes modes. With no tmux-related option, this mode remains directly hosted. Supplying `--tmux-session`, `--tmux-window`, `--tmux-layout`, or `--disown-tmux-session` requests pane hosting; an omitted session then uses the repository-derived default. The server option is rejected for all other explicit modes.
+
+The dashboard header shows the default model and reasoning effort; each agent row
+shows its ticket-resolved model/effort and actual checked-out branch (or detached
+commit). A read-only Git snapshot refreshes approximately every five seconds,
+including paused/stopped agents. Show a DIRTY marker for tracked or untracked
+changes outside Preparing, Working, and Finalizing. Failed reads clear stale
+branch/dirty data to unknown. OpenCode TUI effort is labelled requested, since
+that harness does not expose CLI effort selection. Workspace/model snapshots
+also appear as additive fields in structured agent.state events.
 
 By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, paused, waiting, idle, syncing, preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. For pane-hosted runs, the dashboard also shows the resolved tmux session and window names so the operator can attach from another shell. The dashboard starts with new ticket claims enabled unless `--start-paused` is supplied; in that case its header shows claims paused from the first frame. Pressing Shift-Tab toggles new claims on or off for all agents; pausing does not interrupt tickets that are already active. The header shows the current claim state, and agents waiting for permission display a paused state. The up and down arrows select agent and latest-comment rows. Enter opens the selected agent's action panel or the selected comment's complete detail view; long comments scroll with the arrow or Page Up and Page Down keys, and Escape returns to the dashboard. Stop interrupts that agent's hosted process, keeps its current ticket reserved, and parks the loop. Restart interrupts an active process when necessary and relaunches the reserved ticket, or resumes a parked or idle loop. Clean Workspace requires explicit confirmation, safely reopens any active ticket, runs `git reset --hard` followed by `git clean -fd`, and leaves the agent parked until Restart. A successful clean clears that agent's persistent recovery alert. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
 

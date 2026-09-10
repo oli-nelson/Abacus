@@ -61,15 +61,37 @@ An interactive terminal shows one row per configured agent. Rows move through:
 | `RECOVERING` / `RETRYING` | A failed operation is being retried safely. |
 | `STOPPED` | This loop has ended. |
 
-Active rows include the issue ID and title, time in the current state, pane or
+Each agent's header contains its name and active issue ID/title. Status and
+progress appear below, without repeating the ticket label; long titles wrap.
+Active rows also include time in the current state, pane or
 process location, retry count, and most recently observed exit code. Warnings
 remain visible, while idle polling is visually distinct from failure retries.
+
+The compact header places run status and default model/effort side by side when
+space permits. Keyboard hints share one row, or share the tmux row on wider
+terminals. Narrow layouts use bounded fallback rows and ellipsize long names
+rather than wrapping them across several lines.
+Each agent also shows
+its current model/effort (including ticket-specific model routing) and its actual
+checked-out branch, or `detached@<commit>`. Read-only Git snapshots refresh roughly
+every five seconds, including paused and stopped agents. `DIRTY` appears beside
+the branch outside preparation, active work, and finalization; it includes tracked
+and untracked changes. An unavailable snapshot shows `branch: unknown`, not stale
+clean information. OpenCode TUI effort is marked **requested** because that harness
+does not accept the effort flag; other harnesses receive the displayed effort.
+
+Reopening an attention ticket clears its Beads assignee but does not release its
+Git branch. If that branch remains checked out in an agent's worktree, only that
+worktree can claim it. Other agents skip it and continue looking for work. If the
+owning worktree is not in the running pool, run its agent or deliberately release
+the branch after inspecting the workspace; Abacus will not force or detach it.
 
 Add `--start-paused` to start with claims disabled and the header showing
 **CLAIMS PAUSED** immediately. Press **Shift-Tab** to pause or resume new claims
 for every agent. Active work continues; an agent pauses only when it next reaches the claim boundary.
 
-Use the **Up** and **Down** arrows to select a row. Press **Enter** on an agent
+Use the **Up** and **Down** arrows, or **k** and **j**, to select a row. The same
+keys scroll an open comment. Press **Enter** on an agent
 to open its action panel:
 
 - **Stop Agent** interrupts its pane or process and parks that loop. An active

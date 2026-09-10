@@ -555,6 +555,8 @@ public sealed partial class EndToEndTests
               exit 0
             elif test "$3" = merge-base; then
               exit 0
+            elif test "$3" = for-each-ref; then
+              exit 0
             elif test "$3" = show-ref; then
               exit 1
             elif test "$3" = switch; then

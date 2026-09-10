@@ -6,6 +6,23 @@ namespace Abacus.Tests;
 
 public sealed class EventReportingTests
 {
+    [Fact]
+    public async Task AgentStateEventsIncludeWorkspaceAndResolvedModelSnapshots()
+    {
+        var writer = new StringWriter();
+        using var events = new EventReporter(writer);
+        using var output = new ConsoleOutput(TextWriter.Null, ["alice"], "default-model", false,
+            interactive: false, events: events, effort: "high");
+        await output.SetWorkspaceAsync("alice", "abacus/abc-1", true);
+        await output.SetModelAsync("alice", "routed-model", "high");
+        using var json = JsonDocument.Parse(writer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)[^1]);
+        var data = json.RootElement.GetProperty("data");
+        Assert.Equal("abacus/abc-1", data.GetProperty("branch").GetString());
+        Assert.True(data.GetProperty("isDirty").GetBoolean());
+        Assert.Equal("routed-model", data.GetProperty("model").GetString());
+        Assert.Equal("high", data.GetProperty("effort").GetString());
+    }
+
     private static Options RunOptions(params string[] extra) => Options.Parse(
         ["run", "--model", "p/m", "--tmux-session", "test", "-a", "alice", "/tmp/alice", .. extra]).Value!;
 

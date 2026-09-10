@@ -20,6 +20,8 @@ public enum AgentActivity
 internal interface IAgentOutput
 {
     Task SetAgentAsync(string agentName, AgentActivity activity, string detail);
+    Task SetWorkspaceAsync(string agentName, string? branch, bool? isDirty);
+    Task SetModelAsync(string agentName, string model, string effort);
     Task SetTicketAsync(string agentName, string issueId, string? title);
     Task SetUserAttentionIssuesAsync(IReadOnlyList<BeadsIssue> issues);
     Task SetLatestCommentsAsync(IReadOnlyList<BeadsComment> comments);
@@ -37,6 +39,12 @@ internal interface IAgentOutput
 
 internal static class OutputExtensions
 {
+    public static Task SetWorkspaceAsync(this TextWriter output, string agentName, string? branch, bool? isDirty) =>
+        output is IAgentOutput agentOutput ? agentOutput.SetWorkspaceAsync(agentName, branch, isDirty) : Task.CompletedTask;
+
+    public static Task SetModelAsync(this TextWriter output, string agentName, string model, string effort) =>
+        output is IAgentOutput agentOutput ? agentOutput.SetModelAsync(agentName, model, effort) : Task.CompletedTask;
+
     public static Task SetAgentAsync(
         this TextWriter output,
         string agentName,
@@ -184,6 +192,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private readonly bool interactive;
     private readonly bool color;
     private readonly string model;
+    private readonly string effort;
+    private readonly bool effortIsRequested;
     private readonly Dictionary<string, AgentRow> agents;
     private readonly Queue<string> warnings = new();
     private readonly Dictionary<string, string> persistentAlerts = new(StringComparer.Ordinal);
@@ -212,7 +222,9 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         bool? color = null,
         IReadOnlyDictionary<string, string>? workspacePaths = null,
         EventReporter? events = null,
-        bool startPaused = false)
+        bool startPaused = false,
+        string effort = "high",
+        bool effortIsRequested = false)
     {
         this.writer = writer;
         Events = events;
@@ -222,13 +234,15 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             && Environment.GetEnvironmentVariable("TERM") != "dumb"));
         this.color = color ?? (Environment.GetEnvironmentVariable("NO_COLOR") is null);
         this.model = model;
+        this.effort = effort;
+        this.effortIsRequested = effortIsRequested;
         agents = agentNames.ToDictionary(
             static name => name,
             name => AgentRow.Create(
                 name,
                 workspacePaths is not null && workspacePaths.TryGetValue(name, out var workspace)
                     ? workspace
-                    : null),
+                    : null) with { Model = model, Effort = effort },
             StringComparer.Ordinal);
 
         if (this.interactive)
@@ -372,6 +386,12 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         return Task.CompletedTask;
     }
 
+    public Task SetWorkspaceAsync(string agentName, string? branch, bool? isDirty) =>
+        UpdateRowAsync(agentName, row => row with { Branch = branch, IsDirty = isDirty });
+
+    public Task SetModelAsync(string agentName, string model, string effort) =>
+        UpdateRowAsync(agentName, row => row with { Model = model, Effort = effort });
+
     public Task SetTicketAsync(string agentName, string issueId, string? title) =>
         UpdateRowAsync(agentName, row => row with
         {
@@ -486,6 +506,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             IssueId = null,
             TicketTitle = null,
             RunLocation = null,
+            Model = model,
+            Effort = effort,
         });
 
     public Task SetRunLocationAsync(string agentName, string location) =>
@@ -694,19 +716,18 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         var line = new string('─', width);
         var builder = new StringBuilder();
         builder.Append(rendered ? "\u001b[H" : "\u001b[2J\u001b[H");
-        builder.Append(Color(Bold + Cyan, " ABACUS"));
-        builder.Append(Color(Dim, $"  {agents.Count} agent{(agents.Count == 1 ? string.Empty : "s")}  •  {model}  •  "));
-        builder.Append(Color(claimingEnabled ? Green : Yellow, claimingEnabled ? "CLAIMS ON" : "CLAIMS PAUSED"));
-        builder.Append("\u001b[K\n");
-        builder.Append(Color(Dim, Truncate(" ↑↓ select • Enter open", width)));
-        builder.Append("\u001b[K\n");
-        builder.Append(Color(Dim, Truncate(" Shift-Tab claims on/off • Ctrl-C stop all", width)));
-        builder.Append("\u001b[K\n");
-        if (tmuxSessionName is not null)
+        var claimLabel = claimingEnabled ? "CLAIMS ON" : "CLAIMS PAUSED";
+        foreach (var headerLine in FormatHeaderLines(width, agents.Count, model, effort,
+                     effortIsRequested, claimingEnabled, tmuxSessionName, tmuxWindowName))
         {
-            builder.Append(Color(
-                Dim,
-                Truncate($" tmux session: {tmuxSessionName} • window: {tmuxWindowName}", width)));
+            var claimIndex = headerLine.IndexOf(claimLabel, StringComparison.Ordinal);
+            if (headerLine.StartsWith(" ABACUS", StringComparison.Ordinal) && claimIndex >= 0)
+            {
+                builder.Append(Color(Bold + Cyan, headerLine[..claimIndex]));
+                builder.Append(Color(claimingEnabled ? Green : Yellow, claimLabel));
+                builder.Append(Color(Dim, headerLine[(claimIndex + claimLabel.Length)..]));
+            }
+            else builder.Append(Color(Dim, headerLine));
             builder.Append("\u001b[K\n");
         }
         builder.Append(Color(Dim, line)).Append("\u001b[K\n");
@@ -740,9 +761,27 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             var selector = rowIndex == selectedAgentIndex ? "›" : " ";
             var prefix = $"{selector}{icon} {Truncate(row.Name, nameWidth).PadRight(nameWidth)}  ";
             var status = state.PadRight(10);
-            var available = Math.Max(0, width - prefix.Length - 20);
-            builder.Append(Color(stateColor, prefix + status));
-            builder.Append(Color(Dim, elapsed)).Append(' ').Append(Truncate(row.Detail, available));
+            var ticket = row.IssueId is null ? string.Empty
+                : string.IsNullOrEmpty(row.TicketTitle) ? row.IssueId : $"{row.IssueId} — {row.TicketTitle}";
+            var headerLines = WrapCommentText(ticket, Math.Max(1, width - prefix.Length));
+            builder.Append(Color(stateColor, prefix));
+            builder.Append(Color(Bold, headerLines.FirstOrDefault() ?? string.Empty));
+            builder.Append("\u001b[K\n");
+            foreach (var continuation in headerLines.Skip(1))
+                builder.Append(new string(' ', prefix.Length)).Append(continuation).Append("\u001b[K\n");
+            var detail = row.Detail;
+            // Keep structured/plain logs unchanged; the TUI header already identifies this ticket.
+            if (row.IssueId is not null && detail.StartsWith($"{row.IssueId} • ", StringComparison.Ordinal))
+                detail = detail[(row.IssueId.Length + 3)..];
+            var available = Math.Max(0, width - prefix.Length - status.Length - elapsed.Length - 1);
+            if (row.Activity == AgentActivity.Working && row.RunLocation is not null)
+            {
+                var location = $" • {row.RunLocation}";
+                // Reserve room for the location when the progress text needs truncation.
+                detail = Truncate(detail, Math.Max(0, available - location.Length)) + location;
+            }
+            builder.Append(new string(' ', prefix.Length)).Append(Color(stateColor, status));
+            builder.Append(Color(Dim, elapsed)).Append(' ').Append(Truncate(detail, available));
             builder.Append("\u001b[K\n");
 
             foreach (var metadata in FormatMetadataLines(row))
@@ -864,6 +903,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         out string? selectedAgent,
         out AgentControlAction? requestedAction)
     {
+        // Normalize Vim navigation before panel handling so it follows exactly
+        // the same selection, wrapping, and comment-scrolling rules as arrows.
+        if (key.Modifiers == 0 && key.KeyChar is 'j' or 'k')
+            key = new ConsoleKeyInfo('\0', key.KeyChar == 'j' ? ConsoleKey.DownArrow : ConsoleKey.UpArrow,
+                false, false, false);
         selectedAgent = null;
         requestedAction = null;
         if (agents.Count + latestComments.Count == 0)
@@ -1061,7 +1105,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         var visibleEnd = Math.Min(wrapped.Count, commentScrollOffset + viewportHeight);
         builder.Append(Color(
             Dim,
-            Truncate(" ↑↓ scroll • PgUp/PgDn • Esc close", width)));
+            Truncate(" ↑↓/jk scroll • PgUp/PgDn • Esc close", width)));
         builder.Append("\u001b[K\n");
         if (wrapped.Count > viewportHeight)
         {
@@ -1103,17 +1147,52 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         }
     }
 
-    private static IEnumerable<string> FormatMetadataLines(AgentRow row)
+    internal static IReadOnlyList<string> FormatHeaderLines(int width, int agentCount,
+        string model, string effort, bool effortIsRequested, bool claimingEnabled,
+        string? session, string? window)
     {
-        if (row.IssueId is not null)
+        var lines = new List<string>();
+        var summary = $" ABACUS • {agentCount} agent{(agentCount == 1 ? string.Empty : "s")} • {(claimingEnabled ? "CLAIMS ON" : "CLAIMS PAUSED")}";
+        var effortText = $" • effort {effort}{(effortIsRequested ? " (requested)" : "")}";
+        const string modelLabel = "Default model: ";
+        var settings = modelLabel + model + effortText;
+        if (summary.Length + settings.Length + 3 <= width)
+            lines.Add(summary.PadRight(width - settings.Length) + settings);
+        else
         {
-            yield return row.TicketTitle is null
-                ? row.IssueId
-                : $"{row.IssueId} — {row.TicketTitle}";
+            lines.Add(Truncate(summary, width));
+            // Reserve the effort label instead of wrapping a long model over several rows.
+            lines.Add(Truncate(modelLabel + Truncate(model,
+                Math.Max(1, width - modelLabel.Length - effortText.Length)) + effortText, width));
         }
+        const string controls = "↑↓/jk move  Enter open  Shift-Tab pause  Ctrl-C stop";
+        if (session is not null)
+        {
+            var location = $" tmux session: {session} • window: {window}";
+            if (location.Length + controls.Length + 3 <= width)
+            {
+                lines.Add(location.PadRight(width - controls.Length) + controls);
+                return lines;
+            }
+            const string sessionLabel = " tmux session: ";
+            const string windowLabel = " • window: ";
+            var space = Math.Max(2, width - sessionLabel.Length - windowLabel.Length);
+            var windowWidth = Math.Min(window?.Length ?? 0, space / 2);
+            lines.Add(Truncate(sessionLabel + Truncate(session, space - windowWidth)
+                + windowLabel + Truncate(window ?? string.Empty, windowWidth), width));
+        }
+        lines.Add(Truncate(controls, width));
+        return lines;
+    }
 
+    private IEnumerable<string> FormatMetadataLines(AgentRow row)
+    {
+        var idleWorkspace = row.Activity is not (AgentActivity.Preparing or AgentActivity.Working or AgentActivity.Finalizing);
+        var dirty = idleWorkspace && row.IsDirty == true ? "DIRTY • " : string.Empty;
+        yield return $"{dirty}branch: {row.Branch ?? "unknown"}";
+        yield return $"effort {row.Effort ?? effort}{(effortIsRequested ? " (requested)" : "")} • model: {row.Model ?? model}";
         var runParts = new List<string>();
-        if (row.RunLocation is not null)
+        if (row.RunLocation is not null && row.Activity != AgentActivity.Working)
         {
             runParts.Add(row.RunLocation);
         }
@@ -1282,7 +1361,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         string? WorkspacePath,
         int? LastExitCode,
         bool HasExitObservation,
-        int RetryCount)
+        int RetryCount,
+        string? Branch = null,
+        bool? IsDirty = null,
+        string? Model = null,
+        string? Effort = null)
     {
         public static AgentRow Create(string name, string? workspacePath = null) => new(
             name,

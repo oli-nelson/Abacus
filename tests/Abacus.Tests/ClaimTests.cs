@@ -4,6 +4,49 @@ namespace Abacus.Tests;
 
 public sealed class ClaimTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WorkspaceEligibilitySkipsUnavailableCandidatesAndFailsClosed(bool failInspection)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var root = Directory.CreateTempSubdirectory("abacus-workspace-eligibility-");
+        try
+        {
+            var script = Path.Combine(root.FullName, "bd");
+            var calls = Path.Combine(root.FullName, "calls");
+            await File.WriteAllTextAsync(script, $$"""
+                #!/bin/sh
+                echo "$*" >> {{Q(calls)}}
+                if test "$1" = ready; then
+                  echo '[{"id":"abc-held","status":"open","priority":0},{"id":"abc-free","status":"open","priority":2}]'
+                elif test "$1" = show; then
+                  printf '{"schema_version":1,"%s":[]}\n' "$2"
+                elif test "$1" = update; then
+                  printf '[{"id":"%s","status":"in_progress"}]\n' "$2"
+                else exit 1; fi
+                """);
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var beads = new Beads(new CommandRunner(TextWriter.Null), script);
+            Task<bool> CanUse(BeadsIssue issue) => failInspection
+                ? throw new WorkspacePreparationException("ownership read failed")
+                : Task.FromResult(issue.Id != "abc-held");
+            var claim = beads.TryClaimReadyAsync(root.FullName, "alice", DispatchFilters.Empty,
+                CancellationToken.None, canUseWorkspace: CanUse);
+            if (failInspection)
+            {
+                await Assert.ThrowsAsync<WorkspacePreparationException>(() => claim);
+                Assert.DoesNotContain("update", await File.ReadAllTextAsync(calls));
+            }
+            else
+            {
+                Assert.Equal("abc-free", (await claim)!.Id);
+                Assert.DoesNotContain("update abc-held", await File.ReadAllTextAsync(calls));
+            }
+        }
+        finally { root.Delete(true); }
+    }
+
     [Fact]
     public async Task RetriesDoltSerializationFailuresUntilAtomicClaimSucceeds()
     {

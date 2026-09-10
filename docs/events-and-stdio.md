@@ -74,6 +74,11 @@ correlate results. IDs are echoed, not persisted or deduplicated.
 
 Responses are `control.result` events with `data.id`, `data.command`, and
 `data.ok`. Failures include `data.error`; status succeeds with `data.status`.
+Agent rows include `branch`, nullable `isDirty`, `model`, and `effort`. Workspace
+fields refresh roughly every five seconds and become null when a read fails.
+Model/effort describe the current launch selection, reverting to defaults when
+the ticket is cleared. OpenCode TUI effort is requested, not confirmed by that
+harness. These fields are also included in `agent.state` events.
 Malformed input may have a null ID/command. Unknown commands/agents, duplicate or
 unexpected properties, missing fields, unconfirmed cleanup, and oversized lines
 (over 65,536 characters) fail without terminating the session. A pending agent

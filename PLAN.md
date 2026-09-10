@@ -301,6 +301,11 @@ All checks happen before any ticket is claimed or agent run is created.
 - At multi-agent startup, use one shared in-memory barrier so all workspaces finish their initial recovery inspection and resumable dirty workspaces complete their exact claims before any clean workspace performs a ready lookup. Release the barrier contribution for an agent that halts during recovery so other agents can continue.
 - If a dirty workspace is not on a valid Abacus issue branch, its issue is not open, it belongs to another agent, or its exact claim fails, preserve the workspace, stop that agent, and raise a persistent alert. Never reset or clean a dirty workspace automatically.
 - Treat “no ready issue” as idle, not as an error. Use one fixed polling interval (for example, five seconds) to avoid adding tuning options prematurely.
+- Before both fresh and same-agent ready claims, use read-only Git branch/worktree
+  ownership inspection to skip candidates checked out elsewhere. Keep searching
+  without claiming/reopening those tickets. Fail closed on unreadable ownership;
+  retain dirty-workspace recovery and Git's final checkout safety check. Regression
+  tests must cover a clean blocked/reopened ticket returning to its owning worktree.
 - After a claim, use Git CLI commands to:
   - verify the workspace is still clean;
   - switch to `abacus/<issue_id>` if it exists;
@@ -396,6 +401,10 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Documentation
 
+- Show default and ticket-resolved model/effort, actual checkout branch/detached
+  commit, and idle dirty-workspace markers in the dashboard. Reuse its monitoring
+  cycle for read-only Git snapshots, clear failed snapshots to unknown, and test
+  both rendering and real Git status parsing. Label OpenCode TUI effort requested.
 - Add a README containing installation (`dotnet publish`), prerequisites, both usage examples from SPEC.md, how shared Dolt is validated, branch behavior, logs, and shutdown behavior.
 - State explicitly that normal orchestration does not create worktrees or
   configure Beads/Dolt; the standalone new-repository initializer is the only

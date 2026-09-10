@@ -73,7 +73,8 @@ public sealed class AbacusApplication(
             var git = new Git(runner, preflight.Tools.Git);
             var dashboardMonitor = MonitorDashboardAsync(
                 beads,
-                preflight.Agents[0],
+                git,
+                preflight.Agents,
                 preflight.Options.LatestCommentCount,
                 includeLatestComments: log is ConsoleOutput dashboard && (dashboard.IsInteractiveDashboard || dashboard.Events is not null),
                 linkedCancellation.Token);
@@ -225,11 +226,13 @@ public sealed class AbacusApplication(
 
     private async Task MonitorDashboardAsync(
         Beads beads,
-        ValidatedAgent agent,
+        Git git,
+        IReadOnlyList<ValidatedAgent> agents,
         int latestCommentCount,
         bool includeLatestComments,
         CancellationToken cancellationToken)
     {
+        var agent = agents[0];
         string? lastAttentionFailure = null;
         string? lastCommentsFailure = null;
         while (true)
@@ -256,6 +259,20 @@ public sealed class AbacusApplication(
 
             if (includeLatestComments)
             {
+                foreach (var workspaceAgent in agents)
+                {
+                    try
+                    {
+                        var status = await git.GetWorkspaceStatusAsync(
+                            workspaceAgent.WorkspacePath, workspaceAgent.Name, cancellationToken);
+                        await log.SetWorkspaceAsync(workspaceAgent.Name, status.Branch, status.IsDirty);
+                    }
+                    catch (Exception exception) when (exception is WorkspacePreparationException or CommandStartException or CommandTimeoutException)
+                    {
+                        // Display failure must not kill an agent or leave stale clean/branch information.
+                        await log.SetWorkspaceAsync(workspaceAgent.Name, null, null);
+                    }
+                }
                 try
                 {
                     var comments = await beads.GetLatestCommentsAsync(

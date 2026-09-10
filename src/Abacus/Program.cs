@@ -216,7 +216,9 @@ public static class Program
                 workspacePaths: options.Agents.ToDictionary(
                     static agent => agent.Name, static agent => agent.WorkspacePath, StringComparer.Ordinal),
                 events: events,
-                startPaused: options.StartPaused);
+                startPaused: options.StartPaused,
+                effort: options.Effort,
+                effortIsRequested: options.AgentMode == AgentMode.OpenCode);
             if (options.StartPaused && !options.Stdio && !output.IsInteractiveDashboard)
                 throw new InvalidOperationException(
                     "--start-paused requires an interactive dashboard or --stdio so claims can be resumed");

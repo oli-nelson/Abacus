@@ -153,14 +153,15 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
         string agentName,
         DispatchFilters filters,
         CancellationToken cancellationToken,
-        Func<BeadsIssue, bool>? eligible = null)
+        Func<BeadsIssue, bool>? eligible = null,
+        Func<BeadsIssue, Task<bool>>? canUseWorkspace = null)
     {
         var claim = await TryClaimPreferredReadyAsync(
             workspace,
             agentName,
             filters,
             assignee: null,
-            cancellationToken, eligible);
+            cancellationToken, eligible, canUseWorkspace);
         if (claim is not null)
         {
             return claim;
@@ -174,7 +175,7 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
             agentName,
             filters,
             agentName,
-            cancellationToken, eligible);
+            cancellationToken, eligible, canUseWorkspace);
     }
 
     private async Task<BeadsIssue?> TryClaimPreferredReadyAsync(
@@ -183,7 +184,8 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
         DispatchFilters filters,
         string? assignee,
         CancellationToken cancellationToken,
-        Func<BeadsIssue, bool>? eligible)
+        Func<BeadsIssue, bool>? eligible,
+        Func<BeadsIssue, Task<bool>>? canUseWorkspace)
     {
         for (var attempt = 1; ; attempt++)
         {
@@ -225,7 +227,8 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
                     agentName,
                     remainingCandidates,
                     cancellationToken);
-                if (!await HasUnclosedChildrenAsync(
+                if ((canUseWorkspace is null || await canUseWorkspace(preferred.Issue))
+                    && !await HasUnclosedChildrenAsync(
                         workspace,
                         agentName,
                         preferred.Issue.Id,
