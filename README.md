@@ -18,6 +18,14 @@ Beads backlog ──► atomic claim ──► abacus/<issue-id> ──► codin
 Abacus stays deliberately thin: it coordinates the command-line tools you
 already use rather than replacing Git, Beads, tmux, or your agent harness.
 
+> [!IMPORTANT]
+> **Abacus currently supports a single developer running multiple agents on one
+> machine. It is not yet ready for multiple Abacus instances running across
+> multiple machines or independent local clones.** Git synchronization remains
+> the developer's responsibility: pull remote changes before running agents and
+> push completed work through the repository's normal workflow. Multi-machine
+> and multi-local-clone coordination is planned for a future release.
+
 ## Why Abacus?
 
 - **Parallel without double work.** Beads provides atomic claims; every agent
