@@ -425,13 +425,19 @@ pass `--variant` directly.
 ## Exit and output behavior
 
 - Interactive terminals receive a skippable ASCII entrance, then the live ANSI dashboard.
+- Interactive standalone commands use consistent report sections and semantic status
+  colors: green for success, yellow for warnings, red for failures/attention, and
+  cyan/blue for headings and context. The config picker and run-config editor use
+  the same visual language for selection, validation warnings, and save state.
 - `--stdio` outputs only JSONL events and accepts JSONL commands; it rejects verbose
   output and desktop notifications. See [events and stdio](events-and-stdio.md).
 - Redirected stdin/stdout/stderr, verbose mode, preflight, and `TERM=dumb` never
   show the intro; `--no-intro` also disables it explicitly.
-- Redirected standard error receives compact state-transition lines instead of
-  terminal control sequences.
-- `NO_COLOR=1` disables colors while retaining the live layout.
+- Redirected output receives plain-text reports and compact state-transition lines,
+  never terminal color or control sequences.
+- `NO_COLOR=1` disables colors across the dashboard, standalone reports, help,
+  prompts, verbose events, and run summaries while retaining their layout.
+- `version` and `attention list` deliberately remain minimal, script-friendly output.
 - Successful `--once` and `--drain` runs print the normal summary.
 - `preflight` prints preflight success without a run summary.
 - The final summary contains elapsed time, initial Dolt commit, and per-agent

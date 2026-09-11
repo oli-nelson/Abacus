@@ -3,8 +3,14 @@ namespace Abacus;
 /// <summary>Read-only auditing and conservative metadata repair; no agent preflight or Git mutations.</summary>
 public sealed class TicketTargets(Beads beads, Git git)
 {
-    public async Task<int> RunAsync(string workspace, TicketTargetCommand command, TextWriter output, CancellationToken token)
+    public async Task<int> RunAsync(
+        string workspace,
+        TicketTargetCommand command,
+        TextWriter output,
+        CancellationToken token,
+        bool color = false)
     {
+        var ui = new TerminalUi(color);
         var root = await git.ResolveMainRepositoryAsync(workspace, command.RepositoryPath, token);
         workspace = root;
         var registry = await TargetRegistry.LoadAsync(Path.Combine(root, ".abacus", "targets.json"), token);
@@ -13,6 +19,7 @@ public sealed class TicketTargets(Beads beads, Git git)
             : await ReadIssuesAsync(workspace, command.IssueIds, token);
         if (command.Check)
         {
+            ui.WriteTitle(output, "Ticket target audit");
             var failures = 0;
             foreach (var issue in issues.OrderBy(i => i.Id, StringComparer.Ordinal))
             {
@@ -27,18 +34,27 @@ public sealed class TicketTargets(Beads beads, Git git)
                         if (issue.Binding is null) throw new TargetException("existing issue branch has no execution binding; operator adoption is required");
                         await git.VerifyBoundHistoryAsync(workspace, "abacus", issue.Binding.StartCommit, issue.Binding.IssueBranch, token);
                     }
-                    await output.WriteLineAsync($"OK {issue.Id}: {policy.Branch}{(issue.TargetBranch is null ? " (default)" : "")}");
+                    await output.WriteLineAsync($"  {ui.Status("OK")} {ui.Value(issue.Id)}  "
+                        + $"{ui.Label("target")} {TerminalUi.Sanitize(policy.Branch)}"
+                        + (issue.TargetBranch is null ? $" {ui.Muted("(default)")}" : string.Empty));
                 }
                 catch (TargetException exception)
                 {
                     failures++;
-                    await output.WriteLineAsync($"INVALID {issue.Id}: {exception.Message}");
+                    await output.WriteLineAsync($"  {ui.Status("INVALID")} {ui.Value(issue.Id)}  "
+                        + TerminalUi.Sanitize(exception.Message));
                 }
             }
-            await output.WriteLineAsync($"Checked {issues.Count} ticket(s); {failures} invalid.");
+            ui.WriteSection(output, "Summary");
+            ui.WriteKeyValue(output, "Checked", issues.Count.ToString());
+            ui.WriteKeyValue(output, "Valid", (issues.Count - failures).ToString());
+            ui.WriteKeyValue(output, "Invalid", failures.ToString());
+            ui.WriteStatus(output, failures == 0 ? "OK" : "FAIL",
+                failures == 0 ? "All ticket targets are valid." : $"{failures} ticket target{(failures == 1 ? string.Empty : "s")} need attention.");
             return failures == 0 ? 0 : 1;
         }
 
+        ui.WriteTitle(output, "Ticket target update");
         var target = registry.Resolve(command.Target);
         await git.ResolveTargetCommitAsync(workspace, "abacus", target.Branch, token);
         // Validate the entire batch before writing anything. CLI failures after that may leave a partial batch.
@@ -71,8 +87,12 @@ public sealed class TicketTargets(Beads beads, Git git)
             if (adoption is not null && verified.Binding != adoption)
                 throw new TargetException($"adoption verification failed for '{issue.Id}'");
             if (verified.TargetBranch != target.Branch) throw new TargetException($"target write verification failed for '{issue.Id}'");
-            await output.WriteLineAsync($"Set {issue.Id}: abacus_target={target.Branch} (status and attention unchanged).");
+            await output.WriteLineAsync($"  {ui.Status("OK")} {ui.Value(issue.Id)}  "
+                + $"{ui.Label("abacus_target")}={TerminalUi.Sanitize(target.Branch)} "
+                + ui.Muted("(status and attention unchanged)"));
         }
+        ui.WriteSection(output, "Summary");
+        ui.WriteStatus(output, "OK", $"Updated {issues.Count} ticket{(issues.Count == 1 ? string.Empty : "s")} to target '{target.Branch}'.");
         return 0;
     }
 

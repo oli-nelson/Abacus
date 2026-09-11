@@ -194,6 +194,30 @@ public sealed class OutputTests
         Assert.Contains("bd show abc-1 --json", text, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task VerboseOutputColorCodesLevelsWithoutChangingDetails()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: true,
+            interactive: false,
+            color: true);
+
+        await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI running");
+        await output.WarningAsync("alice", "review the workspace");
+        await output.DebugCommandAsync("alice", "bd show abc-1 --json");
+
+        var text = writer.ToString();
+        Assert.Contains("\u001b[36m[alice]\u001b[0m", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[32mWORKING", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[31mWARNING", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[2mDEBUG", text, StringComparison.Ordinal);
+        Assert.Contains("abc-1 • agent CLI running", text, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(80, 24)]
     [InlineData(140, 40)]
@@ -592,6 +616,30 @@ public sealed class OutputTests
         Assert.Contains("interrupted 1", text, StringComparison.Ordinal);
         Assert.Contains("USER ATTENTION", text, StringComparison.Ordinal);
         Assert.Contains("alice — Could not verify recovery", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunSummaryColorCodesOutcomeCategoriesWhenEnabled()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: true,
+            interactive: false,
+            color: true);
+
+        await output.SummaryAsync(new RunSummarySnapshot(
+            TimeSpan.FromSeconds(3),
+            "baseline",
+            [new AgentRunSummary("alice", 2, 1, 1, 0)]));
+
+        var text = writer.ToString();
+        Assert.Contains("\u001b[1m\u001b[36mABACUS RUN SUMMARY\u001b[0m", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[32mclosed 2\u001b[0m", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[33mreopened 1\u001b[0m", text, StringComparison.Ordinal);
+        Assert.Contains("\u001b[31mblocked 1\u001b[0m", text, StringComparison.Ordinal);
     }
 
     private static BeadsComment Comment(

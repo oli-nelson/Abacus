@@ -38,6 +38,11 @@ internal static class CliHelp
         Use -- to end option parsing before positional arguments. Single-value options
         accept --option=value. Quote multi-word values. Commands and options are exact;
         no implicit run, legacy operation flags, or abbreviated commands are accepted.
+
+        Terminal presentation:
+          Interactive help, reports, prompts, verbose events, and summaries use semantic colors.
+          Set NO_COLOR to disable ANSI styling. Redirected output is always plain text.
+          `version` and `attention list` remain minimal, script-friendly output.
         """;
 
     private const string RunOptions = """
@@ -84,6 +89,8 @@ internal static class CliHelp
           --notify <off|attention|all>   Desktop notifications; default: off.
           --notify-sound                Outcome sounds; requires --notify attention or all.
           --verbose, -v                 Timestamped state and subprocess logs instead of dashboard.
+                                        Levels and final outcome categories are color-coded on a terminal.
+                                        Set NO_COLOR to disable ANSI styling.
 
         Repository:
           --repo <path>                 Main checkout; default: cwd inside that checkout.

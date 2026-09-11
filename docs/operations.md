@@ -140,8 +140,10 @@ abacus run --verbose [other run options]
 ```
 
 When standard error is redirected without verbose mode, Abacus automatically
-uses compact state-transition lines instead of terminal control sequences. Set
-`NO_COLOR=1` to disable color while keeping the live layout.
+uses compact state-transition lines instead of terminal control sequences. On a
+terminal, verbose state levels and final outcome categories are color-coded for
+quick scanning. Set `NO_COLOR=1` to disable color across logs, summaries, prompts,
+standalone reports, and the dashboard while keeping their visual structure.
 
 ## User-attention workflow
 

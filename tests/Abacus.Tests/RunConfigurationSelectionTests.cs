@@ -36,6 +36,21 @@ public sealed class RunConfigurationSelectionTests : IDisposable
     }
 
     [Fact]
+    public void InteractivePickerUsesColorForStructureWhenEnabled()
+    {
+        var path = Write("run.json", Complete);
+        var output = new StringWriter();
+
+        var selected = RunConfigurationSelection.Select(
+            root.FullName, ["--model <model>"], new StringReader("1\n"), output, color: true);
+
+        Assert.Equal(path, selected);
+        Assert.Contains("\u001b[1m\u001b[36mRun configuration required\u001b[0m", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("\u001b[33m[WARN]\u001b[0m", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("\u001b[32m1.\u001b[0m", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FailedSelectionReportsAllRemainingMissingArgumentsWithoutRetrying()
     {
         var path = Write("incomplete.json", """{"version":1,"mode":"opencode-server"}""");
@@ -140,6 +155,7 @@ public sealed class RunConfigurationSelectionTests : IDisposable
         Assert.Contains("Missing required", result.StandardError);
         Assert.DoesNotContain("Searching", result.StandardError);
         Assert.DoesNotContain("Select", result.StandardError);
+        Assert.DoesNotContain("\u001b", result.StandardError, StringComparison.Ordinal);
         Assert.Empty(result.StandardOutput);
     }
 

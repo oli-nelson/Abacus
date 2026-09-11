@@ -38,7 +38,13 @@ public sealed class ModelCatalogTests
         var rendered = report.Render();
         Assert.Contains("OpenCode:\n  provider/model-a", rendered, StringComparison.Ordinal);
         Assert.Contains("Codex:\n  gpt-a", rendered, StringComparison.Ordinal);
-        Assert.Contains("Claude Code:\n  (installed CLI", rendered, StringComparison.Ordinal);
+        Assert.Contains("Claude Code:\n  [INFO] installed CLI", rendered, StringComparison.Ordinal);
+        Assert.Contains("[OK] 5 discoverable models found.", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b", rendered, StringComparison.Ordinal);
+
+        var colored = report.Render(color: true);
+        Assert.Contains("\u001b[1m\u001b[36mAbacus models\u001b[0m", colored, StringComparison.Ordinal);
+        Assert.Contains("\u001b[32mprovider/model-a\u001b[0m", colored, StringComparison.Ordinal);
     }
 
     [Fact]

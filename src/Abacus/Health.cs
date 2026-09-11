@@ -311,9 +311,7 @@ public sealed record HealthReport(
     }
 
     internal static bool ShouldUseColor(bool outputRedirected, string? term, string? noColor) =>
-        !outputRedirected
-        && !string.Equals(term, "dumb", StringComparison.OrdinalIgnoreCase)
-        && noColor is null;
+        TerminalUi.ShouldUseColor(outputRedirected, term, noColor);
 
     private static void AppendHeading(StringBuilder text, string heading, bool color) =>
         text.AppendLine(Color(color, Bold + Cyan, heading));

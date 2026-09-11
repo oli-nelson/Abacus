@@ -4,17 +4,29 @@ namespace Abacus;
 // validation finds missing required values. No preflight or external tools here.
 internal static class RunConfigurationSelection
 {
-    internal static string? Select(string directory, IReadOnlyList<string> missing, TextReader input, TextWriter output)
+    internal static string? Select(
+        string directory,
+        IReadOnlyList<string> missing,
+        TextReader input,
+        TextWriter output,
+        bool color = false)
     {
-        output.WriteLine("Abacus cannot run yet. Missing required arguments:");
-        foreach (var item in missing) output.WriteLine(" - " + item);
-        output.WriteLine("Searching the working directory for run config JSON files...");
+        var ui = new TerminalUi(color);
+        ui.WriteTitle(output, "Run configuration required");
+        output.WriteLine();
+        output.WriteLine(ui.Heading("Missing required arguments"));
+        foreach (var item in missing) output.WriteLine($"  {ui.Status("WARN")} {TerminalUi.Sanitize(item)}");
+        output.WriteLine();
+        output.WriteLine(ui.Muted("Searching the working directory for run config JSON files..."));
         var candidates = Discover(directory);
         if (candidates.Count == 0)
             throw new OptionsException("no run config files found in the working directory; supply the missing arguments or use --config <file>");
+        output.WriteLine();
+        output.WriteLine(ui.Heading($"Available configs ({candidates.Count})"));
         for (var index = 0; index < candidates.Count; index++)
-            output.WriteLine($" {index + 1}. {Display(Path.GetFileName(candidates[index]))}");
-        output.Write("Select one config by number (blank or q cancels): ");
+            output.WriteLine($"  {ui.Command((index + 1) + ".")} {ui.Value(Display(Path.GetFileName(candidates[index])))}");
+        output.WriteLine();
+        output.Write($"{ui.Label("Select a config")} {ui.Muted("(number, blank or q cancels)")} {ui.Command("›")} ");
         output.Flush();
         var response = input.ReadLine()?.Trim();
         if (string.IsNullOrEmpty(response) || response.Equals("q", StringComparison.OrdinalIgnoreCase)) return null;

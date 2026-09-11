@@ -8,6 +8,10 @@ Unreleased section. Released versions are listed newest first.
 
 ### Added
 
+- Add consistent semantic colors and clearer report structure to help, setup and
+  maintenance commands, model and target reports, the run-config picker/editor,
+  verbose events, errors, confirmation prompts, and run summaries. Redirected and
+  `NO_COLOR` output remains plain, while script-oriented ID/version output is unchanged.
 - Add a terminal run-config editor with Save As and saveable incomplete drafts,
   plus JSON run/preflight configs with `baseConfig` inheritance and explicit CLI
   overrides. Interactive runs missing required arguments offer a one-time config

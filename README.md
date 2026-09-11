@@ -297,6 +297,12 @@ Bare `abacus` prints help; use explicit commands. Old flag-based operations are
 not accepted. Run `abacus --help` for the built-in summary and see the
 [CLI reference](docs/cli-reference.md) for every mode and option.
 
+Interactive help, setup results, health/model/target reports, prompts, verbose
+events, and run summaries use consistent semantic colors and sectioning. Redirected
+output stays plain, and `NO_COLOR=1` disables ANSI styling without flattening the
+layout. `abacus version` and `abacus attention list` remain intentionally minimal
+for scripts.
+
 ## Safety and ownership
 
 Abacus owns orchestration—not your infrastructure or engineering decisions.

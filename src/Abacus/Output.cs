@@ -235,7 +235,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         this.verbose = verbose;
         this.interactive = !verbose && (interactive ?? (!Console.IsErrorRedirected && !Console.IsInputRedirected && !Console.IsOutputRedirected
             && Environment.GetEnvironmentVariable("TERM") != "dumb"));
-        this.color = color ?? (Environment.GetEnvironmentVariable("NO_COLOR") is null);
+        this.color = color ?? TerminalUi.ShouldUseColor(
+            Console.IsErrorRedirected,
+            Environment.GetEnvironmentVariable("TERM"),
+            Environment.GetEnvironmentVariable("NO_COLOR"));
         this.model = model;
         this.effort = effort;
         this.effortIsRequested = effortIsRequested;
@@ -615,21 +618,29 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 writer.Write("\u001b[2J\u001b[H");
             }
 
-            writer.WriteLine($"ABACUS RUN SUMMARY  •  {OutputExtensions.FormatDuration(summary.Elapsed)}  •  {summary.Total} outcomes");
-            writer.WriteLine($"Initial Beads Dolt commit  {summary.InitialDoltCommit}");
-            writer.WriteLine(new string('─', 72));
+            writer.WriteLine(
+                $"{Color(Bold + Cyan, "ABACUS RUN SUMMARY")}"
+                + Color(Dim, $"  •  {OutputExtensions.FormatDuration(summary.Elapsed)}  •  {summary.Total} outcomes"));
+            writer.WriteLine($"{Color(Bold, "Initial Beads Dolt commit")}  {Color(Cyan, summary.InitialDoltCommit)}");
+            writer.WriteLine(Color(Dim, new string('─', 72)));
             foreach (var agent in summary.Agents)
             {
                 writer.WriteLine(
-                    $"{agent.AgentName,-16} closed {agent.Closed}  reopened {agent.Reopened}  blocked {agent.Blocked}  interrupted {agent.Interrupted}");
+                    $"{Color(Bold + Cyan, TerminalUi.Sanitize(agent.AgentName).PadRight(16))} "
+                    + $"{Color(Green, $"closed {agent.Closed}")}  "
+                    + $"{Color(Yellow, $"reopened {agent.Reopened}")}  "
+                    + $"{Color(Red, $"blocked {agent.Blocked}")}  "
+                    + Color(Magenta, $"interrupted {agent.Interrupted}"));
             }
 
             if (persistentAlerts.Count > 0)
             {
-                writer.WriteLine("USER ATTENTION");
+                writer.WriteLine();
+                writer.WriteLine(Color(Bold + Red, "USER ATTENTION"));
                 foreach (var (source, message) in persistentAlerts.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
                 {
-                    writer.WriteLine($"! {source} — {message}");
+                    writer.WriteLine(Color(Red,
+                        $"! {TerminalUi.Sanitize(source)} — {TerminalUi.Sanitize(message)}"));
                 }
             }
 
@@ -704,7 +715,19 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
     private void WriteEvent(string source, string level, string detail)
     {
-        writer.WriteLine($"{DateTimeOffset.Now:HH:mm:ss} [{source}] {level,-10} {detail}");
+        var levelColor = level switch
+        {
+            "ATTENTION" or "WARNING" or "STOPPED" => Red,
+            "RETRYING" or "RECOVERING" or "PAUSED" => Yellow,
+            "WORKING" or "FINALIZING" => Green,
+            "DEBUG" => Dim,
+            _ => Cyan,
+        };
+        writer.WriteLine(
+            $"{Color(Dim, DateTimeOffset.Now.ToString("HH:mm:ss"))} "
+            + $"{Color(Cyan, $"[{TerminalUi.Sanitize(source)}]")} "
+            + $"{Color(levelColor, TerminalUi.Sanitize(level).PadRight(10))} "
+            + TerminalUi.Sanitize(detail));
         writer.Flush();
     }
 

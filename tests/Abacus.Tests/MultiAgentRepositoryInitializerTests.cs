@@ -200,6 +200,7 @@ public sealed class MultiAgentRepositoryInitializerTests
             Assert.Contains("For non-interactive use, pass --config", result.StandardOutput);
             Assert.DoesNotContain("Launchers:", result.StandardOutput);
             Assert.DoesNotContain(".sh", result.StandardOutput);
+            Assert.DoesNotContain("\u001b", result.StandardOutput, StringComparison.Ordinal);
             Assert.Empty(Directory.GetFiles(Path.Combine(root.FullName, "project"), "*.sh"));
         }
         finally { root.Delete(true); }

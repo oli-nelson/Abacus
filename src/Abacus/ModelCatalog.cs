@@ -12,9 +12,13 @@ public sealed record ModelCatalogReport(IReadOnlyList<HarnessModels> Harnesses)
 {
     public bool HasModels => Harnesses.Any(static harness => harness.ModelIds.Count > 0);
 
-    public string Render()
+    public string Render(bool color = false)
     {
+        var ui = new TerminalUi(color);
         var text = new StringBuilder();
+        text.AppendLine(ui.Title("Abacus models"));
+        text.AppendLine(ui.Muted("============="));
+        text.AppendLine();
         foreach (var (harness, index) in Harnesses.Select((value, index) => (value, index)))
         {
             if (index > 0)
@@ -22,17 +26,24 @@ public sealed record ModelCatalogReport(IReadOnlyList<HarnessModels> Harnesses)
                 text.AppendLine();
             }
 
-            text.Append(harness.Harness).AppendLine(":");
+            text.Append(ui.Heading(harness.Harness)).AppendLine(":");
             foreach (var modelId in harness.ModelIds)
             {
-                text.Append("  ").AppendLine(modelId);
+                text.Append("  ").AppendLine(ui.Command(modelId));
             }
 
             if (harness.Note is not null)
             {
-                text.Append("  (").Append(harness.Note).AppendLine(")");
+                text.Append("  ").Append(ui.Status("INFO")).Append(' ')
+                    .AppendLine(ui.Muted(harness.Note));
             }
         }
+
+        var modelCount = Harnesses.Sum(static harness => harness.ModelIds.Count);
+        text.AppendLine();
+        text.Append(ui.Status(modelCount > 0 ? "OK" : "WARN")).Append(' ')
+            .Append(modelCount).Append(" discoverable model")
+            .Append(modelCount == 1 ? string.Empty : "s").AppendLine(" found.");
 
         return text.ToString();
     }

@@ -6,15 +6,18 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        var stdoutUi = TerminalUi.ForConsoleOut();
+        var stderrUi = TerminalUi.ForConsoleError();
         try
         {
             var interactive = !Console.IsInputRedirected && !Console.IsOutputRedirected && !Console.IsErrorRedirected;
             var parsed = Options.Parse(args, interactive
-                ? missing => RunConfigurationSelection.Select(Environment.CurrentDirectory, missing, Console.In, Console.Error)
+                ? missing => RunConfigurationSelection.Select(
+                    Environment.CurrentDirectory, missing, Console.In, Console.Error, stderrUi.ColorEnabled)
                 : null);
             if (parsed.ShowHelp)
             {
-                Console.Out.WriteLine(parsed.HelpText ?? Options.Usage);
+                Console.Out.WriteLine(stdoutUi.RenderHelp(parsed.HelpText ?? Options.Usage));
                 return 0;
             }
 
@@ -38,7 +41,8 @@ public static class Program
             {
                 var runner = new CommandRunner(TextWriter.Null);
                 return await new TicketTargets(new Beads(runner), new Git(runner))
-                    .RunAsync(workingDirectory, targetCommand, Console.Out, CancellationToken.None);
+                    .RunAsync(workingDirectory, targetCommand, Console.Out, CancellationToken.None,
+                        stdoutUi.ColorEnabled);
             }
 
             if (parsed.NewMultiAgentRepository is { } repositoryOptions)
@@ -49,17 +53,22 @@ public static class Program
                         workingDirectory,
                         repositoryOptions,
                         CancellationToken.None);
-                Console.Out.WriteLine($"Initialized '{repositoryOptions.ProjectName}' at {result.ProjectRoot}");
-                Console.Out.WriteLine($"Repository:     {result.RepositoryPath}");
-                Console.Out.WriteLine($"Worktrees:      {result.WorktreesPath} (0-{result.AgentCount - 1})");
-                Console.Out.WriteLine($"Beads database: {result.BeadsDatabase}");
-                Console.Out.WriteLine(
-                    $"Configs:        {string.Join(", ", result.ConfigurationPaths.Select(Path.GetFileName))}");
-                Console.Out.WriteLine($"Next: change directory to {result.ProjectRoot}, then execute abacus run and select a harness config (not the shared base).");
-                Console.Out.WriteLine("For non-interactive use, pass --config <path-to-harness-config> and --start-paused=false (or use stdio controls with notifications disabled).");
-                Console.Out.WriteLine("Edit shared settings with abacus config edit abacus_base.json.");
-                Console.Out.WriteLine("Generated runs start paused (Shift-Tab resumes claims), with all notifications and sound enabled.");
-                Console.Out.WriteLine("Abacus creates its default tmux session when needed.");
+                stdoutUi.WriteTitle(Console.Out, "Abacus project created");
+                stdoutUi.WriteStatus(Console.Out, "OK", $"Initialized '{repositoryOptions.ProjectName}'.");
+                stdoutUi.WriteSection(Console.Out, "Project layout");
+                stdoutUi.WriteKeyValue(Console.Out, "Project", result.ProjectRoot);
+                stdoutUi.WriteKeyValue(Console.Out, "Repository", result.RepositoryPath);
+                stdoutUi.WriteKeyValue(Console.Out, "Worktrees", $"{result.WorktreesPath} (0-{result.AgentCount - 1})");
+                stdoutUi.WriteKeyValue(Console.Out, "Beads database", result.BeadsDatabase);
+                stdoutUi.WriteKeyValue(Console.Out, "Configs",
+                    string.Join(", ", result.ConfigurationPaths.Select(Path.GetFileName)));
+                stdoutUi.WriteSection(Console.Out, "Next steps");
+                stdoutUi.WriteStep(Console.Out, 1, $"Change directory to {result.ProjectRoot}.");
+                stdoutUi.WriteStep(Console.Out, 2, "From the project directory, execute abacus run and select a harness config (not the shared base).");
+                stdoutUi.WriteStep(Console.Out, 3, "Edit shared settings with abacus config edit abacus_base.json.");
+                Console.Out.WriteLine();
+                Console.Out.WriteLine(stdoutUi.Muted("Generated runs start paused; Shift-Tab resumes claims. Notifications and sound are enabled, and Abacus creates its default tmux session when needed."));
+                Console.Out.WriteLine(stdoutUi.Muted("For non-interactive use, pass --config <path-to-harness-config> and --start-paused=false, or use stdio controls with notifications disabled."));
                 return 0;
             }
 
@@ -69,14 +78,22 @@ public static class Program
                     .InitializeAsync(workingDirectory, ConfirmSkillOverwrite, CancellationToken.None);
                 if (result.Skills.Cancelled)
                 {
-                    Console.Out.WriteLine("Initialization cancelled; no files were changed.");
+                    stdoutUi.WriteStatus(Console.Out, "WARN", "Initialization cancelled; no files were changed.");
                     return 0;
                 }
-                Console.Out.WriteLine($"Installed bundled skills in {result.Skills.SkillsRoot}");
-                Console.Out.WriteLine($"{(result.CreatedTargets ? "Created" : "Preserved")} target configuration: {result.TargetsPath}");
-                Console.Out.WriteLine($"{(result.CreatedReasoning ? "Created" : "Preserved")} reasoning configuration: {result.ReasoningPath}");
-                Console.Out.WriteLine("Next: review and commit .abacus/targets.json, .abacus/reasoning.json, and .agents/skills; run abacus health and abacus targets check.");
-                Console.Out.WriteLine("Missing ticket targets use defaultTarget unless enforceTargetBranch is true. Set explicit targets with abacus targets set <branch> <issue-id> [...]. No Beads settings, tickets, branches, or commits were changed.");
+                stdoutUi.WriteTitle(Console.Out, "Abacus repository initialized");
+                stdoutUi.WriteStatus(Console.Out, "OK", "Repository setup files are ready for review.");
+                stdoutUi.WriteSection(Console.Out, "Installed and configured");
+                stdoutUi.WriteKeyValue(Console.Out, "Bundled skills", result.Skills.SkillsRoot);
+                stdoutUi.WriteKeyValue(Console.Out, result.CreatedTargets ? "Created targets" : "Preserved targets", result.TargetsPath);
+                stdoutUi.WriteKeyValue(Console.Out, result.CreatedReasoning ? "Created reasoning" : "Preserved reasoning",
+                    result.ReasoningPath ?? "(not configured)");
+                stdoutUi.WriteSection(Console.Out, "Next steps");
+                stdoutUi.WriteStep(Console.Out, 1, "Review and commit .abacus/targets.json, .abacus/reasoning.json, and .agents/skills.");
+                stdoutUi.WriteStep(Console.Out, 2, "Run abacus health.");
+                stdoutUi.WriteStep(Console.Out, 3, "Run abacus targets check.");
+                Console.Out.WriteLine();
+                Console.Out.WriteLine(stdoutUi.Muted("Missing ticket targets use defaultTarget unless enforceTargetBranch is true. Set explicit targets with abacus targets set <branch> <issue-id> [...]. No Beads settings, tickets, branches, or commits were changed."));
                 return 0;
             }
 
@@ -89,12 +106,14 @@ public static class Program
                     CancellationToken.None);
                 if (result.Cancelled)
                 {
-                    Console.Out.WriteLine("Skill installation cancelled; no files were changed.");
+                    stdoutUi.WriteStatus(Console.Out, "WARN", "Skill installation cancelled; no files were changed.");
                     return 0;
                 }
 
-                Console.Out.WriteLine(
-                    $"Installed {string.Join(", ", result.InstalledSkills)} in {result.SkillsRoot}");
+                stdoutUi.WriteTitle(Console.Out, "Bundled skills installed");
+                foreach (var skill in result.InstalledSkills)
+                    stdoutUi.WriteStatus(Console.Out, "OK", skill);
+                stdoutUi.WriteKeyValue(Console.Out, "Destination", result.SkillsRoot);
                 return 0;
             }
 
@@ -113,7 +132,7 @@ public static class Program
             {
                 var catalog = await new ModelCatalog(new CommandRunner(TextWriter.Null))
                     .CollectAsync(workingDirectory, CancellationToken.None);
-                Console.Out.Write(catalog.Render());
+                Console.Out.Write(catalog.Render(stdoutUi.ColorEnabled));
                 return catalog.HasModels ? 0 : 1;
             }
 
@@ -143,13 +162,25 @@ public static class Program
                         workingDirectory,
                         closedIssues.Select(static issue => issue.Id),
                         CancellationToken.None);
-                Console.Out.WriteLine(result.DeletedBranches.Count == 0
-                    ? "No closed ticket branches to prune."
-                    : $"Deleted {result.DeletedBranches.Count} closed ticket branch{(result.DeletedBranches.Count == 1 ? string.Empty : "es")}: {string.Join(", ", result.DeletedBranches)}");
+                stdoutUi.WriteTitle(Console.Out, "Closed branch cleanup");
+                if (result.DeletedBranches.Count == 0)
+                {
+                    stdoutUi.WriteStatus(Console.Out, "OK", "No closed ticket branches to prune.");
+                }
+                else
+                {
+                    stdoutUi.WriteStatus(Console.Out, "OK",
+                        $"Deleted {result.DeletedBranches.Count} closed ticket branch{(result.DeletedBranches.Count == 1 ? string.Empty : "es")}.");
+                    foreach (var branch in result.DeletedBranches)
+                        Console.Out.WriteLine($"    {stdoutUi.Success("−")} {TerminalUi.Sanitize(branch)}");
+                }
                 if (result.SkippedCheckedOutBranches.Count > 0)
                 {
-                    Console.Out.WriteLine(
-                        $"Skipped checked-out branch{(result.SkippedCheckedOutBranches.Count == 1 ? string.Empty : "es")}: {string.Join(", ", result.SkippedCheckedOutBranches)}");
+                    stdoutUi.WriteSection(Console.Out, "Skipped");
+                    stdoutUi.WriteStatus(Console.Out, "WARN",
+                        $"{result.SkippedCheckedOutBranches.Count} checked-out branch{(result.SkippedCheckedOutBranches.Count == 1 ? string.Empty : "es")} preserved.");
+                    foreach (var branch in result.SkippedCheckedOutBranches)
+                        Console.Out.WriteLine($"    {stdoutUi.Warning("•")} {TerminalUi.Sanitize(branch)}");
                 }
 
                 return 0;
@@ -171,7 +202,9 @@ public static class Program
                     (false, true) => " and reopened the ticket",
                     (true, true) => ", recorded the response, and reopened the ticket",
                 };
-                Console.Out.WriteLine($"Resolved user attention for {attentionResolution.IssueId}{action}.");
+                stdoutUi.WriteTitle(Console.Out, "User attention resolved");
+                stdoutUi.WriteStatus(Console.Out, "OK",
+                    $"Resolved user attention for {attentionResolution.IssueId}{action}.");
 
                 return 0;
             }
@@ -181,8 +214,8 @@ public static class Program
         }
         catch (OptionsException exception)
         {
-            Console.Error.WriteLine($"abacus: {exception.Message}");
-            Console.Error.WriteLine(Options.ShortUsage);
+            Console.Error.WriteLine(stderrUi.Error($"abacus: {exception.Message}"));
+            Console.Error.WriteLine(stderrUi.RenderHelp(Options.ShortUsage));
             return 2;
         }
         catch (OperationCanceledException)
@@ -191,18 +224,19 @@ public static class Program
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine($"abacus: {exception.Message}");
+            Console.Error.WriteLine(stderrUi.Error($"abacus: {exception.Message}"));
             return 1;
         }
     }
 
     private static async Task<int> RunOrchestratorAsync(Options options)
     {
+        var stderrUi = TerminalUi.ForConsoleError();
         using var cancellation = new CancellationTokenSource();
         using var events = options.Stdio || options.EventLogPath is not null
             ? new EventReporter(options.Stdio ? Console.Out : null, options.EventLogPath, message =>
             {
-                Console.Error.WriteLine($"abacus: {message}");
+                Console.Error.WriteLine(stderrUi.Error($"abacus: {message}"));
                 cancellation.Cancel();
             }) : null;
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
@@ -266,7 +300,7 @@ public static class Program
         {
             exitCode = 1;
             events?.Emit("run.error", new { message = exception.Message });
-            Console.Error.WriteLine($"abacus: {exception.Message}");
+            Console.Error.WriteLine(stderrUi.Error($"abacus: {exception.Message}"));
         }
         finally
         {
@@ -279,9 +313,14 @@ public static class Program
 
     private static bool ConfirmSkillOverwrite(IReadOnlyList<string> existingSkills)
     {
-        Console.Error.WriteLine(
-            $"The following installed skill directories already exist: {string.Join(", ", existingSkills)}");
-        Console.Error.Write("Replace them with the bundled versions? [y/N] ");
+        var ui = TerminalUi.ForConsoleError();
+        ui.WriteTitle(Console.Error, "Existing bundled skills found");
+        ui.WriteStatus(Console.Error, "WARN", "Replacing a skill replaces its complete directory.");
+        foreach (var skill in existingSkills)
+            Console.Error.WriteLine($"    {ui.Warning("•")} {TerminalUi.Sanitize(skill)}");
+        Console.Error.WriteLine();
+        Console.Error.Write($"{ui.Label("Replace with bundled versions?")} {ui.Muted("[y/N]")} {ui.Command("›")} ");
+        Console.Error.Flush();
         var response = Console.ReadLine()?.Trim();
         return string.Equals(response, "y", StringComparison.OrdinalIgnoreCase)
             || string.Equals(response, "yes", StringComparison.OrdinalIgnoreCase);
