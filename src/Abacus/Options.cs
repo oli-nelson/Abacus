@@ -124,7 +124,7 @@ public sealed record Options(
         }
         // Validate the command before interpreting any options or their values.
         _ = CliHelp.For(command);
-        if (repositoryPath is not null && command is "new" or "models")
+        if (repositoryPath is not null && command is "new" or "models" or "version")
             throw new OptionsException($"--repo is not supported by {command}");
         var run = command is "run" or "preflight";
         var optionValues = new List<string>();
@@ -220,6 +220,7 @@ public sealed record Options(
                         "skills install" => OptionsParseResult.InstallSkillsOnly,
                         "health" => OptionsParseResult.Health,
                         "models" => OptionsParseResult.Models,
+                        "version" => new(null, false, ShowVersion: true),
                         "branches prune" => OptionsParseResult.PruneClosedBranchesOnly,
                         "attention list" => OptionsParseResult.ListUserAttentionOnly,
                         _ => throw new OptionsException($"unknown command '{command}'"),
@@ -243,7 +244,7 @@ public sealed record Options(
 
     private static int OptionArity(string command, string option)
     {
-        if (option == "--repo") return command is "new" or "models" ? -1 : 1;
+        if (option == "--repo") return command is "new" or "models" or "version" ? -1 : 1;
         if (command is "run" or "preflight")
             return option switch
             {
@@ -729,7 +730,8 @@ public sealed record OptionsParseResult(
     TicketTargetCommand? TargetCommand = null,
     string? RepositoryPath = null,
     bool InitializeRepository = false,
-    string? HelpText = null)
+    string? HelpText = null,
+    bool ShowVersion = false)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);

@@ -29,8 +29,8 @@ explicitly. Agent `-a` paths may still be linked worktrees.
 Configuration always loads from `<repo>/.abacus/targets.json`. `--config` has
 been removed; update old launchers to `--repo <main-checkout>` rather than a
 JSON file path. Relative `--repo` paths resolve against the invocation directory.
-Help, model listing, and new-repository creation remain usable outside Git;
-`--repo` is not accepted with model listing or new-repository creation.
+Help, version reporting, model listing, and new-repository creation remain usable outside Git;
+`--repo` is not accepted with version reporting, model listing, or new-repository creation.
 
 ## Command structure
 
@@ -49,7 +49,7 @@ abacus preflight --help
 `--help` / `-h` works on every command and command group without repository or
 agent prerequisites. `--repo <path>` is accepted before or after a complete
 repository-scoped command (for example, `abacus --repo /work/repo health` or
-`abacus health --repo /work/repo`), but not by `new` or `models`.
+`abacus health --repo /work/repo`), but not by `new`, `models`, or `version`.
 Options are command-scoped; unknown names and duplicate non-repeatable options
 fail rather than being silently ignored. `--agent` / `-a`, `--label`,
 `--exclude-label`, and `--target-filter` are repeatable.
@@ -432,3 +432,16 @@ pass `--variant` directly.
 
 Operational failures in finite modes produce a nonzero exit. For the detailed
 recovery contract, see [Operations](operations.md#failure-and-recovery).
+
+## Version
+
+```sh
+abacus version
+# 1.2.3
+```
+
+Prints only the embedded build version and a newline, then exits successfully.
+Works outside Git without Beads, an agent harness, tmux, or other external tools.
+Accepts no options or arguments except scoped help. Release versions omit the
+Git tag's leading `v`; source builds default to `0.0.0-dev`.
+See [releases](releases.md) for version selection and publishing.

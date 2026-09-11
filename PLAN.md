@@ -539,3 +539,22 @@ All checks happen before any ticket is claimed or agent run is created.
 - Test serialization/concurrent ordering, file mirroring, parser scope, controls,
   EOF/finite process exits, startup errors, and intro gating with fake tools.
   Document the versioned stream and accepted-versus-completed action semantics.
+
+### Versioned GitHub releases
+
+- Keep release automation shell-first: a clean-branch changelog/commit/tag helper, shared
+  version validation, a native single-file packaging/smoke script, and a GitHub
+  Actions matrix for Linux/macOS x64/ARM64.
+- Use tag-derived MSBuild Version and assembly informational metadata; default
+  unversioned development builds to 0.0.0-dev. Dispatch version before repository
+  resolution and keep standard command-scoped validation/help.
+- Gate publication on all tests and extracted-binary version checks. Upload all
+  archives/checksums to a draft before publishing; never clobber existing releases.
+- Cover version output outside Git with empty tool PATH, argument/help contracts,
+  version validation, and safe tag helper behavior using disposable local remotes.
+
+- Keep CHANGELOG.md version sections newest first. At release, move Unreleased
+  to a dated version and prepend an empty Unreleased section; preserve history.
+  Commit the rollover and push the branch/tag atomically. CI validates the
+  matching section and publishes its contents as the release notes. Document a
+  PR-based rollover for protected branches and failure recovery without resets.

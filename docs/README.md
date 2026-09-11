@@ -25,6 +25,7 @@ complete rather than reading every page in order.
 | [Product specification](../SPEC.md) | Normative product behavior and exact built-in agent prompt |
 | [Implementation plan](../PLAN.md) | Design constraints, implementation phases, and definition of done |
 | [External CLI contracts](contracts/cli-contracts.md) | Captured assumptions for Beads, Git, tmux, and agent-harness subprocesses |
+| [Create and install releases](releases.md) | Version tags, native builds, GitHub uploads, and recovery |
 | [Release smoke-test record](smoke-test.md) | Manual evidence from the latest recorded release exercise |
 | [Engineering backlog](../TODO.md) | Small follow-up work not yet represented elsewhere |
 

@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          source scripts/release-version.sh
+          version=$(release_version "$RELEASE_TAG")
+          [[ "$RELEASE_TAG" == "v$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Tags must point at the committed changelog rollover.
+          awk -v version="$version" '
+            /^## / {
+              if (index($0, "## [" version "] - ") == 1) {
+                found++; section = 1; next
+              }
+              section = 0
+            }
+            section { print }
+            END { if (found != 1) exit 1 }
+          ' CHANGELOG.md > release-notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: abacus-release-notes
+          path: release-notes.md
+          if-no-files-found: error
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-15
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Test release scripts
+        run: bash scripts/test-release.sh
+      - name: Test
+        run: dotnet test Abacus.sln --configuration Release
+      - name: Package and verify embedded version
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_RID: ${{ matrix.rid }}
+        run: bash scripts/package-release.sh "$RELEASE_VERSION" "$RELEASE_RID"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: abacus-${{ matrix.rid }}
+          path: artifacts/release/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: abacus-*
+          path: release
+          merge-multiple: true
+      - name: Publish complete release
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v$RELEASE_VERSION"
+          # Require all four expected artifacts before touching GitHub Releases.
+          for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
+            test -s "abacus-$RELEASE_VERSION-$rid.tar.gz"
+          done
+          sha256sum ./*.tar.gz > SHA256SUMS
+          flags=()
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            flags+=(--prerelease --latest=false)
+          fi
+          # Existing releases are never overwritten. A failed upload stays draft.
+          gh release create "$tag" --verify-tag --draft --notes-file release-notes.md \
+            --title "Abacus $RELEASE_VERSION" "${flags[@]}"
+          gh release upload "$tag" ./*.tar.gz SHA256SUMS
+          gh release edit "$tag" --draft=false "${flags[@]}"

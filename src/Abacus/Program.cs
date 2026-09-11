@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace Abacus;
 
 public static class Program
@@ -10,6 +12,13 @@ public static class Program
             if (parsed.ShowHelp)
             {
                 Console.Out.WriteLine(parsed.HelpText ?? Options.Usage);
+                return 0;
+            }
+
+            if (parsed.ShowVersion)
+            {
+                Console.Out.WriteLine(typeof(Program).Assembly
+                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion);
                 return 0;
             }
 

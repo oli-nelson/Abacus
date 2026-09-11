@@ -366,7 +366,8 @@ public sealed partial class EndToEndTests
                 await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
             Assert.False(File.Exists(Path.Combine(root.FullName, "tmux-calls")));
             Assert.Empty(await stdout);
-            Assert.Contains("process", await stderr, StringComparison.OrdinalIgnoreCase);
+            // Redirected output has the run summary, not the TUI-only process location.
+            Assert.Contains("ABACUS RUN SUMMARY", await stderr, StringComparison.Ordinal);
         }
         finally
         {

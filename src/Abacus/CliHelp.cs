@@ -14,6 +14,7 @@ internal static class CliHelp
           init                 Initialize Abacus in an existing Git/Beads repository.
           skills install       Install bundled skills (confirm before replacement).
           health               Report read-only repository and tool readiness.
+          version              Print the embedded build version and exit.
           models               List model IDs grouped by installed agent harness.
           branches prune       Delete local Abacus branches for closed tickets.
           attention list       Print attention-labelled issue IDs, one per line.
@@ -27,7 +28,7 @@ internal static class CliHelp
 
         Shared repository option:
           --repo <path> selects the main Git checkout (default: cwd inside that checkout).
-          Accepted before or after repository-scoped commands, not new or models.
+          Accepted before or after repository-scoped commands, not new, models, or version.
           Linked worktrees cannot be controller roots; agent worktrees are supported.
           Targets load from <repo>/.abacus/targets.json; reasoning policy loads
           from <repo>/.abacus/reasoning.json when present.
@@ -138,6 +139,11 @@ internal static class CliHelp
             Beads initialization, no-git-ops, Dolt storage, merge slot, harness/tmux versions, worktrees,
             bundled skills, and single-/multi-agent readiness. No model or agent options required.
             Use preflight to validate a specific run configuration.
+            """,
+        "version" => """
+            Usage: abacus version
+            Print only the embedded build version, followed by a newline.
+            No repository or external tools required. No options except --help / -h.
             """,
         "models" => """
             Usage: abacus models

@@ -112,12 +112,12 @@ Multiple agents must use the same shared Dolt database so task claims are atomic
 
 ## Usage
 
-Operations are bare commands: `run`, `preflight`, `new`, `init`, `skills install`,
+Operations are bare commands: `version`, `run`, `preflight`, `new`, `init`, `skills install`,
 `health`, `models`, `branches prune`, `attention list`, `attention resolve`,
 `targets check`, and `targets set`. Bare `abacus` prints help; there is no implicit
 run or compatibility syntax. `abacus help <command>`, `<command> --help`, and
 `<command> -h` provide scoped help without operational prerequisites.
-`--repo` works before or after repository-scoped commands, not `new` or `models`.
+`--repo` works before or after repository-scoped commands, not `new`, `models`, or `version`.
 Options are command-scoped, exact, and non-repeatable unless documented otherwise.
 `--agent <name> <workspace>` and `-a` are equivalent repeatable agent declarations.
 Single-value options accept `--option=value`; `--` ends option parsing before
@@ -635,3 +635,29 @@ Changing the ticket from in_progress tells Abacus to end this session. Make the
 status change one of your final actions, after all code, commits, merges, and
 ticket updates are complete.
 ```
+
+## Release versions
+
+`abacus version` is standalone and prints only the embedded informational
+version followed by a newline, exiting zero without repository or external-tool
+prerequisites. Reject positional arguments and operational options, including
+`--repo`; support the standard scoped help forms. Source builds default to
+`0.0.0-dev`; release builds report the tag version without its leading `v` or
+an appended commit hash.
+
+A pushed `vX.Y.Z` tag (optionally `-alpha.N`, `-beta.N`, or `-rc.N`)
+triggers native Linux/macOS x64/ARM64 test and packaging jobs. Core version
+components are 0–9999 without leading zeroes. Each self-contained executable
+must report the requested version after archive extraction. Only after all jobs
+succeed, publish all four archives and SHA-256 checksums in one GitHub Release.
+Preview tags produce prereleases. Never overwrite existing releases; partial
+uploads remain drafts. CHANGELOG.md keeps a leading Unreleased section and
+previous dated versions. Just before committing, agents add noteworthy
+user-facing entries to Unreleased. The local release helper requires a clean
+attached branch, moves Unreleased into the selected dated version, inserts a
+new empty Unreleased section, commits only the changelog, tags the release
+commit, and atomically pushes that branch and tag to origin. Preserve all older
+sections. Reject malformed changelogs and duplicate recorded versions before
+mutation. CI requires the matching dated section and uses it as release notes.
+Protected branches can use a reviewed manual rollover followed by tagging the
+merged commit. Packaging alone never uploads. See [releases](docs/releases.md).

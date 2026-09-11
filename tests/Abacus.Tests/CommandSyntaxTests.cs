@@ -24,6 +24,7 @@ public sealed class CommandSyntaxTests
     [InlineData("skills", "install")]
     [InlineData("health")]
     [InlineData("models")]
+    [InlineData("version")]
     [InlineData("branches")]
     [InlineData("branches", "prune")]
     [InlineData("attention")]
