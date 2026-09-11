@@ -645,19 +645,36 @@ prerequisites. Reject positional arguments and operational options, including
 `0.0.0-dev`; release builds report the tag version without its leading `v` or
 an appended commit hash.
 
-A pushed `vX.Y.Z` tag (optionally `-alpha.N`, `-beta.N`, or `-rc.N`)
-triggers native Linux/macOS x64/ARM64 test and packaging jobs. Core version
-components are 0–9999 without leading zeroes. Each self-contained executable
-must report the requested version after archive extraction. Only after all jobs
-succeed, publish all four archives and SHA-256 checksums in one GitHub Release.
-Preview tags produce prereleases. Never overwrite existing releases; partial
-uploads remain drafts. CHANGELOG.md keeps a leading Unreleased section and
-previous dated versions. Just before committing, agents add noteworthy
-user-facing entries to Unreleased. The local release helper requires a clean
-attached branch, moves Unreleased into the selected dated version, inserts a
-new empty Unreleased section, commits only the changelog, tags the release
-commit, and atomically pushes that branch and tag to origin. Preserve all older
-sections. Reject malformed changelogs and duplicate recorded versions before
-mutation. CI requires the matching dated section and uses it as release notes.
-Protected branches can use a reviewed manual rollover followed by tagging the
-merged commit. Packaging alone never uploads. See [releases](docs/releases.md).
+A manually dispatched Release workflow accepts `X.Y.Z` (optionally
+`-alpha.N`, `-beta.N`, or `-rc.N`, with an optional leading `v`) and a
+release branch. Core version components are 0–9999 without leading zeroes.
+Pin the dispatch source SHA and run native Linux/macOS x64/ARM64 tests and
+packaging against that exact commit. Each extracted self-contained executable
+must report the requested version. Validation may prepare rollover metadata as
+temporary artifacts but must not modify tracked files, Git refs, or Releases.
+The local helper requires a clean branch matching origin and only dispatches
+the workflow with a source-SHA guard; it never commits, tags, or pushes.
+
+Only after all four jobs succeed, finalize the changelog and publish. Refuse
+first-time finalization if the remote release branch differs from the tested
+commit. Commit only CHANGELOG.md as a direct child of that commit, moving
+Unreleased into the selected dated version and inserting a fresh empty section;
+preserve older sections. Atomically push the commit and annotated version tag
+with an exact branch lease, then upload all four archives and SHA-256 checksums
+to a draft GitHub Release using the prepared notes before publishing.
+Tests failing must leave the repository changelog and tags unchanged.
+
+Serialize release runs and scope write credentials to the gated final job.
+Respect branch/tag protection; do not bypass required review. No automatic
+release PR flow is provided. Preview versions produce prereleases, never latest.
+
+Git finalization and Release publication are not atomic together. Failed
+publication may leave a landed release commit/tag and a draft. Same-run
+failed-job retries must verify the run identity, tested parent, exact changelog,
+and branch ancestry before resuming publication. Replace partial draft assets
+only for that run, and treat its already-published release as a no-op. Never
+overwrite a published release or take over another run's version.
+
+Just before committing, agents add noteworthy entries to Unreleased, combining
+related changes and removing superseded intermediate behavior. Packaging alone
+never uploads; tag pushes no longer trigger releases. See [releases](docs/releases.md).

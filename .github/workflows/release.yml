@@ -1,14 +1,22 @@
 name: Release
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, e.g. 1.2.3 or 1.3.0-rc.1'
+        required: true
+        type: string
+      expected_sha:
+        description: 'Optional source SHA guard (supplied by the local helper)'
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: abacus-release
   cancel-in-progress: false
 
 jobs:
@@ -16,20 +24,33 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      source_sha: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
-          persist-credentials: false
+          ref: ${{ github.sha }}
+          # Read-only credentials allow tag checks in private repositories too.
+          persist-credentials: true
       - id: version
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          SOURCE_SHA: ${{ github.sha }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
         run: |
+          [[ "$RELEASE_REF_TYPE" == branch ]] || { echo 'error: select a branch, not a tag'; exit 1; }
           source scripts/release-version.sh
-          version=$(release_version "$RELEASE_TAG")
-          [[ "$RELEASE_TAG" == "v$version" ]]
+          version=$(release_version "$RELEASE_VERSION")
+          [[ -z "$EXPECTED_SHA" || "$EXPECTED_SHA" == "$SOURCE_SHA" ]] || { echo 'error: source changed before dispatch; request a fresh run'; exit 1; }
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          # Check before spending build minutes; finalization checks again.
+          remote_tag=$(git ls-remote --tags origin "refs/tags/v$version")
+          [[ -z "$remote_tag" ]] || { echo 'error: version tag already exists; use same-run failed-job retry or choose a new version'; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          # Tags must point at the committed changelog rollover.
+          mkdir -p artifacts/release-input
+          # Preview only: tracked CHANGELOG.md stays untouched until tests pass.
+          bash scripts/release-changelog.sh "$version" CHANGELOG.md > artifacts/release-input/CHANGELOG.md
           awk -v version="$version" '
             /^## / {
               if (index($0, "## [" version "] - ") == 1) {
@@ -39,11 +60,11 @@ jobs:
             }
             section { print }
             END { if (found != 1) exit 1 }
-          ' CHANGELOG.md > release-notes.md
-      - uses: actions/upload-artifact@v4
+          ' artifacts/release-input/CHANGELOG.md > artifacts/release-input/release-notes.md
+      - uses: actions/upload-artifact@v6
         with:
-          name: abacus-release-notes
-          path: release-notes.md
+          name: abacus-release-input
+          path: artifacts/release-input/*
           if-no-files-found: error
 
   build:
@@ -62,8 +83,9 @@ jobs:
             rid: osx-arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
+          ref: ${{ needs.validate.outputs.source_sha }}
           persist-credentials: false
       - uses: actions/setup-dotnet@v5
         with:
@@ -77,7 +99,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
           RELEASE_RID: ${{ matrix.rid }}
         run: bash scripts/package-release.sh "$RELEASE_VERSION" "$RELEASE_RID"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: abacus-${{ matrix.rid }}
           path: artifacts/release/*.tar.gz
@@ -89,32 +111,22 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+          fetch-depth: 0
+          # Only this gated job needs credentials for the changelog/tag push.
+          persist-credentials: true
+      - uses: actions/download-artifact@v7
         with:
           pattern: abacus-*
-          path: release
+          path: artifacts/release
           merge-multiple: true
-      - name: Publish complete release
-        working-directory: release
+      - name: Finalize changelog, tag, and GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="v$RELEASE_VERSION"
-          # Require all four expected artifacts before touching GitHub Releases.
-          for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
-            test -s "abacus-$RELEASE_VERSION-$rid.tar.gz"
-          done
-          sha256sum ./*.tar.gz > SHA256SUMS
-          flags=()
-          if [[ "$RELEASE_VERSION" == *-* ]]; then
-            flags+=(--prerelease --latest=false)
-          fi
-          # Existing releases are never overwritten. A failed upload stays draft.
-          gh release create "$tag" --verify-tag --draft --notes-file release-notes.md \
-            --title "Abacus $RELEASE_VERSION" "${flags[@]}"
-          gh release upload "$tag" ./*.tar.gz SHA256SUMS
-          gh release edit "$tag" --draft=false "${flags[@]}"
+          SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
+        run: bash scripts/finalize-release.sh "$RELEASE_VERSION" "$RELEASE_BRANCH" "$SOURCE_SHA" artifacts/release

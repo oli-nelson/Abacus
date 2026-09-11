@@ -1,10 +1,26 @@
 # Changelog
 
 Noteworthy changes to Abacus are recorded here. Add entries under Unreleased;
-the release helper moves them into a dated version section and creates a fresh
+the validated release workflow moves them into a dated version section and creates a fresh
 Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
+
+### Changed
+
+- Move release finalization into a manually triggered GitHub Actions workflow.
+  The local helper now only requests a version; all four platform builds and
+  tests must pass before the changelog is committed and the version tag is
+  created. Reject branch changes during testing and support same-run retries
+  of interrupted publication without overwriting published releases.
+
+### Fixed
+
+- Make dashboard tests independent of host terminal dimensions, handle unavailable
+  console sizes with an 80-column by 24-row fallback, and verify comment scrolling
+  across small and large viewports to prevent headless Linux CI failures.
+- Update release workflow actions to Node.js 24 runtimes to remove Node.js 20
+  deprecation warnings and avoid relying on forced runtime migration.
 
 ## [0.1.0] - 2026-09-11
 

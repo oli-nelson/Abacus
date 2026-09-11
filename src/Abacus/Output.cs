@@ -191,6 +191,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private readonly bool verbose;
     private readonly bool interactive;
     private readonly bool color;
+    private readonly Func<(int Width, int Height)>? terminalSize;
     private readonly string model;
     private readonly string effort;
     private readonly bool effortIsRequested;
@@ -224,9 +225,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         EventReporter? events = null,
         bool startPaused = false,
         string effort = "high",
-        bool effortIsRequested = false)
+        bool effortIsRequested = false,
+        Func<(int Width, int Height)>? terminalSize = null)
     {
         this.writer = writer;
+        this.terminalSize = terminalSize;
         Events = events;
         claimingEnabled = !startPaused;
         this.verbose = verbose;
@@ -1326,11 +1329,13 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             : width == 1 ? "…" : value[..(width - 1)] + "…";
     }
 
-    private static int GetWidth()
+    private int GetWidth()
     {
         try
         {
-            return Math.Clamp(Console.WindowWidth, 52, 140);
+            // Headless consoles may report zero rather than throwing IOException.
+            var width = terminalSize?.Invoke().Width ?? Console.WindowWidth;
+            return width > 0 ? Math.Clamp(width, 52, 140) : 80;
         }
         catch (IOException)
         {
@@ -1338,11 +1343,12 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         }
     }
 
-    private static int GetHeight()
+    private int GetHeight()
     {
         try
         {
-            return Math.Clamp(Console.WindowHeight, 12, 80);
+            var height = terminalSize?.Invoke().Height ?? Console.WindowHeight;
+            return height > 0 ? Math.Clamp(height, 12, 80) : 24;
         }
         catch (IOException)
         {

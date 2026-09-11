@@ -1,46 +1,37 @@
 #!/usr/bin/env bash
-# Commit the changelog rollover, then atomically push the current branch and tag.
+# Request a release; never modify the checkout, create tags, or push Git refs.
 set -Eeuo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$script_dir/release-version.sh"
 if [[ $# != 1 ]]; then
-  echo 'Usage: scripts/release.sh <version> (commits changelog and pushes current branch + tag to origin)' >&2
+  echo 'Usage: scripts/release.sh <version> (requests the Release GitHub workflow)' >&2
   exit 1
 fi
 version=$(release_version "$1")
-tag="v$version"
 cd "$script_dir/.."
-if [[ -n $(git status --porcelain) ]]; then
-  echo 'error: commit or stash all changes before releasing' >&2
-  exit 1
-fi
+command -v gh >/dev/null || { echo 'error: install GitHub CLI and run gh auth login first' >&2; exit 1; }
+[[ -z $(git status --porcelain) ]] || { echo 'error: commit and push your changes before requesting a release' >&2; exit 1; }
 branch=$(git symbolic-ref --quiet --short HEAD) || {
-  echo 'error: release from an attached branch, not detached HEAD' >&2; exit 1;
+  echo 'error: select a release branch, not detached HEAD' >&2; exit 1;
 }
-if git show-ref --verify --quiet "refs/tags/$tag"; then
-  echo "error: local tag $tag already exists; no changes made" >&2
-  exit 1
-fi
-remote_tag=$(git ls-remote --tags origin "refs/tags/$tag")
-if [[ -n $remote_tag ]]; then
-  echo "error: origin already has $tag; choose a new version" >&2
-  exit 1
-fi
-temp=$(mktemp)
-trap 'rm -f "$temp"' EXIT
-bash "$script_dir/release-changelog.sh" "$version" CHANGELOG.md > "$temp"
-cat "$temp" > CHANGELOG.md
-git add -- CHANGELOG.md
-git commit -m "Release $version" --only -- CHANGELOG.md
-if [[ -n $(git status --porcelain) ]]; then
-  echo 'error: release commit left changes (possibly from a hook); inspect before tagging or pushing' >&2
-  exit 1
-fi
-git tag -a "$tag" -m "Abacus $version"
-# A rejected branch update must not publish a tag for an unlanded changelog.
-if ! git push --atomic origin "refs/heads/$branch:refs/heads/$branch" "refs/tags/$tag:refs/tags/$tag"; then
-  echo "error: atomic push failed; release commit and local tag $tag retained. Inspect origin and branch protection; retry both refs together:" >&2
-  printf 'git push --atomic origin %q %q\n' "refs/heads/$branch:refs/heads/$branch" "refs/tags/$tag:refs/tags/$tag" >&2
-  exit 1
-fi
-echo "Pushed $branch and $tag. Follow the Release workflow in GitHub Actions."
+source_sha=$(git rev-parse HEAD)
+remote_sha=$(git ls-remote --heads origin "refs/heads/$branch" | cut -f1)
+[[ $remote_sha == "$source_sha" ]] || {
+  echo 'error: HEAD must match the branch on origin; push/pull explicitly before requesting a release' >&2; exit 1;
+}
+# Resolve the destination from origin, not gh's potentially different default repo.
+remote=$(git remote get-url origin)
+case "$remote" in
+  https://github.com/*) repository=${remote#https://github.com/} ;;
+  git@*:*) repository=${remote#*:} ;; # Includes local GitHub SSH host aliases.
+  *) echo 'error: origin must be a GitHub.com HTTPS or SSH remote' >&2; exit 1 ;;
+esac
+repository=${repository%.git}
+[[ $repository =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+  echo 'error: cannot determine the GitHub owner/repository from origin' >&2; exit 1;
+}
+repository="github.com/$repository"
+gh workflow run release.yml --repo "$repository" --ref "$branch" \
+  -f "version=$version" -f "expected_sha=$source_sha"
+echo "Requested Abacus $version from $branch at $source_sha."
+echo 'Follow Actions → Release. No local files or Git refs were changed.'

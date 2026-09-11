@@ -2,87 +2,86 @@
 
 ## Create a release
 
-Commit and push the release-flow files to GitHub first. GitHub Actions must be
-enabled, and repository/organization policy must permit the release job's
-`contents: write` permission. No personal access token or extra secret is needed:
-the workflow uses its scoped `GITHUB_TOKEN`.
+Commit and push the release workflow and source changes first. The workflow must
+exist on GitHub's default branch to support manual dispatch. Keep noteworthy
+changes under `## [Unreleased]` in [CHANGELOG.md](../CHANGELOG.md); do not roll
+over that section or create a version tag yourself.
 
-Keep noteworthy changes under `## [Unreleased]` in [CHANGELOG.md](../CHANGELOG.md).
-Just before each commit, agents must add concise user-facing notes there.
-Released sections are immutable; no historical releases are invented when
-starting the changelog.
+Choose either entry point:
 
-From a clean, attached branch containing the changes you want to release
-(normally `main`):
+- **GitHub:** Actions → Release → Run workflow. Select the release branch
+  (normally `main`) and enter a version such as `0.1.1`. Leave `expected_sha`
+  blank unless you want to require an exact source commit.
+- **CLI:** install/authenticate the GitHub CLI with `gh auth login`, then run:
 
-```sh
-bash scripts/release.sh 1.2.3
-```
+  ```sh
+  bash scripts/release.sh 0.1.1
+  ```
 
-The helper:
+The local helper requires a clean, attached branch whose HEAD exactly matches
+that branch on origin. It sends the version, branch, and expected source SHA to
+GitHub Actions. It **never edits files, commits, tags, or pushes**. Explicitly
+push your source changes before requesting the release. GitHub.com HTTPS and
+SSH origins (including local SSH host aliases) are supported.
 
-1. Validates the version, clean checkout, attached branch, changelog structure,
-   and absence of an existing local/remote tag.
-2. Renames the Unreleased contents to `## [1.2.3] - YYYY-MM-DD` (UTC date),
-   inserting a new empty `## [Unreleased]` above it and preserving older releases.
-3. Commits **only CHANGELOG.md**, with the message `Release 1.2.3`, and tags that
-   commit with annotated tag `v1.2.3`.
-4. Pushes the **current branch and new tag atomically** to `origin`. This includes
-   any earlier unpushed commits on that branch, but no unrelated branches/tags.
+### What happens in Actions
 
-Check the branch, HEAD, and origin before running it. Git authentication and
-permission to push that branch and tags are required; the local helper does not
-require .NET or `gh`. If branch protection requires a PR, use the manual path
-below rather than bypassing protection.
+1. **Validate and prepare:** pin the dispatch commit, validate the version and
+   optional SHA guard, reject existing version tags, and prepare a changelog
+   rollover plus release notes as temporary workflow artifacts. No tracked file,
+   branch, tag, or GitHub Release is changed.
+2. **Build and test:** run the shell regression tests and full .NET suite on four
+   native runners, all checked out at that same source SHA. Publish self-contained
+   executables and verify each extracted archive's `abacus version` output.
+3. **Finalize only after all four jobs succeed:** check that the release branch
+   still points at the tested SHA. Move Unreleased into a dated version, insert
+   a fresh empty Unreleased section, commit only CHANGELOG.md, and create the
+   annotated version tag. Push the changelog commit and tag atomically.
+4. **Publish:** create a draft GitHub Release using the prepared notes, upload all
+   four archives plus `SHA256SUMS`, then publish it.
 
-### Protected-branch / manual path
+**A validation, build, or test failure leaves the repository changelog and tags
+unchanged.** A branch change during testing prevents first-time finalization.
+The push uses an exact old-value lease to reject races, including branch rewinds;
+the new commit must be a direct child of the tested source, never a history rewrite.
 
-Prepare the rollover on your normal PR branch:
+The tagged commit differs from the tested commit **only in CHANGELOG.md**; the
+binaries are built from the tested source with the requested version embedded.
+Release runs are serialized within the repository. Tag pushes no longer trigger
+this workflow: finalization and publication happen within the same run.
 
-```sh
-bash scripts/release-changelog.sh 1.2.3 CHANGELOG.md > /tmp/abacus-changelog.md
-# Inspect the output before replacing the source.
-cp /tmp/abacus-changelog.md CHANGELOG.md
-```
-
-Commit the changelog through your normal reviewed PR process. Once merged, tag
-the merged commit on the release branch and push the tag:
-
-```sh
-git tag -a v1.2.3 -m "Abacus 1.2.3"
-git push origin refs/tags/v1.2.3:refs/tags/v1.2.3
-```
-
-Do not rerun the automatic helper after manually rolling over the changelog:
-it rejects a version already recorded there. CI requires a matching dated
-changelog section at the tagged commit; a bare tag without rollover fails validation.
-
-Follow **Actions → Release** in GitHub. The tag push starts four native jobs:
+For version `0.1.1`, the downloads are:
 
 | Platform | Architecture | Asset |
 | --- | --- | --- |
-| Linux | Intel/AMD x64 | `abacus-1.2.3-linux-x64.tar.gz` |
-| Linux | ARM64 | `abacus-1.2.3-linux-arm64.tar.gz` |
-| macOS | Intel x64 | `abacus-1.2.3-osx-x64.tar.gz` |
-| macOS | Apple Silicon | `abacus-1.2.3-osx-arm64.tar.gz` |
+| Linux | Intel/AMD x64 | `abacus-0.1.1-linux-x64.tar.gz` |
+| Linux | ARM64 | `abacus-0.1.1-linux-arm64.tar.gz` |
+| macOS | Intel x64 | `abacus-0.1.1-osx-x64.tar.gz` |
+| macOS | Apple Silicon | `abacus-0.1.1-osx-arm64.tar.gz` |
 
-Each job runs the test suite and shell release tests, publishes a self-contained
-single executable, extracts its archive, and checks that `abacus version` prints
-exactly `1.2.3`. The final job creates a draft GitHub Release using that version’s changelog entries as its release notes,
-uploads all four archives plus `SHA256SUMS`, then publishes it. Build/test failures
-prevent release creation; upload failures leave an unpublished draft.
+Versions are `X.Y.Z`, optionally prefixed with `v`. Previews use
+`X.Y.Z-alpha.N`, `X.Y.Z-beta.N`, or `X.Y.Z-rc.N`. Preview releases are marked
+prerelease and never latest. Core components must be 0–9999; numbers cannot have
+leading zeroes. Other suffixes and build metadata are deliberately unsupported.
 
-Versions are `X.Y.Z`, optionally prefixed with `v`. For previews, use
-`X.Y.Z-alpha.N`, `X.Y.Z-beta.N`, or `X.Y.Z-rc.N` (for example,
-`bash scripts/release.sh 1.3.0-rc.1`). Preview releases are marked prerelease and
-never latest. Core components must be 0–9999; numbers cannot have leading zeroes.
-Other suffixes and build metadata are deliberately unsupported.
+The version input supplies the MSBuild `Version` and final `v<version>` tag;
+there is no version file to bump. `abacus version` reads embedded assembly
+informational metadata, not Git or a sidecar file. Source builds default to
+`0.0.0-dev`, and commit hashes are not appended.
 
-The Git tag is the release version source of truth; there is no version file to
-bump. Publishing passes the tag without `v` as the .NET `Version` property.
-`abacus version` reads embedded assembly informational metadata, never Git or a
-sidecar file. Ordinary source builds report `0.0.0-dev`; explicit
-`-p:Version=1.2.3` builds report `1.2.3`. Commit hashes are not appended.
+### Permissions and protected branches
+
+The caller needs permission to dispatch Actions. Only the final publish job has
+`contents: write`; it uses the scoped `GITHUB_TOKEN` to push the changelog/tag
+and manage GitHub Releases. No extra workflow secret is needed when repository
+policy allows those operations. Earlier jobs have read-only repository access.
+
+Branch and tag rules still apply: this flow does **not** bypass required PRs,
+reviews, signing, or other protections. If the automation cannot push to the
+selected branch, finalization fails without changing either remote ref. Use a
+release branch your policy permits automation to update, and merge its changelog
+back through your normal reviewed process if needed. Automatic release PRs are
+not implemented. Git identity uses `github-actions[bot]`.
 
 ## Download and install
 
@@ -115,6 +114,7 @@ There is no installer, automatic updater, or signing credential setup in this fl
 On a matching native OS/CPU, with the .NET SDK installed:
 
 ```sh
+# Shell tests additionally need Git and jq; GitHub calls are faked.
 bash scripts/test-release.sh
 dotnet test Abacus.sln -c Release
 bash scripts/package-release.sh 1.2.3 osx-arm64
@@ -124,18 +124,45 @@ The archive lands in `artifacts/release/`. Packaging does not create tags or
 upload anything. It rejects cross-compilation so every archive is smoke-tested
 natively. CI selects the SDK from `global.json`.
 
-For transient CI failures, rerun failed jobs in GitHub Actions. If the publish
-job left a draft, delete **only that unpublished draft** (keep the tag), then
-rerun the publish job. Existing releases are intentionally not overwritten.
-Never move/reuse a published version tag; release a new patch instead. If source
-changes are needed to fix a failed build, commit the fix and use a new version.
-If the atomic push fails, the helper preserves the release commit and tag and
-prints the exact two-ref retry command. Neither remote ref is updated by a
-rejected atomic push. Inspect the remote and branch protection before retrying;
-do not rerun the helper or push just the tag. Commit/signing/hook failures leave
-local changes for inspection rather than automatically resetting your work.
+### Failure and retry behavior
+
+- **Tests failed:** fix and push the source, then request a new run. You can reuse
+  the version if no tag/changelog release section was created. For transient
+  failures, rerun failed jobs from the existing Actions run.
+- **Branch advanced during testing:** request a new run against the updated
+  branch. The workflow will not merge untested changes into a release.
+- **Push rejected:** fix the policy/authentication problem and rerun the failed
+  publish job if the branch still matches the tested commit. Remote branch/tag
+  updates are atomic; local runner changes are disposable.
+- **Upload/publication failed after the Git push:** the changelog and tag remain,
+  but the GitHub Release stays draft if it was created. Use **Re-run failed jobs**
+  on the **same workflow run**, not another dispatch. The publish job verifies
+  the release commit's run ID, tested parent, exact changelog, and membership in
+  the release branch, then resumes its own draft uploads.
+- **Publication succeeded but the response was lost:** the same run recognizes
+  its already-published release and does nothing. Published assets are never
+  deliberately overwritten; retries may replace partial assets only in that
+  run's own draft.
+
+Git updates and GitHub Release publication cannot be one atomic transaction.
+Do not manually edit the draft, move tags, or change release assets while a run
+is finalizing. Do not delete the draft to retry this flow. A different run cannot
+take over a version already finalized by another run; unexpected ownership or
+content differences fail for operator review.
+
+Use failed-job reruns so the validated metadata and binaries remain the same.
+Re-running all jobs after finalization is deliberately rejected by validation
+because the version tag now exists. Keep workflow artifacts until publication
+succeeds; expired artifacts require manual recovery, not blind replacement.
+After success, pull the release commit into your local branch before requesting
+another release.
+
+Existing version sections and tags from the old tag-triggered flow, including
+`v0.1.0`, are not rewritten automatically. Choose a new version for this flow;
+do not move or reuse an existing tag.
 
 Implementation references:
+[Manual workflow dispatch](https://cli.github.com/manual/gh_workflow_run),
 [GitHub hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
 [GitHub CLI release creation](https://cli.github.com/manual/gh_release_create),
 [.NET single-file publishing](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview).

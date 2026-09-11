@@ -81,9 +81,11 @@ Run `abacus version` to check the installed version. See the
 [release guide](docs/releases.md) for installation and checksums.
 
 Maintainers: from a clean release branch, run `bash scripts/release.sh 1.2.3`.
-The helper commits the [changelog](CHANGELOG.md) rollover and atomically pushes
-the branch and tag. GitHub Actions tests, packages, and uploads all four builds
-under `v1.2.3`.
+The helper only requests a GitHub Actions run (requires `gh auth login` and a
+branch already pushed to origin). Actions tests and packages all four builds
+before committing the [changelog](CHANGELOG.md) rollover, tagging `v1.2.3`,
+and publishing the downloads. Failed tests leave the changelog and tags unchanged.
+You can also use Actions → Release → Run workflow in GitHub.
 See [release creation and recovery](docs/releases.md) before your first release.
 
 Build and test:

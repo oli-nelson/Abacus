@@ -12,7 +12,7 @@ public sealed class OutputTests
     {
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice", "bob"], "p/model", false,
-            interactive: true, color: false);
+            interactive: true, terminalSize: () => (100, 24), color: false);
         await output.SetLatestCommentsAsync([
             Comment("c1", "abc-1", "Long comment", "reviewer",
                 string.Join('\n', Enumerable.Range(1, 100).Select(i => $"line {i}"))),
@@ -74,7 +74,7 @@ public sealed class OutputTests
     {
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice"], "default-model", false,
-            interactive: true, color: false);
+            interactive: true, terminalSize: () => (100, 24), color: false);
         await output.SetTicketAsync("alice", "abc-1", title);
         await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI running");
         var frame = writer.ToString().Split("\u001b[H")[^1];
@@ -97,7 +97,7 @@ public sealed class OutputTests
     {
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice"], "default-model", false,
-            interactive: true, color: false);
+            interactive: true, terminalSize: () => (100, 24), color: false);
         await output.SetTicketAsync("alice", "abc-1", "Root");
         await output.SetRunLocationAsync("alice", location);
         await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI running");
@@ -121,7 +121,7 @@ public sealed class OutputTests
     {
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice"], "default-model", false,
-            interactive: true, color: false, effort: "high");
+            interactive: true, terminalSize: () => (100, 24), color: false, effort: "high");
         await output.SetWorkspaceAsync("alice", "abacus/abc-1", true);
         await output.SetModelAsync("alice", "routed-model", "medium");
         await output.SetAgentAsync("alice", activity, "status");
@@ -145,7 +145,7 @@ public sealed class OutputTests
     {
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice"], "provider/model", false,
-            interactive: true, color: false, effort: "high", effortIsRequested: true);
+            interactive: true, terminalSize: () => (100, 24), color: false, effort: "high", effortIsRequested: true);
         await output.SetModelAsync("alice", "provider/routed", "high");
         Assert.Contains("effort high (requested)", writer.ToString());
     }
@@ -194,8 +194,11 @@ public sealed class OutputTests
         Assert.Contains("bd show abc-1 --json", text, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task InteractiveDashboardRendersAllAgentRowsAndRecentWarnings()
+    [Theory]
+    [InlineData(80, 24)]
+    [InlineData(140, 40)]
+    [InlineData(0, 0)] // Headless consoles can report zero instead of throwing.
+    public async Task InteractiveDashboardRendersAllAgentRowsAndRecentWarnings(int width, int height)
     {
         var writer = new StringWriter();
         using (var output = new ConsoleOutput(
@@ -203,7 +206,7 @@ public sealed class OutputTests
             ["alice", "bob"],
             "provider/model",
             verbose: false,
-            interactive: true,
+            interactive: true, terminalSize: () => (width, height),
             color: false))
         {
             await output.SetTicketAsync("alice", "abc-1", "Make the dashboard useful");
@@ -256,7 +259,7 @@ public sealed class OutputTests
     {
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice"], "provider/model",
-            verbose: false, interactive: true, color: false, startPaused: true);
+            verbose: false, interactive: true, terminalSize: () => (100, 24), color: false, startPaused: true);
         var claims = new ClaimGate();
         claims.SetEnabled(false);
         var waiting = claims.WaitUntilEnabledAsync(CancellationToken.None);
@@ -283,7 +286,7 @@ public sealed class OutputTests
             ["alice"],
             "provider/model",
             verbose: false,
-            interactive: true,
+            interactive: true, terminalSize: () => (100, 24),
             color: false);
         var claimGate = new ClaimGate();
 
@@ -327,7 +330,7 @@ public sealed class OutputTests
             ["alice", "bob"],
             "provider/model",
             verbose: false,
-            interactive: true,
+            interactive: true, terminalSize: () => (100, 24),
             color: false,
             workspacePaths: new Dictionary<string, string>
             {
@@ -367,7 +370,7 @@ public sealed class OutputTests
             ["alice"],
             "provider/model",
             verbose: false,
-            interactive: true,
+            interactive: true, terminalSize: () => (100, 24),
             color: false);
         (string Agent, AgentControlAction Action)? requested = null;
         var claimGate = new ClaimGate();
@@ -390,7 +393,7 @@ public sealed class OutputTests
             ["alice"],
             "provider/model",
             verbose: false,
-            interactive: true,
+            interactive: true, terminalSize: () => (100, 24),
             color: true);
 
         await output.SetLatestCommentsAsync([
@@ -454,7 +457,7 @@ public sealed class OutputTests
             ["alice"],
             "provider/model",
             verbose: false,
-            interactive: true,
+            interactive: true, terminalSize: () => (100, 24),
             color: false);
         var message = "This comment is deliberately long enough to exceed the two-line dashboard preview. " +
             "The detail view keeps wrapping instead of truncating it, including this final phrase.";
@@ -478,8 +481,12 @@ public sealed class OutputTests
         Assert.Contains("Esc close", text, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task CommentDetailSupportsScrollingThroughLongMessages()
+    [Theory]
+    [InlineData(52, 12, 3)]
+    [InlineData(80, 24, 13)]
+    [InlineData(140, 80, 69)]
+    [InlineData(0, 0, 13)]
+    public async Task CommentDetailSupportsScrollingThroughLongMessages(int width, int height, int viewportHeight)
     {
         var writer = new StringWriter();
         using var output = new ConsoleOutput(
@@ -487,7 +494,7 @@ public sealed class OutputTests
             ["alice"],
             "provider/model",
             verbose: false,
-            interactive: true,
+            interactive: true, terminalSize: () => (width, height),
             color: false);
         var message = string.Join('\n', Enumerable.Range(1, 100).Select(line => $"comment line {line}"));
         await output.SetLatestCommentsAsync([
@@ -497,12 +504,17 @@ public sealed class OutputTests
         output.HandleDashboardKey(Key(ConsoleKey.UpArrow), claimGate);
         output.HandleDashboardKey(Key(ConsoleKey.Enter), claimGate);
 
-        for (var page = 0; page < 10; page++)
+        for (var page = 0; page < (100 + viewportHeight - 1) / viewportHeight; page++)
         {
             output.HandleDashboardKey(Key(ConsoleKey.PageDown), claimGate);
         }
 
-        Assert.Contains("comment line 100", writer.ToString(), StringComparison.Ordinal);
+        var frame = writer.ToString().Split("\u001b[H")[^1];
+        Assert.Contains("comment line 100", frame, StringComparison.Ordinal);
+        Assert.Contains($"Lines {101 - viewportHeight}-100 of 100", frame, StringComparison.Ordinal);
+        output.HandleDashboardKey(Key(ConsoleKey.PageUp), claimGate);
+        frame = writer.ToString().Split("\u001b[H")[^1];
+        Assert.DoesNotContain("comment line 100", frame, StringComparison.Ordinal);
         Assert.True(output.HandleDashboardKey(Key(ConsoleKey.Escape), claimGate));
         Assert.Contains("LATEST COMMENTS (1)", writer.ToString(), StringComparison.Ordinal);
     }
@@ -556,7 +568,7 @@ public sealed class OutputTests
             ["alice", "bob"],
             "provider/model",
             verbose: false,
-            interactive: true,
+            interactive: true, terminalSize: () => (100, 24),
             color: false);
 
         await output.SetPersistentAlertAsync("alice", "Could not verify recovery");

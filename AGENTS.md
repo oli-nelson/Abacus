@@ -21,5 +21,6 @@ Unreleased entries when later changes supersede them, so the section describes
 the current behavior rather than obsolete intermediate implementations. Keep
 noteworthy breaking changes and migration guidance explicit.
 Keep previously released sections
-unchanged; the release flow promotes `Unreleased` into a dated version section
-and creates a new empty `Unreleased` section.
+unchanged; only after all release builds and tests pass does GitHub Actions
+promote `Unreleased` into a dated version section and create a new empty
+`Unreleased` section. The local release helper only dispatches that workflow.

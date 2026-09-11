@@ -542,19 +542,21 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Versioned GitHub releases
 
-- Keep release automation shell-first: a clean-branch changelog/commit/tag helper, shared
-  version validation, a native single-file packaging/smoke script, and a GitHub
-  Actions matrix for Linux/macOS x64/ARM64.
-- Use tag-derived MSBuild Version and assembly informational metadata; default
-  unversioned development builds to 0.0.0-dev. Dispatch version before repository
-  resolution and keep standard command-scoped validation/help.
-- Gate publication on all tests and extracted-binary version checks. Upload all
-  archives/checksums to a draft before publishing; never clobber existing releases.
-- Cover version output outside Git with empty tool PATH, argument/help contracts,
-  version validation, and safe tag helper behavior using disposable local remotes.
-
-- Keep CHANGELOG.md version sections newest first. At release, move Unreleased
-  to a dated version and prepend an empty Unreleased section; preserve history.
-  Commit the rollover and push the branch/tag atomically. CI validates the
-  matching section and publishes its contents as the release notes. Document a
-  PR-based rollover for protected branches and failure recovery without resets.
+- Keep release automation shell-first: a dispatch-only local helper, shared
+  version validation, native packaging/version smoke tests, and a GitHub Actions
+  matrix for Linux/macOS x64/ARM64.
+- Accept a manual version input and pin the dispatch commit for every job.
+  Default source builds to 0.0.0-dev; embed the requested release version via
+  MSBuild and read it through the standalone version command.
+- Prepare changelog metadata without tracked mutations. Gate the write-enabled
+  finalizer on all tests and native archive checks. Verify the release branch
+  still matches tested source; commit only the changelog rollover and push its
+  direct-child commit plus annotated tag atomically with an exact branch lease.
+- Publish checksums and all archives through a draft. Bind retry ownership to
+  the workflow run, source parent, exact changelog, and release-branch ancestry.
+  Resume only that run's draft and leave already-published releases unchanged.
+- Cover read-only dispatch, failed validation/build prerequisites, branch
+  changes, rejected atomic pushes, partial uploads, wrong-run retries, and
+  idempotent publication using disposable local Git remotes and a fake gh CLI.
+- Document workflow permissions, protected-branch limitations, failed-job reruns,
+  and the non-atomic boundary between Git finalization and Release publication.
