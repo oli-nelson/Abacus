@@ -371,6 +371,7 @@ The exact built-in prompt is normative in
 | `--event-log <path>` | none | Run only: append and flush structured JSONL activity to a file, with or without the TUI. |
 | `--start-paused` | off | Run only: pause claims initially; resume with Shift-Tab in the TUI or the stdio resume command. Rejects verbose or non-interactive output without stdio. |
 | `--no-intro` | off | Run only: skip the interactive ASCII entrance. |
+| `--no-tui-sound` | off | Run only: mute the bundled audio that accompanies the interactive entrance. |
 | `--verbose`, `-v` | off | Replaces the dashboard with timestamped transitions and subprocess diagnostics. |
 
 `attention` reports newly observed attention labels, blocked tickets, and
@@ -424,7 +425,9 @@ pass `--variant` directly.
 
 ## Exit and output behavior
 
-- Interactive terminals receive a skippable ASCII entrance, then the live ANSI dashboard.
+- Interactive terminals receive a skippable ASCII entrance with a bundled
+  welcome/jingle mix, then the live ANSI dashboard. `--no-tui-sound` mutes only the
+  entrance audio.
 - Interactive standalone commands use consistent report sections and semantic status
   colors: green for success, yellow for warnings, red for failures/attention, and
   cyan/blue for headings and context. The config picker and run-config editor use
@@ -432,7 +435,7 @@ pass `--variant` directly.
 - `--stdio` outputs only JSONL events and accepts JSONL commands; it rejects verbose
   output and desktop notifications. See [events and stdio](events-and-stdio.md).
 - Redirected stdin/stdout/stderr, verbose mode, preflight, and `TERM=dumb` never
-  show the intro; `--no-intro` also disables it explicitly.
+  show or play the intro; `--no-intro` also disables it explicitly.
 - Redirected output receives plain-text reports and compact state-transition lines,
   never terminal color or control sequences.
 - `NO_COLOR=1` disables colors across the dashboard, standalone reports, help,

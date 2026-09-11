@@ -16,7 +16,7 @@ public sealed class RunConfigurationTests : IDisposable
         {"version":1,"repo":"repo","mode":"codex","model":"saved",
          "agents":[{"name":"one","workspace":"worktrees/one"}],"eventLog":"events.jsonl",
          "labels":["saved"],"reasoningModels":{"high":"high-saved","low":"low-saved"},
-         "once":true,"noIntro":true}
+         "once":true,"noIntro":true,"noTuiSound":true}
         """;
 
     [Fact]
@@ -37,7 +37,8 @@ public sealed class RunConfigurationTests : IDisposable
         var path = Write(Complete);
         var options = Options.Parse(["--repo", "/tmp/controller", "run", "--model", "cli", "--config", path,
             "-a", "replacement", "/tmp/replacement", "--label", "new", "--label", "another",
-            "--reasoning-model", "high", "high-cli", "--drain", "--no-intro=false"]).Value!;
+            "--reasoning-model", "high", "high-cli", "--drain", "--no-intro=false",
+            "--no-tui-sound=false"]).Value!;
         Assert.Equal("cli", options.Model);
         Assert.Equal("/tmp/controller", options.RepositoryPath);
         Assert.Equal("replacement", options.Agents.Single().Name);
@@ -46,8 +47,10 @@ public sealed class RunConfigurationTests : IDisposable
         Assert.Equal("low-saved", options.EffectiveReasoningModels[ReasoningPolicy.LowLabel]);
         Assert.Equal(ExecutionMode.Drain, options.ExecutionMode);
         Assert.False(options.NoIntro);
+        Assert.False(options.NoTuiSound);
         Assert.Throws<OptionsException>(() => Options.Parse(["run", "--config", path, "--model", "a", "--model", "b"]));
         Assert.Throws<OptionsException>(() => Options.Parse(["run", "--config", path, "--no-intro=perhaps"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["run", "--config", path, "--no-tui-sound=perhaps"]));
     }
 
     [Fact]
@@ -58,6 +61,7 @@ public sealed class RunConfigurationTests : IDisposable
         Assert.Equal(ExecutionMode.Continuous, options.ExecutionMode);
         Assert.Null(options.EventLogPath);
         Assert.False(options.NoIntro);
+        Assert.False(options.NoTuiSound);
     }
 
     [Fact]
@@ -138,7 +142,7 @@ public sealed class RunConfigurationTests : IDisposable
              "tmuxSession":"workers","tmuxWindow":"agents","tmuxLayout":"even-horizontal",
              "remoteControl":true,"targetFilters":["main"],"excludeLabels":["skip"],
              "type":"task,bug","priority":2,"ticketTimeout":"15m","appendPrompt":"More instructions",
-             "latestComments":25,"notify":"all","notifySound":true,"startPaused":true}
+             "latestComments":25,"notify":"all","notifySound":true,"noTuiSound":true,"startPaused":true}
             """);
         var options = Options.Parse(["run", "--config", path]).Value!;
         Assert.Equal("max", options.Effort);
@@ -155,12 +159,14 @@ public sealed class RunConfigurationTests : IDisposable
         Assert.Equal(25, options.LatestCommentCount);
         Assert.Equal(NotificationMode.All, options.NotificationMode);
         Assert.True(options.NotificationSound);
+        Assert.True(options.NoTuiSound);
         Assert.True(options.StartPaused);
         var overridden = Options.Parse(["run", "--config", path, "--mode", "codex",
             "--remote-control=false", "--notify", "off", "--notify-sound=false",
-            "--start-paused=false", "--verbose=true"]).Value!;
+            "--no-tui-sound=false", "--start-paused=false", "--verbose=true"]).Value!;
         Assert.False(overridden.Remote);
         Assert.False(overridden.NotificationSound);
+        Assert.False(overridden.NoTuiSound);
         Assert.False(overridden.StartPaused);
         Assert.True(overridden.Verbose);
     }

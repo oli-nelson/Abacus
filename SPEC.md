@@ -419,11 +419,16 @@ non-interactive terminal without stdio, where no resume control is available.
 The exact protocol and event fields are documented in
 [events and stdio control](docs/events-and-stdio.md).
 
-Before the main interactive TUI, play a brief, skippable animated ASCII intro.
-`--no-intro` skips it; never play it in stdio, verbose, preflight, standalone
+Before the main interactive TUI, play a brief, skippable animated ASCII intro
+with a bundled mix of the welcome and jingle tracks; the jingle has 15% gain in
+the mix so the voice remains prominent. Audio playback is best effort and uses
+a native macOS player or an available Linux command-line player. Let the mix
+finish when the animation completes naturally instead of cutting it off.
+`--no-tui-sound` keeps the animation but mutes its audio; `--no-intro` skips both.
+Never play the intro or its audio in stdio, verbose, preflight, standalone
 operations, redirected stdin/stdout/stderr, or dumb terminals. Honor `NO_COLOR`
-and terminal dimensions, and restore cursor visibility on skip or cancellation.
-All four new flags above are run-only.
+and terminal dimensions, stop its audio on skip or cancellation, and restore
+cursor visibility. All five new flags above are run-only.
 
 Abacus runs continuously unless a finite execution option is selected. `--once` makes each agent claim and process at most one currently ready ticket; an agent exits immediately when no ticket is ready. `--drain` lets each agent continue claiming tickets until it observes no ready work, then exits after any active ticket finishes. Finite options fail rather than retrying orchestration errors forever, making them suitable for CI and scripts. `preflight` runs the complete non-mutating preflight and exits without changing workspaces, tmux sessions or windows, claiming tickets, creating panes or processes, or printing a run summary. It validates the selected main repository, target registry and local refs, reasoning policy and strict-mode model mappings, required executables, workspace, Beads `no-git-ops` setting, and Dolt configuration, plus the OpenCode server address when applicable. Missing tmux targets are created only by `run`, after preflight succeeds. `--once` and `--drain` are mutually exclusive run options; `preflight` is a separate command and rejects both.
 

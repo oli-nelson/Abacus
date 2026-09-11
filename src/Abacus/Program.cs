@@ -258,7 +258,21 @@ public static class Program
         {
             if (AsciiIntro.ShouldPlay(options, Console.IsInputRedirected, Console.IsOutputRedirected,
                 Console.IsErrorRedirected, Environment.GetEnvironmentVariable("TERM")))
-                await AsciiIntro.PlayAsync(Console.Error, cancellation.Token);
+            {
+                var introSound = options.NoTuiSound ? null : IntroSound.TryStart();
+                try
+                {
+                    if (await AsciiIntro.PlayAsync(Console.Error, cancellation.Token))
+                    {
+                        introSound?.ContinueInBackground();
+                        introSound = null;
+                    }
+                }
+                finally
+                {
+                    if (introSound is not null) await introSound.DisposeAsync();
+                }
+            }
             using var output = new ConsoleOutput(
                 options.Stdio ? TextWriter.Null : Console.Error,
                 options.Agents.Select(static agent => agent.Name),

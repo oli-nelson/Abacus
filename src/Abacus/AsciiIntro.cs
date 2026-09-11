@@ -55,20 +55,38 @@ internal static class AsciiIntro
         return builder.Append("\u001b[J").ToString();
     }
 
-    public static async Task PlayAsync(TextWriter writer, CancellationToken cancellationToken)
+    public static async Task<bool> PlayAsync(
+        TextWriter writer,
+        CancellationToken cancellationToken,
+        Func<bool>? keyAvailable = null,
+        Action? readKey = null,
+        Func<(int Width, int Height)>? terminalSize = null,
+        int frameCount = FrameCount,
+        int frameDelayMilliseconds = FrameDelayMilliseconds)
     {
+        keyAvailable ??= static () => Console.KeyAvailable;
+        readKey ??= static () => Console.ReadKey(intercept: true);
+        terminalSize ??= static () => (Console.WindowWidth, Console.WindowHeight);
+        var completed = true;
         try
         {
             writer.Write("\u001b[?25l\u001b[2J");
-            for (var frame = 0; frame < FrameCount; frame++)
+            for (var frame = 0; frame < frameCount; frame++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (Console.KeyAvailable) { Console.ReadKey(intercept: true); break; }
-                writer.Write(Frame(frame, Console.WindowWidth, Console.WindowHeight,
+                if (keyAvailable())
+                {
+                    readKey();
+                    completed = false;
+                    break;
+                }
+                var (width, height) = terminalSize();
+                writer.Write(Frame(frame, width, height,
                     Environment.GetEnvironmentVariable("NO_COLOR") is null));
                 writer.Flush();
-                await Task.Delay(FrameDelayMilliseconds, cancellationToken);
+                await Task.Delay(frameDelayMilliseconds, cancellationToken);
             }
+            return completed;
         }
         finally
         {

@@ -136,7 +136,7 @@ preflight after a valid selection. No external tools or agents start in the pick
 - Duplicate non-repeatable CLI options, duplicate reasoning tiers, and conflicting
   explicit `--once --drain` remain errors. `--config` is not repeatable.
 - Preflight accepts the same inherited config, ignoring saved run-only controls (`once`,
-  `drain`, `stdio`, `eventLog`, `noIntro`, `startPaused`, `disownTmuxSession`). Those
+  `drain`, `stdio`, `eventLog`, `noIntro`, `noTuiSound`, `startPaused`, `disownTmuxSession`). Those
   options remain rejected when explicitly passed on the preflight CLI.
 
 ## Fields
@@ -176,6 +176,7 @@ fields remain required to run. Semantics/defaults match the [CLI reference](cli-
 | `stdio` | boolean | `--stdio` |
 | `eventLog` | string path | `--event-log` |
 | `noIntro` | boolean | `--no-intro` |
+| `noTuiSound` | boolean | `--no-tui-sound` |
 | `startPaused` | boolean | `--start-paused` |
 
 Run configs are separate from `<repo>/.abacus/targets.json` and

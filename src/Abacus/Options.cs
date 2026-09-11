@@ -61,6 +61,7 @@ public sealed record Options(
     bool Stdio = false,
     string? EventLogPath = null,
     bool NoIntro = false,
+    bool NoTuiSound = false,
     bool StartPaused = false,
     bool DisownTmuxSession = false,
     IReadOnlyDictionary<string, string>? ReasoningModels = null)
@@ -294,7 +295,7 @@ public sealed record Options(
                     or "--opencode-server" or "--target-filter" or "--append-prompt" or "--label" or "--exclude-label"
                     or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify" => 1,
                 "--remote-control" or "--notify-sound" or "--verbose" => 0,
-                "--once" or "--drain" or "--stdio" or "--no-intro" or "--start-paused"
+                "--once" or "--drain" or "--stdio" or "--no-intro" or "--no-tui-sound" or "--start-paused"
                     or "--disown-tmux-session" when command == "run" => 0,
                 "--event-log" when command == "run" => 1,
                 _ => -1,
@@ -320,6 +321,7 @@ public sealed record Options(
         var verbose = false;
         var stdio = false;
         var noIntro = false;
+        var noTuiSound = false;
         var startPaused = false;
         var disownTmuxSession = false;
         string? eventLogPath = null;
@@ -348,6 +350,7 @@ public sealed record Options(
             {
                 case "--stdio": stdio = true; break;
                 case "--no-intro": noIntro = true; break;
+                case "--no-tui-sound": noTuiSound = true; break;
                 case "--start-paused": startPaused = true; break;
                 case "--disown-tmux-session": disownTmuxSession = true; break;
                 case "--event-log":
@@ -615,7 +618,7 @@ public sealed record Options(
                 appendAgentPrompt,
                 null,
                 targetBranches.AsReadOnly(),
-                stdio, eventLogPath, noIntro, startPaused,
+                stdio, eventLogPath, noIntro, noTuiSound, startPaused,
                 DisownTmuxSession: disownTmuxSession,
                 ReasoningModels: reasoningModels),
             ShowHelp: false);

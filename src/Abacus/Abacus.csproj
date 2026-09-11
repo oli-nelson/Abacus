@@ -11,6 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="../../media/abacus_intro.mp3"
+                      LogicalName="Abacus.Media.abacus_intro.mp3" />
     <EmbeddedResource Include="../../skills/abacus-git-check/SKILL.md"
                       LogicalName="Abacus.Skills.abacus-git-check.SKILL.md" />
     <EmbeddedResource Include="../../skills/abacus-git-check/agents/openai.yaml"

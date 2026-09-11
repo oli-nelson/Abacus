@@ -138,7 +138,11 @@ be guaranteed.
 
 ## Interactive entrance
 
-Normal TUI runs open with a roughly 1.8-second animated ASCII logo and abacus.
-Any key skips it; `--no-intro` disables it. It never plays for stdio, verbose,
-preflight, standalone commands, redirected stdin/stdout/stderr, or `TERM=dumb`.
-`NO_COLOR` disables its colors. Narrow terminals receive a compact version.
+Normal TUI runs open with an animated ASCII logo and abacus while a bundled mix
+plays the welcome track over the jingle at 15% gain so the voice stays prominent.
+Any key skips the animation and stops its audio; a natural animation completion
+lets the mix finish in the background.
+`--no-tui-sound` keeps the animation muted, while `--no-intro` disables both. It
+never plays for stdio, verbose, preflight, standalone commands, redirected
+stdin/stdout/stderr, or `TERM=dumb`. `NO_COLOR` disables its colors. Narrow
+terminals receive a compact version.

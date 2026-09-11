@@ -116,6 +116,7 @@ internal static class CliHelp
               --event-log <path>      Append the same structured activity events to a JSONL file.
               --start-paused          Pause claims initially; resume with Shift-Tab or stdio resume.
               --no-intro              Skip the interactive ASCII startup animation.
+              --no-tui-sound          Keep the startup animation but mute its audio.
             Stdio commands: status, pause, resume, stop, restart, clean-workspace, shutdown.
             Use {"id":"1","command":"status"}; agent actions require "agent".
             clean-workspace also requires "confirm":true. EOF gracefully shuts down.

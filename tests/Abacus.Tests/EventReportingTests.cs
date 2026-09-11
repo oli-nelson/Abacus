@@ -29,8 +29,9 @@ public sealed class EventReportingTests
     [Fact]
     public void ParsesRunOnlyOptionsAndEqualsPaths()
     {
-        var options = RunOptions("--stdio", "--start-paused", "--no-intro", "--event-log=/tmp/events.jsonl");
-        Assert.True(options.Stdio && options.StartPaused && options.NoIntro);
+        var options = RunOptions("--stdio", "--start-paused", "--no-intro", "--no-tui-sound",
+            "--event-log=/tmp/events.jsonl");
+        Assert.True(options.Stdio && options.StartPaused && options.NoIntro && options.NoTuiSound);
         Assert.Equal("/tmp/events.jsonl", options.EventLogPath);
     }
 
@@ -197,6 +198,7 @@ public sealed class EventReportingTests
         Assert.False(AsciiIntro.ShouldPlay(normal, false, true, false, "xterm"));
         Assert.False(AsciiIntro.ShouldPlay(normal, false, false, true, "xterm"));
         Assert.False(AsciiIntro.ShouldPlay(normal, false, false, false, "dumb"));
+        Assert.True(AsciiIntro.ShouldPlay(normal with { NoTuiSound = true }, false, false, false, "xterm"));
     }
 
     [Fact]
@@ -210,5 +212,19 @@ public sealed class EventReportingTests
         Assert.All(plain.Split('\n'), line => Assert.True(line.Length < 20));
         Assert.Contains("ABACUS", plain);
         Assert.DoesNotContain("m", frame);
+    }
+
+    [Fact]
+    public async Task IntroReportsWhetherItFinishedOrWasSkipped()
+    {
+        var completed = await AsciiIntro.PlayAsync(
+            TextWriter.Null, CancellationToken.None, () => false, () => { }, () => (80, 24), 1, 0);
+        var keyRead = false;
+        var skipped = await AsciiIntro.PlayAsync(
+            TextWriter.Null, CancellationToken.None, () => true, () => keyRead = true, () => (80, 24), 1, 0);
+
+        Assert.True(completed);
+        Assert.False(skipped);
+        Assert.True(keyRead);
     }
 }

@@ -535,8 +535,11 @@ All checks happen before any ticket is claimed or agent run is created.
   claim gate consistently; reject it when no resume control is available. Keep
   finite exit independent of an open stdin pipe.
 - Add a short ASCII animation before interactive ConsoleOutput construction,
-  with key skip, `--no-intro`, no-color and narrow-terminal handling. Never render
-  intro/TUI for redirected or non-interactive modes.
+  with a single bundled welcome/jingle audio mix, key skip, `--no-intro`,
+  `--no-tui-sound`, no-color and narrow-terminal handling. Keep playback best
+  effort, let it finish after natural animation completion, and stop it on skip
+  or cancellation. Never render or play intro/TUI media for redirected or
+  non-interactive modes.
 - Test serialization/concurrent ordering, file mirroring, parser scope, controls,
   EOF/finite process exits, startup errors, and intro gating with fake tools.
   Document the versioned stream and accepted-versus-completed action semantics.

@@ -113,7 +113,8 @@ public sealed class CommandSyntaxTests
     [Theory]
     [InlineData("preflight", "--once")]
     [InlineData("preflight", "--drain")]
-    public void PreflightRejectsRunLengthOptions(string command, string option)
+    [InlineData("preflight", "--no-tui-sound")]
+    public void PreflightRejectsRunOnlyOptions(string command, string option)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([command, .. RunConfiguration, option]));
     }
