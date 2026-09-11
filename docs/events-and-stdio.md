@@ -141,8 +141,8 @@ be guaranteed.
 Normal TUI runs open with an animated ASCII logo and abacus while a bundled mix
 plays the welcome track over the jingle at 15% gain so the voice stays prominent.
 Any key skips the animation and stops its audio; a natural animation completion
-lets the mix finish in the background.
-`--no-tui-sound` keeps the animation muted, while `--no-intro` disables both. It
+lets the mix finish in the background. Intro audio is off by default;
+`--tui-audio` enables it, while `--no-intro` disables both animation and audio. It
 never plays for stdio, verbose, preflight, standalone commands, redirected
 stdin/stdout/stderr, or `TERM=dumb`. `NO_COLOR` disables its colors. Narrow
 terminals receive a compact version.

@@ -116,7 +116,7 @@ internal static class CliHelp
               --event-log <path>      Append the same structured activity events to a JSONL file.
               --start-paused          Pause claims initially; resume with Shift-Tab or stdio resume.
               --no-intro              Skip the interactive ASCII startup animation.
-              --no-tui-sound          Keep the startup animation but mute its audio.
+              --tui-audio             Play the bundled startup audio; off by default.
             Stdio commands: status, pause, resume, stop, restart, clean-workspace, shutdown.
             Use {"id":"1","command":"status"}; agent actions require "agent".
             clean-workspace also requires "confirm":true. EOF gracefully shuts down.
@@ -146,7 +146,7 @@ internal static class CliHelp
             a main branch, shared-server Beads database, bundled skills, an initial commit, detached
             worktrees, and JSON run configs only (no launcher scripts).
             Writes abacus_base.json (shared settings) plus abacus_<mode>.json (baseConfig/mode/model).
-            Generated runs start paused, with --notify all and notification sound enabled.
+            Generated runs start paused, with --notify all, notification sound, and TUI audio enabled.
             Run abacus run from <name> and select a harness config. Non-interactive use requires
             --config <path-to-harness-config> or complete CLI arguments.
             Refuses an existing destination. Does not start tmux. Does not accept --repo.

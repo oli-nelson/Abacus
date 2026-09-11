@@ -102,7 +102,8 @@ The initializer:
 6. Adds the requested detached worktrees.
 7. Writes `abacus_base.json` with the repository, created worktrees, and shared
    effort, plus three harness/model configs that reference it with `baseConfig`.
-   It sets `startPaused: true`, `notify: "all"`, and `notifySound: true`.
+   It sets `startPaused: true`, `notify: "all"`, `notifySound: true`, and
+   `tuiAudio: true`.
    No shell launcher scripts are generated.
 
 The initializer itself does not create a tmux session. Create ready work and run
@@ -123,7 +124,8 @@ abacus run # select abacus_codex.json (or another harness config)
 Edit shared settings with `abacus config edit abacus_base.json`, and the Codex
 harness/model with `abacus config edit abacus_codex.json`. The base is incomplete
 on its own: select a harness config in the picker. Generated runs start paused;
-press **Shift-Tab** to resume claims. All notifications and sound are enabled.
+press **Shift-Tab** to resume claims. Desktop notifications, notification sounds,
+and TUI intro audio are enabled.
 
 For automation, redirected I/O, or running from elsewhere, explicitly select a
 config; the non-interactive routes never open the picker:

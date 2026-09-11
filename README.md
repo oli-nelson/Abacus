@@ -154,8 +154,9 @@ cd ..
 abacus run # select abacus_codex.json (or another harness config)
 ```
 
-Generated runs start paused; press **Shift-Tab** to resume claims. All desktop
-notifications and notification sounds are enabled in the base config.
+Generated runs start paused; press **Shift-Tab** to resume claims. Desktop
+notifications, notification sounds, and TUI intro audio are enabled in the base
+config.
 
 The initializer is the **only** Abacus operation that creates repositories,
 worktrees, or Beads configuration. Normal orchestration expects those resources

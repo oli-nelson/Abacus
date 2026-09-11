@@ -104,12 +104,13 @@ public sealed class MultiAgentRepositoryInitializerTests
             var basePath = Path.Combine(result.ProjectRoot, "abacus_base.json");
             var baseConfig = RunConfiguration.Load(basePath).Document;
             Assert.Equal(4, Directory.GetFiles(result.ProjectRoot, "abacus_*.json").Length);
-            Assert.Equal(new[] { "agents", "effort", "notify", "notifySound", "repo", "startPaused", "version" }, baseConfig.Select(p => p.Key).Order());
+            Assert.Equal(new[] { "agents", "effort", "notify", "notifySound", "repo", "startPaused", "tuiAudio", "version" }, baseConfig.Select(p => p.Key).Order());
             Assert.Equal("repo", baseConfig["repo"]!.GetValue<string>());
             Assert.Equal("high", baseConfig["effort"]!.GetValue<string>());
             Assert.True(baseConfig["startPaused"]!.GetValue<bool>());
             Assert.Equal("all", baseConfig["notify"]!.GetValue<string>());
             Assert.True(baseConfig["notifySound"]!.GetValue<bool>());
+            Assert.True(baseConfig["tuiAudio"]!.GetValue<bool>());
             Assert.Equal(3, baseConfig["agents"]!.AsArray().Count);
             foreach (var mode in new[] { "opencode", "codex", "claude" })
             {
@@ -143,6 +144,7 @@ public sealed class MultiAgentRepositoryInitializerTests
                 Assert.True(selected.StartPaused);
                 Assert.Equal(NotificationMode.All, selected.NotificationMode);
                 Assert.True(selected.NotificationSound);
+                Assert.True(selected.TuiAudio);
                 Assert.Equal(result.RepositoryPath, selected.RepositoryPath);
                 Assert.Equal(3, selected.Agents.Count);
                 for (var index = 0; index < 3; index++)
@@ -158,13 +160,14 @@ public sealed class MultiAgentRepositoryInitializerTests
             {
                 var parsed = Options.Parse(["run", "--config", configPath,
                     "--model", "provider/override", "--effort", "xhigh", "--notify", "off",
-                    "--notify-sound=false", "--start-paused=false"]).Value!;
+                    "--notify-sound=false", "--tui-audio=false", "--start-paused=false"]).Value!;
                 Assert.Equal(result.RepositoryPath, parsed.RepositoryPath);
                 Assert.Equal("provider/override", parsed.Model);
                 Assert.Equal("xhigh", parsed.Effort);
                 Assert.Equal(12, parsed.LatestCommentCount);
                 Assert.Equal(NotificationMode.Off, parsed.NotificationMode);
                 Assert.False(parsed.NotificationSound);
+                Assert.False(parsed.TuiAudio);
                 Assert.False(parsed.StartPaused);
                 Assert.Equal(3, parsed.Agents.Count);
                 Assert.Null(parsed.TmuxSession);

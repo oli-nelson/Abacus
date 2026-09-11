@@ -44,8 +44,8 @@ Use `--stdio` for event-only stdout and JSONL commands on stdin; optionally add
 
 Interactive runs begin with a short animated ASCII entrance and a bundled mix
 of the welcome track with the jingle at 15% gain so the voice remains prominent.
-Press any key to skip it, pass `--no-tui-sound` to keep the animation muted, or
-pass `--no-intro` to skip both.
+Audio is off by default; pass `--tui-audio` to enable it. Press any key to skip
+the intro, or pass `--no-intro` to skip both animation and audio.
 Audio playback is best effort through macOS `afplay`, or the first available
 Linux player among `ffplay`, `mpv`, and SoX `play`. No animation, intro audio, or
 TUI is shown for redirected stdin/stdout/stderr, `TERM=dumb`, verbose, preflight,

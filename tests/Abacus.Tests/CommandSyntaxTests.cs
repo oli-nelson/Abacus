@@ -71,6 +71,7 @@ public sealed class CommandSyntaxTests
     [InlineData("--remote")]
     [InlineData("--target-branch")]
     [InlineData("--append-agent-prompt")]
+    [InlineData("--no-tui-sound")]
     public void LegacyRunOptionsAreRejected(string oldOption)
     {
         Assert.Throws<OptionsException>(() => Options.Parse(["run", .. RunConfiguration, oldOption]));
@@ -113,7 +114,7 @@ public sealed class CommandSyntaxTests
     [Theory]
     [InlineData("preflight", "--once")]
     [InlineData("preflight", "--drain")]
-    [InlineData("preflight", "--no-tui-sound")]
+    [InlineData("preflight", "--tui-audio")]
     public void PreflightRejectsRunOnlyOptions(string command, string option)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([command, .. RunConfiguration, option]));

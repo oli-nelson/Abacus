@@ -67,7 +67,7 @@ public static class Program
                 stdoutUi.WriteStep(Console.Out, 2, "From the project directory, execute abacus run and select a harness config (not the shared base).");
                 stdoutUi.WriteStep(Console.Out, 3, "Edit shared settings with abacus config edit abacus_base.json.");
                 Console.Out.WriteLine();
-                Console.Out.WriteLine(stdoutUi.Muted("Generated runs start paused; Shift-Tab resumes claims. Notifications and sound are enabled, and Abacus creates its default tmux session when needed."));
+                Console.Out.WriteLine(stdoutUi.Muted("Generated runs start paused; Shift-Tab resumes claims. Desktop notifications, notification sound, and TUI intro audio are enabled, and Abacus creates its default tmux session when needed."));
                 Console.Out.WriteLine(stdoutUi.Muted("For non-interactive use, pass --config <path-to-harness-config> and --start-paused=false, or use stdio controls with notifications disabled."));
                 return 0;
             }
@@ -259,7 +259,7 @@ public static class Program
             if (AsciiIntro.ShouldPlay(options, Console.IsInputRedirected, Console.IsOutputRedirected,
                 Console.IsErrorRedirected, Environment.GetEnvironmentVariable("TERM")))
             {
-                var introSound = options.NoTuiSound ? null : IntroSound.TryStart();
+                var introSound = options.TuiAudio ? IntroSound.TryStart() : null;
                 try
                 {
                     if (await AsciiIntro.PlayAsync(Console.Error, cancellation.Token))

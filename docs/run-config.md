@@ -136,7 +136,7 @@ preflight after a valid selection. No external tools or agents start in the pick
 - Duplicate non-repeatable CLI options, duplicate reasoning tiers, and conflicting
   explicit `--once --drain` remain errors. `--config` is not repeatable.
 - Preflight accepts the same inherited config, ignoring saved run-only controls (`once`,
-  `drain`, `stdio`, `eventLog`, `noIntro`, `noTuiSound`, `startPaused`, `disownTmuxSession`). Those
+  `drain`, `stdio`, `eventLog`, `noIntro`, `tuiAudio`, `startPaused`, `disownTmuxSession`). Those
   options remain rejected when explicitly passed on the preflight CLI.
 
 ## Fields
@@ -176,7 +176,7 @@ fields remain required to run. Semantics/defaults match the [CLI reference](cli-
 | `stdio` | boolean | `--stdio` |
 | `eventLog` | string path | `--event-log` |
 | `noIntro` | boolean | `--no-intro` |
-| `noTuiSound` | boolean | `--no-tui-sound` |
+| `tuiAudio` | boolean | `--tui-audio` |
 | `startPaused` | boolean | `--start-paused` |
 
 Run configs are separate from `<repo>/.abacus/targets.json` and
@@ -187,7 +187,7 @@ Run configs are separate from `<repo>/.abacus/targets.json` and
 `abacus new` writes four config files in the project root, with no shell scripts:
 
 - `abacus_base.json`: shared `repo`, `agents`, default `effort`, and `version`,
-  with `startPaused: true`, `notify: "all"`, and `notifySound: true`.
+  with `startPaused: true`, `notify: "all"`, `notifySound: true`, and `tuiAudio: true`.
 - `abacus_opencode.json`: `version`, `baseConfig`, `mode`, and OpenCode `model`.
 - `abacus_codex.json`: `version`, `baseConfig`, `mode`, and Codex `model`.
 - `abacus_claude.json`: `version`, `baseConfig`, `mode`, and Claude `model`.
@@ -200,9 +200,10 @@ abacus run
 ```
 
 Select a harness config, not `abacus_base.json` (which deliberately has no model).
-Generated runs start paused; press **Shift-Tab** to allow ticket claims. All desktop
-notifications and notification sounds are enabled. Override with
-`--start-paused=false`, or `--notify off --notify-sound=false` to disable notifications.
+Generated runs start paused; press **Shift-Tab** to allow ticket claims. Desktop
+notifications, notification sounds, and TUI intro audio are enabled. Override with
+`--start-paused=false`, `--tui-audio=false`, or
+`--notify off --notify-sound=false` to disable notifications.
 For `--stdio`, disable notifications; for `--verbose`, also disable start-paused.
 For non-interactive use or invocation from outside the project, explicitly select
 one config; paths inside it remain relative to the file:

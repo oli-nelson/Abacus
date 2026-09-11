@@ -149,6 +149,7 @@ public sealed partial class MultiAgentRepositoryInitializer(
         baseConfiguration.Document["startPaused"] = true;
         baseConfiguration.Document["notify"] = "all";
         baseConfiguration.Document["notifySound"] = true;
+        baseConfiguration.Document["tuiAudio"] = true;
         baseConfiguration.Document["agents"] = new System.Text.Json.Nodes.JsonArray(
             Enumerable.Range(0, options.AgentCount).Select(index => (System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject
             {

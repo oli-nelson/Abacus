@@ -29,9 +29,9 @@ public sealed class EventReportingTests
     [Fact]
     public void ParsesRunOnlyOptionsAndEqualsPaths()
     {
-        var options = RunOptions("--stdio", "--start-paused", "--no-intro", "--no-tui-sound",
+        var options = RunOptions("--stdio", "--start-paused", "--no-intro", "--tui-audio",
             "--event-log=/tmp/events.jsonl");
-        Assert.True(options.Stdio && options.StartPaused && options.NoIntro && options.NoTuiSound);
+        Assert.True(options.Stdio && options.StartPaused && options.NoIntro && options.TuiAudio);
         Assert.Equal("/tmp/events.jsonl", options.EventLogPath);
     }
 
@@ -198,7 +198,8 @@ public sealed class EventReportingTests
         Assert.False(AsciiIntro.ShouldPlay(normal, false, true, false, "xterm"));
         Assert.False(AsciiIntro.ShouldPlay(normal, false, false, true, "xterm"));
         Assert.False(AsciiIntro.ShouldPlay(normal, false, false, false, "dumb"));
-        Assert.True(AsciiIntro.ShouldPlay(normal with { NoTuiSound = true }, false, false, false, "xterm"));
+        Assert.False(normal.TuiAudio);
+        Assert.True(AsciiIntro.ShouldPlay(normal with { TuiAudio = true }, false, false, false, "xterm"));
     }
 
     [Fact]

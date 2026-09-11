@@ -39,8 +39,8 @@ repository state. It then creates `<agent-count>` detached Git worktrees at
 Beads initialization must be non-interactive and select the maintainer role.
 
 The project root receives `abacus_base.json` with the created named worktrees,
-repository path, shared effort default, `startPaused: true`, `notify: "all"`, and
-`notifySound: true`. `abacus_opencode.json`,
+repository path, shared effort default, `startPaused: true`, `notify: "all"`,
+`notifySound: true`, and `tuiAudio: true`. `abacus_opencode.json`,
 `abacus_codex.json`, and `abacus_claude.json` contain version, baseConfig, mode,
 and model. Their baseConfig is `abacus_base.json`. Paths are relative to their
 config directory. Do not generate shell launcher scripts. From the project root,
@@ -423,8 +423,8 @@ Before the main interactive TUI, play a brief, skippable animated ASCII intro
 with a bundled mix of the welcome and jingle tracks; the jingle has 15% gain in
 the mix so the voice remains prominent. Audio playback is best effort and uses
 a native macOS player or an available Linux command-line player. Let the mix
-finish when the animation completes naturally instead of cutting it off.
-`--no-tui-sound` keeps the animation but mutes its audio; `--no-intro` skips both.
+finish when the animation completes naturally instead of cutting it off. TUI
+audio is off by default; `--tui-audio` enables it, while `--no-intro` skips both.
 Never play the intro or its audio in stdio, verbose, preflight, standalone
 operations, redirected stdin/stdout/stderr, or dumb terminals. Honor `NO_COLOR`
 and terminal dimensions, stop its audio on skip or cancellation, and restore

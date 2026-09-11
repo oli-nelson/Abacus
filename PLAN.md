@@ -536,7 +536,7 @@ All checks happen before any ticket is claimed or agent run is created.
   finite exit independent of an open stdin pipe.
 - Add a short ASCII animation before interactive ConsoleOutput construction,
   with a single bundled welcome/jingle audio mix, key skip, `--no-intro`,
-  `--no-tui-sound`, no-color and narrow-terminal handling. Keep playback best
+  opt-in `--tui-audio`, no-color and narrow-terminal handling. Keep playback best
   effort, let it finish after natural animation completion, and stop it on skip
   or cancellation. Never render or play intro/TUI media for redirected or
   non-interactive modes.
@@ -585,8 +585,8 @@ All checks happen before any ticket is claimed or agent run is created.
   explicit configs, preflight, stdio, verbose, and redirected I/O never prompt.
 - Generate one shared abacus_base.json plus harness configs referencing it via
   baseConfig, without shell launchers. The base defaults to startPaused: true,
-  notify: all, and notifySound: true. Direct users to abacus run from the project
-  root and explicit --config for non-interactive use.
+  notify: all, notifySound: true, and tuiAudio: true. Direct users to abacus run
+  from the project root and explicit --config for non-interactive use.
 - Test inheritance, cycles, missing bases, draft saves, path rebasing, CLI scope,
   picker success/failure/cancellation, non-interactive process behavior, and
   generated configs through the picker and explicit paths outside the project;
