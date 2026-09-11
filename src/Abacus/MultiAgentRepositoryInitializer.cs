@@ -9,7 +9,7 @@ public sealed record MultiAgentRepositoryInitializationResult(
     string WorktreesPath,
     int AgentCount,
     string BeadsDatabase,
-    IReadOnlyList<string> LauncherPaths);
+    IReadOnlyList<string> ConfigurationPaths);
 
 public sealed partial class MultiAgentRepositoryInitializer(
     CommandRunner runner,
@@ -105,9 +105,17 @@ public sealed partial class MultiAgentRepositoryInitializer(
         await File.WriteAllTextAsync(Path.Combine(repositoryPath, ".abacus", "reasoning.json"),
             ReasoningPolicy.DefaultConfiguration, cancellationToken);
 
+        var stageArguments = new List<string> { "-C", repositoryPath, "add", "README.md", ".agents", ".abacus" };
+        // Beads may create root ignore rules for Dolt files. Keep them in the
+        // initial commit (and worktrees), without staging local Beads state.
+        if (File.Exists(Path.Combine(repositoryPath, ".gitignore")))
+        {
+            stageArguments.Add(".gitignore");
+        }
+
         await RunRequiredAsync(
             gitExecutable,
-            ["-C", repositoryPath, "add", "README.md", ".agents", ".abacus"],
+            stageArguments,
             projectRoot,
             "stage the initialized repository",
             cancellationToken);
@@ -135,7 +143,21 @@ public sealed partial class MultiAgentRepositoryInitializer(
                 cancellationToken);
         }
 
-        var launcherPaths = new List<string>();
+        var baseConfiguration = RunConfiguration.Create(projectRoot);
+        baseConfiguration.Document["repo"] = "repo";
+        baseConfiguration.Document["effort"] = "high";
+        baseConfiguration.Document["startPaused"] = true;
+        baseConfiguration.Document["notify"] = "all";
+        baseConfiguration.Document["notifySound"] = true;
+        baseConfiguration.Document["agents"] = new System.Text.Json.Nodes.JsonArray(
+            Enumerable.Range(0, options.AgentCount).Select(index => (System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject
+            {
+                ["name"] = $"agent-{index}", ["workspace"] = $"worktrees/{index}",
+            }).ToArray());
+        var basePath = Path.Combine(projectRoot, "abacus_base.json");
+        baseConfiguration.Save(basePath, overwrite: false);
+
+        var configurationPaths = new List<string> { basePath };
         foreach (var (mode, defaultModel) in new[]
         {
             ("opencode", "openai/gpt-5.6-sol"),
@@ -143,14 +165,13 @@ public sealed partial class MultiAgentRepositoryInitializer(
             ("claude", "opus"),
         })
         {
-            var launcherPath = Path.Combine(projectRoot, $"run_abacus_{mode}.sh");
-            await File.WriteAllTextAsync(
-                launcherPath,
-                RenderLauncher(mode, defaultModel),
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-                cancellationToken);
-            MakeExecutable(launcherPath);
-            launcherPaths.Add(launcherPath);
+            var configuration = RunConfiguration.Create(projectRoot);
+            configuration.Document["baseConfig"] = "abacus_base.json";
+            configuration.Document["mode"] = mode;
+            configuration.Document["model"] = defaultModel;
+            var configurationPath = Path.Combine(projectRoot, $"abacus_{mode}.json");
+            configuration.Save(configurationPath, overwrite: false);
+            configurationPaths.Add(configurationPath);
         }
 
         return new MultiAgentRepositoryInitializationResult(
@@ -159,7 +180,7 @@ public sealed partial class MultiAgentRepositoryInitializer(
             worktreesPath,
             options.AgentCount,
             database,
-            launcherPaths);
+            configurationPaths.AsReadOnly());
     }
 
     internal static string CreateIdentifier(string projectName)
@@ -171,53 +192,6 @@ public sealed partial class MultiAgentRepositoryInitializer(
         }
 
         return identifier.Length <= 20 ? identifier : identifier[..20].TrimEnd('-');
-    }
-
-    internal static string RenderLauncher(string mode, string defaultModel)
-    {
-        var script = $$$"""
-            #!/usr/bin/env bash
-            set -Eeuo pipefail
-
-            die() {
-              printf 'error: %s\n' "$*" >&2
-              exit 1
-            }
-
-            root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-            worktrees="$root/worktrees"
-            abacus_bin="${ABACUS_BIN:-abacus}"
-            tmux_session="${ABACUS_TMUX_SESSION:-}"
-            model="${1:-${ABACUS_MODEL:-{{{defaultModel}}}}}"
-            effort="${2:-${ABACUS_EFFORT:-high}}"
-            high_reasoning_model="${ABACUS_HIGH_REASONING_MODEL:-}"
-            medium_reasoning_model="${ABACUS_MEDIUM_REASONING_MODEL:-}"
-            low_reasoning_model="${ABACUS_LOW_REASONING_MODEL:-}"
-
-            [[ -d "$root/repo/.git" ]] || die "missing repository: $root/repo"
-            [[ -d "$worktrees" ]] || die "missing worktrees directory: $worktrees"
-            [[ -n "$model" && "$model" != *[[:space:]]* ]] || die "model must be nonempty and contain no whitespace"
-            [[ -n "$effort" && "$effort" != *[[:space:]#]* ]] || die "effort must be nonempty and contain no whitespace or '#'"
-
-            agent_args=()
-            for workspace in "$worktrees"/*; do
-              [[ -d "$workspace" ]] || continue
-              [[ -e "$workspace/.git" ]] || continue
-              index="${workspace##*/}"
-              agent_args+=(--agent "agent-$index" "$workspace")
-            done
-            (( ${#agent_args[@]} > 0 )) || die "no worktrees found under $worktrees"
-
-            run_args=(run --repo "$root/repo" --mode {{{mode}}})
-            [[ -z "$tmux_session" ]] || run_args+=(--tmux-session "$tmux_session")
-            run_args+=(--model "$model" --effort "$effort")
-            [[ -z "$high_reasoning_model" ]] || run_args+=(--reasoning-model high "$high_reasoning_model")
-            [[ -z "$medium_reasoning_model" ]] || run_args+=(--reasoning-model medium "$medium_reasoning_model")
-            [[ -z "$low_reasoning_model" ]] || run_args+=(--reasoning-model low "$low_reasoning_model")
-
-            exec "$abacus_bin" "${run_args[@]}" "${agent_args[@]}"
-            """;
-        return script + Environment.NewLine;
     }
 
     private async Task RunRequiredAsync(
@@ -242,20 +216,6 @@ public sealed partial class MultiAgentRepositoryInitializer(
     }
 
     private static bool PathExists(string path) => Directory.Exists(path) || File.Exists(path);
-
-    private static void MakeExecutable(string path)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        File.SetUnixFileMode(
-            path,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
-            | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
-            | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-    }
 
     [GeneratedRegex("[^a-z0-9]+", RegexOptions.CultureInvariant)]
     private static partial Regex NonIdentifierCharacters();

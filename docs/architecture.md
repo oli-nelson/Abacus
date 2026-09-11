@@ -151,7 +151,7 @@ During normal orchestration, Abacus does **not**:
 
 The standalone `new` command is the explicit setup
 exception: it creates a brand-new repository, shared-server Beads configuration,
-skills, worktrees, and launch scripts. It still does not create tmux sessions.
+skills, worktrees, and JSON run configs (no shell launchers). It still does not create tmux sessions.
 The standalone `init` handles existing Git/Beads repositories: validate setup,
 install bundled skills with confirmation, and create a missing default targets
 and reasoning config without changing Beads settings or Git branches.

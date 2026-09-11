@@ -500,13 +500,14 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ### Explicit main repository selection
 
-- Replace Abacus `--config` with shared `--repo <main-checkout>` selection for runs
+- Use shared `--repo <main-checkout>` selection for runs
   and repository-scoped standalone commands. Without an override, cwd must be
   inside the main checkout. Reject linked-worktree controller roots; never infer
   a controller from agent workspaces. Agent `-a` worktrees remain supported.
 - Load targets only from `<repo>/.abacus/targets.json`. Run standalone Beads
   maintenance at that selected repository, not the invocation directory.
-- New-project launchers must pass `--repo "$root/repo"` and work from outside Git.
+- New-project run configs must select `repo` relative to their directory;
+  explicit --config paths work from outside Git.
   Help, models, and new-project creation need no existing repo.
 
 ### Command-oriented CLI
@@ -518,7 +519,7 @@ All checks happen before any ticket is claimed or agent run is created.
   and `-h` as documented short options for agent, verbosity, and help.
 - Keep existing command handlers and shell-first integrations; use a small
   standard-library dispatcher rather than a CLI framework.
-- Update bundled skills, generated launchers, shell demos, and all documentation
+- Update bundled skills, generated configs, shell demos, and all documentation
   alongside parser and process-boundary regression tests.
 
 ### Structured events, stdio control, and intro
@@ -560,3 +561,30 @@ All checks happen before any ticket is claimed or agent run is created.
   idempotent publication using disposable local Git remotes and a fake gh CLI.
 - Document workflow permissions, protected-branch limitations, failed-job reruns,
   and the non-atomic boundary between Git finalization and Release publication.
+
+### Saved run configuration editor
+
+- Keep a versioned JSON-to-CLI boundary using the standard library and existing
+  run validation; no new configuration framework or TUI dependencies.
+- Provide a keyboard-driven config editor with all run fields, named agent
+  add/edit/remove, Save/Save As, overwrite/discard confirmation, and draft warnings.
+- Preserve CLI precedence (agent/filter list replacement; reasoning routes per
+  tier) and config-relative paths, rebasing paths on Save As. Support false boolean
+  overrides and read-only preflight of saved runs without run-only controls.
+- Resolve one --config and its optional baseConfig single-parent inheritance
+  before CLI overrides. Keep per-source path bases; replace agent/filter lists,
+  merge reasoning routes per tier, and support null/false/empty overrides.
+  Validate shapes per file and runtime requirements after composition; detect
+  cycles and cap depth. Preserve/rebase baseConfig on editor Save As.
+- For interactive run without --config, report missing required options, discover
+  only top-level valid run JSON drafts in cwd, and allow one selection. Revalidate
+  once and report remaining omissions before exiting. Fully specified/invalid CLI,
+  explicit configs, preflight, stdio, verbose, and redirected I/O never prompt.
+- Generate one shared abacus_base.json plus harness configs referencing it via
+  baseConfig, without shell launchers. The base defaults to startPaused: true,
+  notify: all, and notifySound: true. Direct users to abacus run from the project
+  root and explicit --config for non-interactive use.
+- Test inheritance, cycles, missing bases, draft saves, path rebasing, CLI scope,
+  picker success/failure/cancellation, non-interactive process behavior, and
+  generated configs through the picker and explicit paths outside the project;
+  assert that new creates no launcher scripts.

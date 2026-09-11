@@ -39,14 +39,14 @@ in the main checkout selected by `--repo <path>`. For example:
 No repository ID is required or recorded. Legacy `repositoryId` configuration
 and `repository` binding fields are ignored for compatibility; existing files
 need not be rewritten. The new-repository initializer allows `main`, commits the
-config, and includes it in every worktree. Its launchers explicitly select
-`--repo "$root/repo"`.
+config, and includes it in every worktree. Its shared run config selects
+`"repo": "repo"` relative to the project-root config file.
 
 The controller must be the **main checkout**, never a linked worktree. With no
 `--repo`, the current directory must be inside that checkout. To invoke from
 an outer project folder, a linked worktree, or elsewhere, pass
 `--repo /path/to/main-checkout`. Config always comes from
-`<repo>/.abacus/targets.json`; the old `--config` option is removed. Agent `-a`
+`<repo>/.abacus/targets.json`; `--config` now selects a separate run config, not a target registry. Agent `-a`
 paths may still point to linked worktrees.
 
 All configured targets must already exist as **local branches** in each assigned

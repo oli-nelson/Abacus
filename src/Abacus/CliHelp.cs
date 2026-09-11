@@ -8,9 +8,11 @@ internal static class CliHelp
 
         Commands:
           run                  Run agents continuously, or with --once / --drain.
+          config edit [file] [--output <file>]
+                               Create/edit a run config in the TUI, with Save As.
           preflight            Validate a run configuration without starting agents.
           new <name> --agents <count>
-                               Create a new multi-agent Git/Beads project and launchers.
+                               Create a new multi-agent Git/Beads project and run configs.
           init                 Initialize Abacus in an existing Git/Beads repository.
           skills install       Install bundled skills (confirm before replacement).
           health               Report read-only repository and tool readiness.
@@ -28,7 +30,7 @@ internal static class CliHelp
 
         Shared repository option:
           --repo <path> selects the main Git checkout (default: cwd inside that checkout).
-          Accepted before or after repository-scoped commands, not new, models, or version.
+          Accepted before or after repository-scoped commands, not new, models, version, or config edit.
           Linked worktrees cannot be controller roots; agent worktrees are supported.
           Targets load from <repo>/.abacus/targets.json; reasoning policy loads
           from <repo>/.abacus/reasoning.json when present.
@@ -39,6 +41,13 @@ internal static class CliHelp
         """;
 
     private const string RunOptions = """
+        Configuration:
+          --config <file>               Load one JSON config; optional baseConfig inherits a base file.
+                                        CLI agent/filter lists replace configured lists; reasoning
+                                        models override per tier. CLI overrides win over derived/base values.
+                                        Paths stay relative to their source file. --config is not repeatable.
+                                        Boolean flags accept =false to disable saved settings.
+
         Agent and model:
           --agent, -a <name> <workspace>  Required, repeatable; names and workspaces must be unique.
           --mode <opencode|codex|claude|opencode-server>  Default: opencode.
@@ -88,6 +97,10 @@ internal static class CliHelp
         "" => Overview,
         "run" => """
             Usage: abacus run [options] --model <model> --agent <name> <workspace> [--agent ...]
+            Without --config, missing required model/agents/server values offer a one-time config
+            selection from JSON files in cwd, only on an interactive terminal. If still incomplete,
+            report all missing arguments and exit. No picker for --stdio, --verbose, or redirected I/O.
+            Invalid CLI options fail directly. Fully specified runs never search for configs.
             Runs continuously by default. Before fresh dispatch, preserves and recovers interrupted
             dirty issue workspaces; ambiguous workspaces stop with an alert, never automatic cleaning.
               --once   Process at most one currently ready ticket per agent, then exit.
@@ -110,11 +123,24 @@ internal static class CliHelp
             Run-only --once and --drain are not accepted.
 
             """ + Environment.NewLine + RunOptions,
+        "config" or "config edit" => """
+            Usage: abacus config edit [file] [--output <file>]
+            Opens a terminal editor; omit file to create a draft. No Git/tools required.
+            Save or Save As, including incomplete configs with visible warnings.
+            --output selects a different save destination without changing the input.
+            baseConfig optionally names a base file. Warnings validate inherited settings.
+            Relative paths (including baseConfig) are rebased on Save As; inherited fields stay in the base.
+            Existing Save As destinations require confirmation. Run still validates all requirements.
+            """,
         "new" => """
             Usage: abacus new <name> --agents <count>
             Requires a new single directory name and a positive agent count. Creates <name>/repo,
             a main branch, shared-server Beads database, bundled skills, an initial commit, detached
-            worktrees, and run_abacus_opencode.sh / run_abacus_codex.sh / run_abacus_claude.sh.
+            worktrees, and JSON run configs only (no launcher scripts).
+            Writes abacus_base.json (shared settings) plus abacus_<mode>.json (baseConfig/mode/model).
+            Generated runs start paused, with --notify all and notification sound enabled.
+            Run abacus run from <name> and select a harness config. Non-interactive use requires
+            --config <path-to-harness-config> or complete CLI arguments.
             Refuses an existing destination. Does not start tmux. Does not accept --repo.
             """,
         "init" => """

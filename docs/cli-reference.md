@@ -26,11 +26,16 @@ repository-scoped standalone commands. Without it, run inside the main checkout
 controller root; from a worktree or non-repo folder, pass the main checkout
 explicitly. Agent `-a` paths may still be linked worktrees.
 
-Configuration always loads from `<repo>/.abacus/targets.json`. `--config` has
-been removed; update old launchers to `--repo <main-checkout>` rather than a
-JSON file path. Relative `--repo` paths resolve against the invocation directory.
+Target configuration always loads from `<repo>/.abacus/targets.json`.
+`run --config <file>` loads one [run configuration](run-config.md) with optional
+`baseConfig` inheritance (derived settings win, then explicit CLI options),
+not a target registry. Use `config edit [file] [--output <file>]` to create/edit one. Relative `--repo` paths resolve against the invocation directory.
 Help, version reporting, model listing, and new-repository creation remain usable outside Git;
-`--repo` is not accepted with version reporting, model listing, or new-repository creation.
+`--repo` is not accepted with version reporting, model listing, new-repository creation, or config editing.
+
+An interactive `run` without `--config` offers a one-time cwd config picker when
+required model/agent/server arguments are missing. Invalid or complete CLI input,
+explicit configs, preflight, stdio, verbose, and redirected I/O never prompt.
 
 ## Command structure
 
@@ -69,8 +74,10 @@ abacus new <project-name> --agents <agent-count>
 ```
 
 Creates `<project-name>/repo`, shared-server Beads configuration, bundled
-skills, detached worktrees under `<project-name>/worktrees`, and launch scripts
-for OpenCode, Codex, and Claude. Launchers explicitly pass `--repo "$root/repo"`.
+skills, detached worktrees under `<project-name>/worktrees`, and JSON run configs
+for OpenCode, Codex, and Claude inheriting one shared base. No shell launchers are
+generated. Execute `abacus run` from the project root and select a harness config;
+non-interactive invocations require explicit `--config` or complete CLI arguments.
 The destination must not already exist. See
 [Path A](getting-started.md#path-a-create-a-new-multi-agent-project).
 

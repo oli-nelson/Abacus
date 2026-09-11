@@ -85,9 +85,8 @@ my-project/
 ├── worktrees/1/
 ├── worktrees/2/
 ├── worktrees/3/
-├── run_abacus_opencode.sh
-├── run_abacus_codex.sh
-└── run_abacus_claude.sh
+├── abacus_base.json                  # shared repo, agents, effort
+└── abacus_{opencode,codex,claude}.json # baseConfig + mode/model
 ```
 
 The initializer:
@@ -101,12 +100,14 @@ The initializer:
    and writes `.abacus/reasoning.json` with `enforceLabels: false`.
 5. Commits the initial repository state.
 6. Adds the requested detached worktrees.
-7. Writes executable launchers that discover `worktrees/*` at runtime and
-   explicitly pass `--repo "$root/repo"`.
+7. Writes `abacus_base.json` with the repository, created worktrees, and shared
+   effort, plus three harness/model configs that reference it with `baseConfig`.
+   It sets `startPaused: true`, `notify: "all"`, and `notifySound: true`.
+   No shell launcher scripts are generated.
 
 The initializer itself does not create a tmux session. Create ready work and run
-a launcher; `abacus run` creates its derived detached session and `Abacus Agents`
-window when needed:
+`abacus run` from the project root and select a harness config; Abacus creates
+its derived detached session and `Abacus Agents` window when needed:
 
 ```sh
 cd my-project/repo
@@ -116,20 +117,32 @@ bd create "Add the first feature" \
   --json
 
 cd ..
-./run_abacus_codex.sh gpt-5.6-sol high
+abacus run # select abacus_codex.json (or another harness config)
 ```
 
-Launchers accept model and effort as their first two arguments. You can also use:
+Edit shared settings with `abacus config edit abacus_base.json`, and the Codex
+harness/model with `abacus config edit abacus_codex.json`. The base is incomplete
+on its own: select a harness config in the picker. Generated runs start paused;
+press **Shift-Tab** to resume claims. All notifications and sound are enabled.
 
-| Variable | Purpose |
-| --- | --- |
-| `ABACUS_BIN` | Override the Abacus executable |
-| `ABACUS_MODEL` | Set the default model |
-| `ABACUS_EFFORT` | Set the default effort or variant |
-| `ABACUS_HIGH_REASONING_MODEL` | Map `abacus:high_reasoning` tickets |
-| `ABACUS_MEDIUM_REASONING_MODEL` | Map `abacus:medium_reasoning` tickets |
-| `ABACUS_LOW_REASONING_MODEL` | Map `abacus:low_reasoning` tickets |
-| `ABACUS_TMUX_SESSION` | Supply an explicit user-owned session; when unset Abacus derives and owns its default session |
+For automation, redirected I/O, or running from elsewhere, explicitly select a
+config; the non-interactive routes never open the picker:
+
+```sh
+abacus run --config /path/to/my-project/abacus_codex.json --start-paused=false
+```
+
+Generated config paths are relative to their own file. CLI `--model`, `--effort`,
+`--tmux-session`, and `--reasoning-model high <model>` override saved values.
+For custom inherited settings, create `local.json` with
+`"baseConfig": "abacus_codex.json"` and use `abacus run --config local.json`.
+
+**Migration:** `abacus new` no longer creates launch scripts. Use `abacus run` and
+its picker, or supply `--config` with CLI overrides instead of script arguments
+or environment variables. Add new worktrees to the base config explicitly.
+Previously generated scripts are not changed or removed.
+
+See [run configurations](run-config.md) for the editor, Save As, and JSON schema.
 
 ## Path B: use an existing repository
 

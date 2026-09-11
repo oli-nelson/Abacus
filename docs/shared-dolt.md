@@ -53,7 +53,7 @@ The initializer creates a unique database name, configures shared-server Beads
 with `no-git-ops=false`, marks the database local-only, creates a merge slot,
 and creates four detached Git worktrees. See
 [Getting started](getting-started.md#path-a-create-a-new-multi-agent-project)
-for the resulting directory layout and launchers.
+for the resulting directory layout and run configs.
 
 ### Initialize Beads in an existing repository
 

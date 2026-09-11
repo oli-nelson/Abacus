@@ -126,15 +126,14 @@ abacus new my-project --agents 4
 
 It creates a Git repository, a shared-server Beads database, four detached
 worktrees, committed `.abacus/targets.json` and `.abacus/reasoning.json` defaults, the bundled skills,
-and ready-to-use launch scripts that pass `--repo "$root/repo"`:
+and ready-to-use JSON run configs (no shell launcher scripts):
 
 ```text
 my-project/
 ├── repo/                     # main checkout and shared Beads project
 ├── worktrees/{0,1,2,3}/      # persistent agent workspaces
-├── run_abacus_opencode.sh
-├── run_abacus_codex.sh
-└── run_abacus_claude.sh
+├── abacus_base.json                  # shared repo, agents, effort
+└── abacus_{opencode,codex,claude}.json # baseConfig + mode/model
 ```
 
 Create some ready Beads issues and launch the pool; Abacus creates its default
@@ -152,13 +151,35 @@ abacus targets set main <returned-id>
 abacus targets check <returned-id>
 
 cd ..
-./run_abacus_codex.sh gpt-5.6-sol high
+abacus run # select abacus_codex.json (or another harness config)
 ```
+
+Generated runs start paused; press **Shift-Tab** to resume claims. All desktop
+notifications and notification sounds are enabled in the base config.
 
 The initializer is the **only** Abacus operation that creates repositories,
 worktrees, or Beads configuration. Normal orchestration expects those resources
 to exist already. See the [generated project walkthrough](docs/getting-started.md#path-a-create-a-new-multi-agent-project)
-for launcher overrides and the complete setup contract.
+for config overrides and the complete setup contract.
+
+### Save and edit run settings
+
+```sh
+abacus config edit                          # new draft; incomplete saves allowed
+abacus config edit abacus_base.json          # shared repo/agent settings
+abacus config edit abacus_codex.json         # harness/model settings
+abacus config edit template.json --output my-run.json
+abacus run --config my-run.json --model gpt-5.6-sol
+abacus preflight --config my-run.json
+abacus run --config abacus_codex.json
+```
+
+A config can inherit another through `"baseConfig": "base.json"`; derived settings
+override the base, then explicit CLI options win. CLI agents replace the saved
+agent list. Interactive `abacus run` offers a config picker when required arguments
+are missing; non-interactive runs fail without prompting.
+The editor warns about incomplete settings without blocking saves. See
+[run configurations](docs/run-config.md) for all fields and path semantics.
 
 ### Seed the shared-file tree demo
 

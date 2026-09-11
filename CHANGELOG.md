@@ -6,8 +6,21 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+### Added
+
+- Add a terminal run-config editor with Save As and saveable incomplete drafts,
+  plus JSON run/preflight configs with `baseConfig` inheritance and explicit CLI
+  overrides. Interactive runs missing required arguments offer a one-time config
+  picker; non-interactive runs fail directly without discovery or prompts.
+
 ### Changed
 
+- New projects now create a shared base JSON config and three inheriting harness
+  configs, without shell launchers. Run `abacus run` from the project root and
+  select a harness; automation uses an explicit `--config` and CLI overrides.
+  Generated runs start paused with all notifications and notification sounds enabled.
+  Move repeated config arguments into `baseConfig` references and add new
+  worktrees to the saved agent list. Previously generated scripts are unchanged.
 - Move release finalization into a manually triggered GitHub Actions workflow.
   The local helper now only requests a version; all four platform builds and
   tests must pass before the changelog is committed and the version tag is
@@ -16,6 +29,8 @@ Unreleased section. Released versions are listed newest first.
 
 ### Fixed
 
+- Include the Beads-generated root `.gitignore` in the `abacus new` initial
+  commit so new repositories and agent worktrees start clean.
 - Make dashboard tests independent of host terminal dimensions, handle unavailable
   console sizes with an 80-column by 24-row fallback, and verify comment scrolling
   across small and large viewports to prevent headless Linux CI failures.

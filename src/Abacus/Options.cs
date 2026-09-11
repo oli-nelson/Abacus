@@ -92,7 +92,8 @@ public sealed record Options(
     public const string ShortUsage = "Usage: abacus <command> [options]. Run 'abacus help' for commands.";
     public const string Usage = CliHelp.Overview;
 
-    public static OptionsParseResult Parse(IReadOnlyList<string> arguments)
+    public static OptionsParseResult Parse(IReadOnlyList<string> arguments,
+        Func<IReadOnlyList<string>, string?>? selectConfiguration = null)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         if (arguments.Count == 0) return OptionsParseResult.Help;
@@ -113,7 +114,7 @@ public sealed record Options(
             var topic = string.Join(" ", arguments.Skip(index));
             return OptionsParseResult.Help with { HelpText = CliHelp.For(topic) };
         }
-        if (command is "skills" or "branches" or "attention" or "targets")
+        if (command is "skills" or "branches" or "attention" or "targets" or "config")
         {
             if (index == arguments.Count || arguments[index] is "--help" or "-h")
             {
@@ -124,9 +125,13 @@ public sealed record Options(
         }
         // Validate the command before interpreting any options or their values.
         _ = CliHelp.For(command);
-        if (repositoryPath is not null && command is "new" or "models" or "version")
+        if (repositoryPath is not null && command is "new" or "models" or "version" or "config edit")
             throw new OptionsException($"--repo is not supported by {command}");
         var run = command is "run" or "preflight";
+        string? configPath = null;
+        var stdioRequested = false;
+        var verboseRequested = false;
+        var overriddenTiers = new HashSet<string>(StringComparer.Ordinal);
         var optionValues = new List<string>();
         var positionals = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -149,6 +154,15 @@ public sealed record Options(
             if (arity < 0) throw new OptionsException($"unknown option '{option}' for {command}");
             if (!seen.Add(canonical) && canonical is not ("--agent" or "--label" or "--exclude-label" or "--target-filter" or "--reasoning-model"))
                 throw new OptionsException($"{option} can only be specified once");
+            if (equals >= 0 && arity == 0 && run)
+            {
+                if (!bool.TryParse(argument[(equals + 1)..], out var enabled))
+                    throw new OptionsException($"{option} requires true or false");
+                if (canonical == "--stdio") stdioRequested = enabled;
+                if (canonical == "--verbose") verboseRequested = enabled;
+                if (enabled) optionValues.Add(canonical);
+                continue;
+            }
             if (equals >= 0 && arity != 1) throw new OptionsException($"{option} does not accept an equals value");
             var values = new List<string>();
             for (var n = 0; n < arity; n++)
@@ -161,13 +175,35 @@ public sealed record Options(
                 }
                 else values.Add(ReadValue(arguments, ref index, option));
             }
-            if (canonical == "--repo") SetRepository(values[0]);
+            if (canonical == "--stdio") stdioRequested = true;
+            if (canonical == "--verbose") verboseRequested = true;
+            if (canonical == "--reasoning-model") overriddenTiers.Add(values[0]);
+            if (canonical == "--config") configPath = CanonicalizePath(values[0]);
+            else if (canonical == "--repo") SetRepository(values[0]);
             else { optionValues.Add(canonical); optionValues.AddRange(values); }
         }
         if (help) return OptionsParseResult.Help with { HelpText = CliHelp.For(command) };
         if (run && positionals.Count != 0) throw new OptionsException($"{command} does not accept positional arguments");
         OptionsParseResult parsed;
-        if (run) parsed = ParseRun(optionValues, command == "preflight");
+        OptionsParseResult ParseConfigured(string path)
+        {
+            if (repositoryPath is not null) seen.Add("--repo");
+            var configured = RunConfiguration.Load(path).ResolveInheritance().Arguments(command, seen, overriddenTiers);
+            if (repositoryPath is not null) configured.AddRange(["--repo", repositoryPath]);
+            // No callback here: a selected/explicit config gets exactly one validation attempt.
+            return Parse([command, .. configured, .. optionValues]);
+        }
+        if (run && configPath is not null) return ParseConfigured(configPath);
+        if (run)
+        {
+            try { parsed = ParseRun(optionValues, command == "preflight"); }
+            catch (OptionsException ex) when (ex.Missing is not null && command == "run" && !stdioRequested && !verboseRequested && selectConfiguration is not null)
+            {
+                var selected = selectConfiguration(ex.Missing);
+                if (selected is null) throw new OptionsException("config selection cancelled; run was not started");
+                return ParseConfigured(selected);
+            }
+        }
         else
         {
             string? Value(string name)
@@ -177,6 +213,11 @@ public sealed record Options(
             }
             switch (command)
             {
+                case "config edit":
+                    if (positionals.Count > 1) throw new OptionsException("config edit accepts at most one input file");
+                    parsed = new(null, false, EditConfiguration: true,
+                        ConfigurationInput: positionals.SingleOrDefault(), ConfigurationOutput: Value("--output"));
+                    break;
                 case "new":
                     if (positionals.Count != 1 || !IsValidProjectName(positionals[0]))
                         throw new OptionsException("new requires a single nonempty project directory name, not a path");
@@ -242,14 +283,14 @@ public sealed record Options(
         }
     }
 
-    private static int OptionArity(string command, string option)
+    internal static int OptionArity(string command, string option)
     {
-        if (option == "--repo") return command is "new" or "models" or "version" ? -1 : 1;
+        if (option == "--repo") return command is "new" or "models" or "version" or "config edit" ? -1 : 1;
         if (command is "run" or "preflight")
             return option switch
             {
                 "--agent" or "--reasoning-model" => 2,
-                "--mode" or "--model" or "--effort" or "--tmux-session" or "--tmux-window" or "--tmux-layout"
+                "--config" or "--mode" or "--model" or "--effort" or "--tmux-session" or "--tmux-window" or "--tmux-layout"
                     or "--opencode-server" or "--target-filter" or "--append-prompt" or "--label" or "--exclude-label"
                     or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify" => 1,
                 "--remote-control" or "--notify-sound" or "--verbose" => 0,
@@ -260,7 +301,7 @@ public sealed record Options(
             };
         return (command, option) switch
         {
-            ("new", "--agents") or ("attention resolve", "--message") or ("targets set", "--start-commit") => 1,
+            ("config edit", "--output") or ("new", "--agents") or ("attention resolve", "--message") or ("targets set", "--start-commit") => 1,
             ("attention resolve", "--reopen") or ("targets set", "--adopt-existing-branch") => 0,
             _ => -1,
         };
@@ -427,7 +468,7 @@ public sealed record Options(
                 case "--agent":
                     var name = ReadValue(arguments, ref index, argument);
                     var workspace = ReadValue(arguments, ref index, argument);
-                    agents.Add(new AgentOptions(name, CanonicalizePath(workspace)));
+                    agents.Add(new AgentOptions(name, string.IsNullOrWhiteSpace(workspace) ? workspace : CanonicalizePath(workspace)));
                     break;
                 default:
                     throw new OptionsException($"unknown option '{argument}'");
@@ -444,11 +485,6 @@ public sealed record Options(
         if (agentMode is not AgentMode.OpenCodeServer && server is not null)
         {
             throw new OptionsException("--opencode-server can only be used with --mode opencode-server");
-        }
-
-        if (agentMode is AgentMode.OpenCodeServer && server is null)
-        {
-            throw new OptionsException("--mode opencode-server requires --opencode-server");
         }
 
         if (remote && agentMode is not AgentMode.Claude)
@@ -496,12 +532,7 @@ public sealed record Options(
             throw new OptionsException("--append-prompt cannot be empty");
         }
 
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            throw new OptionsException("--model is required");
-        }
-
-        if (!IsValidModel(model, agentMode))
+        if (!string.IsNullOrWhiteSpace(model) && !IsValidModel(model, agentMode))
         {
             throw new OptionsException(agentMode is AgentMode.OpenCode or AgentMode.OpenCodeServer
                 ? "--model must use OpenCode's provider/model format"
@@ -526,17 +557,8 @@ public sealed record Options(
             throw new OptionsException("--effort must be a nonempty variant name without whitespace or '#'");
         }
 
-        if (server is not null && string.IsNullOrWhiteSpace(server))
-        {
-            throw new OptionsException("--opencode-server cannot be empty");
-        }
-
-        if (agents.Count == 0)
-        {
-            throw new OptionsException("at least one -a <agent_name> <git_workspace_path> pair is required");
-        }
-
         var duplicateName = agents
+            .Where(static agent => !string.IsNullOrWhiteSpace(agent.Name))
             .GroupBy(static agent => agent.Name, StringComparer.Ordinal)
             .FirstOrDefault(static group => group.Count() > 1)?.Key;
         if (duplicateName is not null)
@@ -544,15 +566,11 @@ public sealed record Options(
             throw new OptionsException($"duplicate agent name '{duplicateName}'");
         }
 
-        if (agents.Any(static agent => string.IsNullOrWhiteSpace(agent.Name)))
-        {
-            throw new OptionsException("agent names cannot be empty");
-        }
-
         var pathComparer = OperatingSystem.IsMacOS()
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
         var duplicatePath = agents
+            .Where(static agent => !string.IsNullOrWhiteSpace(agent.WorkspacePath))
             .GroupBy(static agent => agent.WorkspacePath, pathComparer)
             .FirstOrDefault(static group => group.Count() > 1)?.Key;
         if (duplicatePath is not null)
@@ -560,13 +578,25 @@ public sealed record Options(
             throw new OptionsException($"duplicate workspace path '{duplicatePath}'");
         }
 
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(model)) missing.Add("--model <model> is required");
+        if (agents.Count == 0) missing.Add("at least one -a <agent_name> <git_workspace_path> pair is required");
+        for (var agentIndex = 0; agentIndex < agents.Count; agentIndex++)
+        {
+            if (string.IsNullOrWhiteSpace(agents[agentIndex].Name)) missing.Add($"agent {agentIndex + 1} requires a name");
+            if (string.IsNullOrWhiteSpace(agents[agentIndex].WorkspacePath)) missing.Add($"agent {agentIndex + 1} requires a workspace path");
+        }
+        if (agentMode is AgentMode.OpenCodeServer && string.IsNullOrWhiteSpace(server))
+            missing.Add("--mode opencode-server requires --opencode-server <host:port>");
+        if (missing.Count > 0) throw new OptionsException("Missing required run arguments:\n - " + string.Join("\n - ", missing)) { Missing = missing };
+
         var executionMode = once
             ? ExecutionMode.Once
             : drain ? ExecutionMode.Drain : ExecutionMode.Continuous;
         return new OptionsParseResult(
             new Options(
                 tmuxSession,
-                model,
+                model!,
                 server,
                 agents.AsReadOnly(),
                 verbose,
@@ -731,7 +761,10 @@ public sealed record OptionsParseResult(
     string? RepositoryPath = null,
     bool InitializeRepository = false,
     string? HelpText = null,
-    bool ShowVersion = false)
+    bool ShowVersion = false,
+    bool EditConfiguration = false,
+    string? ConfigurationInput = null,
+    string? ConfigurationOutput = null)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);
@@ -753,7 +786,10 @@ public sealed record OptionsParseResult(
             NewMultiAgentRepository: new NewMultiAgentRepositoryOptions(projectName, agentCount));
 }
 
-public sealed class OptionsException(string message) : Exception(message);
+public sealed class OptionsException(string message) : Exception(message)
+{
+    internal IReadOnlyList<string>? Missing { get; init; }
+}
 
 public sealed record TicketTargetCommand(bool Check, string? Target, IReadOnlyList<string> IssueIds, string? RepositoryPath,
     bool AdoptExistingBranch = false, string? StartCommit = null);

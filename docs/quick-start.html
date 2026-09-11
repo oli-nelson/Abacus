@@ -972,7 +972,7 @@ bd dolt show --json</code></pre>
 }</code></pre>
         </div>
         <p>Missing <code>metadata.abacus_target</code> uses the default when enforcement is off. Explicit targets override it; malformed or unconfigured targets fail in either mode. Enable enforcement to require explicit metadata. Configured target branches must already exist locally. Policies are loaded from the main checkout, never from an agent's changing checkout.</p>
-        <p>The controller must be the primary Git checkout, not a linked worktree (regardless of which branch is checked out). From elsewhere, including an agent worktree, pass <code>--repo "$REPO"</code>. The old Abacus <code>--config</code> selector is removed. Review and commit setup files before dispatch; <code>init</code> does not create branches or commits, or assign ticket metadata. See <a href="targets.md">target operations and migration</a>.</p>
+        <p>The controller must be the primary Git checkout, not a linked worktree (regardless of which branch is checked out). From elsewhere, including an agent worktree, pass <code>--repo "$REPO"</code>. <code>run --config</code> selects a saved run configuration, not a target registry. Review and commit setup files before dispatch; <code>init</code> does not create branches or commits, or assign ticket metadata. See <a href="targets.md">target operations and migration</a>.</p>
 
         <h3>Create ready work</h3>
         <div class="code-block">

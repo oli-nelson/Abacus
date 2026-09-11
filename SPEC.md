@@ -38,14 +38,18 @@ repository state. It then creates `<agent-count>` detached Git worktrees at
 `<project-name>/worktrees/0` through `worktrees/<agent-count-1>`.
 Beads initialization must be non-interactive and select the maintainer role.
 
-The project root also receives executable `run_abacus_opencode.sh`,
-`run_abacus_codex.sh`, and `run_abacus_claude.sh` launchers. Each launcher must
-discover the worktree directories at run time and pass one uniquely named agent
-per worktree to Abacus. Each launcher passes `--repo "$root/repo"` explicitly
-so invocation does not depend on the caller's working directory. Launchers accept
-default model and effort overrides plus optional high/medium/low reasoning-model
-environment overrides, and let `abacus run` resolve or create its default
-tmux target unless `ABACUS_TMUX_SESSION` supplies an explicit session.
+The project root receives `abacus_base.json` with the created named worktrees,
+repository path, shared effort default, `startPaused: true`, `notify: "all"`, and
+`notifySound: true`. `abacus_opencode.json`,
+`abacus_codex.json`, and `abacus_claude.json` contain version, baseConfig, mode,
+and model. Their baseConfig is `abacus_base.json`. Paths are relative to their
+config directory. Do not generate shell launcher scripts. From the project root,
+execute `abacus run` and select a harness config (not the incomplete shared base).
+For non-interactive use or invocation from elsewhere, pass
+`abacus run --config <path-to-harness-config>`. Edit the base once for all harnesses,
+edit individual harness/model configs, or pass CLI overrides. Worktrees are
+recorded at creation time; new worktrees must be added to the base config.
+Previously generated scripts are not modified or deleted.
 
 Before running Abacus:
 
@@ -114,10 +118,10 @@ Multiple agents must use the same shared Dolt database so task claims are atomic
 
 Operations are bare commands: `version`, `run`, `preflight`, `new`, `init`, `skills install`,
 `health`, `models`, `branches prune`, `attention list`, `attention resolve`,
-`targets check`, and `targets set`. Bare `abacus` prints help; there is no implicit
+`targets check`, `targets set`, and `config edit`. Bare `abacus` prints help; there is no implicit
 run or compatibility syntax. `abacus help <command>`, `<command> --help`, and
 `<command> -h` provide scoped help without operational prerequisites.
-`--repo` works before or after repository-scoped commands, not `new`, `models`, or `version`.
+`--repo` works before or after repository-scoped commands, not `new`, `models`, `version`, or `config edit`.
 Options are command-scoped, exact, and non-repeatable unless documented otherwise.
 `--agent <name> <workspace>` and `-a` are equivalent repeatable agent declarations.
 Single-value options accept `--option=value`; `--` ends option parsing before
@@ -125,6 +129,61 @@ positional subjects. Message and prompt values must be consumed contextually,
 never scanned for operation keywords or help flags. Attention messages require
 `--message <text>`; positional messages are rejected.
 
+
+### Saved run configurations
+
+`abacus config edit [file] [--output <file>]` opens a standalone terminal editor,
+without Git, Beads, model, or workspace prerequisites. Omit the input to create a
+new draft; an explicit input must exist. Support Save and Save As, confirm before
+replacing a different existing file, and warn before discarding unsaved changes.
+Incomplete and semantically invalid drafts can be saved, with visible warnings
+about missing/invalid settings. Malformed JSON, unknown fields, wrong field types,
+duplicate keys, and unsupported versions fail clearly instead of losing data.
+
+`abacus run --config <file>` and `abacus preflight --config <file>` load one
+version-1 JSON config. `--config` is not repeatable. Optional `baseConfig` names
+one base file relative to the declaring file (or an absolute path); bases may
+have their own bases, up to 64 files. Reject missing/malformed bases, cycles,
+and excessive depth. Apply deepest base first, then each derived config, then
+explicit CLI overrides. Omitted fields inherit; null clears an inherited value
+back to unset/default. Agent/filter arrays replace their entire list (including
+empty arrays); reasoning models merge per tier, with null clearing a tier or the
+whole mapping. A layer specifying once/drain replaces the previous execution
+choice; both true within one layer remain invalid. Validate each file's structure,
+but only the final composition must meet runtime requirements. Relative paths
+retain the directory of the file that supplied each value. The editor edits only
+the selected file, validates inherited values for warnings, and rebases its
+baseConfig reference on Save As without flattening inherited fields.
+Use the schema in [run configurations](docs/run-config.md).
+
+For `run` without `--config`, validate supplied CLI arguments first. If required
+values are missing (model, at least one named agent workspace, or server address
+for opencode-server), report all missing requirements and offer one config
+selection from the working directory. Discover only top-level JSON files matching
+the run-config schema, including incomplete drafts; sort by filename and require
+explicit selection even for one candidate. Never search parent directories or
+start tools/agents during selection. After selection, apply CLI overrides and
+validate once; if incomplete, report every remaining missing argument and exit
+nonzero, without offering another selection. No candidates, cancellation, bad
+selection, or an unusable config also exits without starting a run.
+
+**Only interactive runs may select.** Redirected stdin, stdout, or stderr,
+`--stdio`, `--verbose`, and `preflight` fail directly without discovery or prompts.
+Invalid CLI syntax/values/combinations fail directly too. Fully specified runs,
+explicit configs, and help never trigger discovery. Repository and installed-tool
+readiness remain normal preflight checks, not config-selection prerequisites.
+
+All run settings are supported. Explicit CLI scalars and boolean flags override
+saved values, CLI agent/filter lists replace their saved list, and reasoning model
+routes override per tier. Boolean CLI flags accept `=true` or `=false`. An explicit
+once/drain option replaces the configured execution choice; conflicting explicit
+options remain errors. Duplicate non-repeatable CLI options remain errors.
+Preflight ignores saved
+run-only output/lifecycle options, but rejects those options on its own CLI.
+Relative repository, workspace, and event-log paths resolve against the config
+directory; CLI paths still resolve against cwd. Save As rebases relative paths to
+preserve their destinations. Runtime validation and preflight remain mandatory;
+saving never starts agents. Help does not read a config file.
 
 Initialize a new multi-agent repository:
 
@@ -426,7 +485,7 @@ target audit/set, attention listing/resolution, and pruning) use the same rule.
 Help, model discovery, and new-repository creation need no existing repository;
 `--repo` is not supported with the latter two operations.
 
-`--config` is removed. Load `<repo>/.abacus/targets.json` once at startup; all
+`--config` selects a run config only, never a target registry. Load `<repo>/.abacus/targets.json` once at startup; all
 repository-scoped standalone Beads commands run at the selected root as well.
 Agent workspaces may still be linked worktrees. The version-1 schema requires a
 nonempty `targets` object keyed by allowed local branch names. Each target may
@@ -492,7 +551,7 @@ silently adopt legacy branches or overwrite an existing binding.
 `health [--repo <path>]` checks target configuration, instruction files, and
 local branches; invalid targets make readiness fail. It does not audit tickets.
 The new-repository initializer writes and commits a config with `main` allowed,
-and launchers explicitly select it. Planner and doctor must use
+and the shared run config explicitly selects its repository. Planner and doctor must use
 the metadata setter and checker. See [target operations](docs/targets.md) for the
 schema, repair, adoption, and upgrade procedures.
 

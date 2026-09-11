@@ -8,7 +8,10 @@ public static class Program
     {
         try
         {
-            var parsed = Options.Parse(args);
+            var interactive = !Console.IsInputRedirected && !Console.IsOutputRedirected && !Console.IsErrorRedirected;
+            var parsed = Options.Parse(args, interactive
+                ? missing => RunConfigurationSelection.Select(Environment.CurrentDirectory, missing, Console.In, Console.Error)
+                : null);
             if (parsed.ShowHelp)
             {
                 Console.Out.WriteLine(parsed.HelpText ?? Options.Usage);
@@ -21,6 +24,9 @@ public static class Program
                     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion);
                 return 0;
             }
+
+            if (parsed.EditConfiguration)
+                return RunConfigurationEditor.Run(parsed.ConfigurationInput, parsed.ConfigurationOutput);
 
             var workingDirectory = Environment.CurrentDirectory;
             if (parsed.Value is null && parsed.NewMultiAgentRepository is null
@@ -48,9 +54,12 @@ public static class Program
                 Console.Out.WriteLine($"Worktrees:      {result.WorktreesPath} (0-{result.AgentCount - 1})");
                 Console.Out.WriteLine($"Beads database: {result.BeadsDatabase}");
                 Console.Out.WriteLine(
-                    $"Launchers:      {string.Join(", ", result.LauncherPaths.Select(Path.GetFileName))}");
-                Console.Out.WriteLine(
-                    $"Create tmux session '{MultiAgentRepositoryInitializer.CreateIdentifier(repositoryOptions.ProjectName)}', then run a launcher from the project root.");
+                    $"Configs:        {string.Join(", ", result.ConfigurationPaths.Select(Path.GetFileName))}");
+                Console.Out.WriteLine($"Next: change directory to {result.ProjectRoot}, then execute abacus run and select a harness config (not the shared base).");
+                Console.Out.WriteLine("For non-interactive use, pass --config <path-to-harness-config> and --start-paused=false (or use stdio controls with notifications disabled).");
+                Console.Out.WriteLine("Edit shared settings with abacus config edit abacus_base.json.");
+                Console.Out.WriteLine("Generated runs start paused (Shift-Tab resumes claims), with all notifications and sound enabled.");
+                Console.Out.WriteLine("Abacus creates its default tmux session when needed.");
                 return 0;
             }
 

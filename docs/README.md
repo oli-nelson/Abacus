@@ -11,6 +11,7 @@ complete rather than reading every page in order.
 | [Getting started](getting-started.md) | Copyable setup paths for new and existing repositories |
 | [Shared-file tree demo](tree-demo.md) | Demonstrating parent-first tasks, human attention, and multiple agents editing one HTML file |
 | [Ticket targets](targets.md) | Configuring release tracks, auditing metadata, and recovering bound branches |
+| [Run configurations](run-config.md) | Editing saved settings, Save As, draft warnings, and CLI overrides |
 | [CLI reference](cli-reference.md) | Looking up commands, modes, and option behavior |
 | [Events and stdio control](events-and-stdio.md) | Recording JSONL activity and controlling Abacus from another agent |
 | [Operations guide](operations.md) | Running, observing, pausing, recovering, and stopping agents |
