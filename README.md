@@ -295,6 +295,7 @@ Explore the [visual agent-loop guide](docs/agent-loop-flow.html), or read the
 | `abacus targets check [<id> ...]` | Audit resolved ticket targets, bindings, and branch history. |
 | `abacus targets set <branch> <id> ...` | Set or repair inactive ticket target metadata. |
 | `abacus health` | Report whether the current repository is ready. |
+| `abacus info` | Print Git, Beads/Dolt, ticket, and routing details for the project. |
 | `abacus models` | List model IDs discoverable from installed harnesses. |
 | `abacus attention list` | Print issue IDs that need a decision or outside action. |
 | `abacus attention resolve <id> [--message <text>] [--reopen]` | Respond to and clear an attention request. |
@@ -306,7 +307,7 @@ Bare `abacus` prints help; use explicit commands. Old flag-based operations are
 not accepted. Run `abacus --help` for the built-in summary and see the
 [CLI reference](docs/cli-reference.md) for every mode and option.
 
-Interactive help, setup results, health/model/target reports, prompts, verbose
+Interactive help, setup results, health/info/model/target reports, prompts, verbose
 events, and run summaries use consistent semantic colors and sectioning. Redirected
 output stays plain, and `NO_COLOR=1` disables ANSI styling without flattening the
 layout. `abacus version` and `abacus attention list` remain intentionally minimal

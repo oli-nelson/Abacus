@@ -16,6 +16,7 @@ internal static class CliHelp
           init                 Initialize Abacus in an existing Git/Beads repository.
           skills install       Install bundled skills (confirm before replacement).
           health               Report read-only repository and tool readiness.
+          info                 Print a concise Git, Beads/Dolt, ticket, and config overview.
           version              Print the embedded build version and exit.
           models               List model IDs grouped by installed agent harness.
           branches prune       Delete local Abacus branches for closed tickets.
@@ -173,6 +174,13 @@ internal static class CliHelp
             Beads initialization, no-git-ops, Dolt storage, merge slot, harness/tmux versions, worktrees,
             bundled skills, and single-/multi-agent readiness. No model or agent options required.
             Use preflight to validate a specific run configuration.
+            """,
+        "info" => """
+            Usage: abacus info [--repo <path>]
+            Read-only project overview: repository root, branch, Git commit and worktrees;
+            Dolt storage, database, server, remote, and commit; ticket counts; and target/reasoning
+            policy. Missing project data is shown inline and makes the command exit one.
+            No harness, model, agent, or tmux options required.
             """,
         "version" => """
             Usage: abacus version

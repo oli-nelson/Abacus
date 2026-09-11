@@ -128,6 +128,14 @@ public static class Program
                 return health.IsHealthy ? 0 : 1;
             }
 
+            if (parsed.ShowInfo)
+            {
+                var info = await new ProjectInfoCollector(new CommandRunner(TextWriter.Null))
+                    .CollectAsync(workingDirectory, CancellationToken.None);
+                Console.Out.Write(info.Render(stdoutUi.ColorEnabled));
+                return info.IsComplete ? 0 : 1;
+            }
+
             if (parsed.ShowModels)
             {
                 var catalog = await new ModelCatalog(new CommandRunner(TextWriter.Null))

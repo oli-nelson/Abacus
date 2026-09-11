@@ -790,6 +790,23 @@ public sealed class OptionsTests
     }
 
     [Fact]
+    public void InfoDoesNotRequireAgentOptions()
+    {
+        var result = Options.Parse(["info", "--repo", "/tmp/project"]);
+
+        Assert.True(result.ShowInfo);
+        Assert.False(result.ShowHelp);
+        Assert.Equal("/tmp/project", result.RepositoryPath);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public void InfoCannotBeCombinedWithAgentOptions()
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse(["info", "--verbose"]));
+    }
+
+    [Fact]
     public void ModelsDoesNotRequireAgentOptions()
     {
         var result = Options.Parse(["models"]);

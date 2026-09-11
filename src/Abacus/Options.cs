@@ -261,6 +261,7 @@ public sealed record Options(
                         "init" => new(null, false, InitializeRepository: true),
                         "skills install" => OptionsParseResult.InstallSkillsOnly,
                         "health" => OptionsParseResult.Health,
+                        "info" => OptionsParseResult.Info,
                         "models" => OptionsParseResult.Models,
                         "version" => new(null, false, ShowVersion: true),
                         "branches prune" => OptionsParseResult.PruneClosedBranchesOnly,
@@ -755,6 +756,7 @@ public sealed record OptionsParseResult(
     bool ShowHelp,
     bool InstallSkills = false,
     bool ShowHealth = false,
+    bool ShowInfo = false,
     bool ShowModels = false,
     bool PruneClosedBranches = false,
     bool ListUserAttention = false,
@@ -772,6 +774,7 @@ public sealed record OptionsParseResult(
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);
     public static OptionsParseResult Health { get; } = new(null, ShowHelp: false, ShowHealth: true);
+    public static OptionsParseResult Info { get; } = new(null, ShowHelp: false, ShowInfo: true);
     public static OptionsParseResult Models { get; } = new(null, ShowHelp: false, ShowModels: true);
     public static OptionsParseResult PruneClosedBranchesOnly { get; } =
         new(null, ShowHelp: false, PruneClosedBranches: true);

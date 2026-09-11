@@ -172,6 +172,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   abacus targets check [<id> ...] [--repo <main-checkout>]
   abacus targets set <branch> <id> [<id> ...] [--repo <main-checkout>]
   abacus health [--repo <main-checkout>]
+  abacus info [--repo <main-checkout>]
   abacus models
   abacus branches prune [--repo <main-checkout>]
   abacus attention list [--repo <main-checkout>]
@@ -230,6 +231,10 @@ Before building the loop, capture the exact behavior of the locally supported co
   not fail—when no merge slot exists because the repository may provide another
   serialized merge process. Do not search the filesystem for separate clones or
   contact an OpenCode server.
+- Add a standalone, read-only `info` overview that reports concise Git state and
+  worktrees, Beads/Dolt identity and current commit, ticket/attention counts,
+  and target/reasoning policy without probing harnesses or tmux. Preserve useful
+  partial output when required project data is unavailable and exit nonzero.
 - Add a standalone, read-only `models` report. Discover OpenCode IDs with
   `opencode models` and visible Codex IDs with `codex debug models`, group the
   results by harness, and isolate missing-tool or command failures. Report that
@@ -438,6 +443,8 @@ All checks happen before any ticket is claimed or agent run is created.
 - `abacus health` reports project readiness without mutating it and fails when
   `no-git-ops` is enabled, no single-agent mode is runnable, or a bundled skill
   is missing, or main-repository/target configuration validation fails.
+- `abacus info` reports concise Git, Dolt, ticket, and routing facts without
+  mutating the project or probing agent harnesses.
 - `abacus models` reports discoverable model IDs by harness without requiring
   Beads, Git, tmux, a model, or an agent configuration.
 - `abacus branches prune` removes local Abacus issue branches for

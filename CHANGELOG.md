@@ -6,6 +6,11 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+### Added
+
+- Add `abacus info` for a concise read-only overview of Git state and worktrees,
+  Beads/Dolt identity and commits, ticket counts, and project routing policy.
+
 ## [0.2.0] - 2026-09-11
 
 ### Added

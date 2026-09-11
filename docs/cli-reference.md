@@ -138,6 +138,23 @@ target configuration checks pass. It does not audit individual tickets; use
 `targets check` for that. A missing merge slot
 is advisory. The check is read-only and does not contact an OpenCode server.
 
+### Show project information
+
+```sh
+abacus info
+abacus info --repo /work/main-checkout
+```
+
+Prints a concise read-only overview of the selected project: repository path,
+branch, Git commit, dirty state, origin and referenced worktrees; Dolt storage,
+database/server identity, connectivity, remote presence and current commit;
+ticket totals by status and attention count; plus target and reasoning-label
+policy. Internal merge-slot records are excluded from ticket totals.
+
+Unlike `health`, `info` does not probe tool versions, agent harnesses, tmux,
+skills, or run readiness. Missing data is shown inline so the remaining project
+details stay visible; missing required project data makes the command exit one.
+
 ### Audit and repair ticket targets
 
 ```sh

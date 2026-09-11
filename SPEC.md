@@ -10,6 +10,7 @@
 - [Setup](#setup)
 - [Usage and command behavior](#usage)
 - [Repository health](#repository-health)
+- [Project information](#project-information)
 - [Ticket targets](#ticket-targets)
 - [Agent workflow](#agent-workflow)
 - [Exact agent prompt](#agent-prompt-template)
@@ -117,7 +118,7 @@ Multiple agents must use the same shared Dolt database so task claims are atomic
 ## Usage
 
 Operations are bare commands: `version`, `run`, `preflight`, `new`, `init`, `skills install`,
-`health`, `models`, `branches prune`, `attention list`, `attention resolve`,
+`health`, `info`, `models`, `branches prune`, `attention list`, `attention resolve`,
 `targets check`, `targets set`, and `config edit`. Bare `abacus` prints help; there is no implicit
 run or compatibility syntax. `abacus help <command>`, `<command> --help`, and
 `<command> -h` provide scoped help without operational prerequisites.
@@ -207,6 +208,13 @@ Inspect whether the current repository is ready for Abacus:
 
 ```sh
 abacus health
+```
+
+Print a concise overview of the current project's Git state, worktrees,
+Beads/Dolt database, tickets, and routing configuration:
+
+```sh
+abacus info
 ```
 
 List model IDs exposed by the installed agent harnesses:
@@ -467,6 +475,18 @@ color-coded: green for pass/ready, yellow for warnings, red for failures/not
 ready, and cyan for informational results. Redirected output and dumb terminals
 remain plain text, and `NO_COLOR` disables color explicitly.
 
+### Project information
+
+`info` is a standalone, read-only overview for the selected main Git repository.
+It reports the project name and root, current branch and commit, dirty state,
+origin URL, referenced worktrees, Dolt storage mode, database and server identity,
+connectivity, remote presence, current Dolt commit, ticket counts by status,
+attention count, target allowlist/default/enforcement, and reasoning-label policy.
+Internal merge-slot records are excluded from ticket counts. Optional Git origin
+and reasoning configuration may be absent; missing or invalid required project
+data is reported inline and makes the command exit one. It does not probe agent
+harnesses or tmux, mutate Git or Beads, or run agent preflight.
+
 ## Ticket targets
 
 `enforceTargetBranch` is an optional config boolean defaulting to false.
@@ -486,7 +506,8 @@ out `main`; `--repo` must select the primary checkout, not a branch name. Never
 silently promote a linked worktree to its main repo or infer the controller from
 agent `-a` paths. Only an explicit `--repo` permits invocation outside the selected
 repo. Repository-scoped standalone operations (init, skill installation, health,
-target audit/set, attention listing/resolution, and pruning) use the same rule.
+project information, target audit/set, attention listing/resolution, and pruning)
+use the same rule.
 Help, model discovery, and new-repository creation need no existing repository;
 `--repo` is not supported with the latter two operations.
 
