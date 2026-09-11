@@ -6,6 +6,8 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-11
+
 ### Added
 
 - Parallel Beads task orchestration with actor-scoped atomic claims, isolated Git
