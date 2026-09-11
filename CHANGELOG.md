@@ -8,6 +8,10 @@ Unreleased section. Released versions are listed newest first.
 
 ### Added
 
+- Add a bundled welcome-and-jingle mix to the interactive startup animation,
+  with `--no-tui-sound` and run-config controls. Non-interactive flows remain
+  silent; skipped or cancelled intros stop playback immediately, while naturally
+  completed animations let the quieter jingle finish in the background.
 - Add consistent semantic colors and clearer report structure to help, setup and
   maintenance commands, model and target reports, the run-config picker/editor,
   verbose events, errors, confirmation prompts, and run summaries. Redirected and
