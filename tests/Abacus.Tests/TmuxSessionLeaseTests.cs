@@ -51,22 +51,24 @@ public sealed class TmuxSessionLeaseTests
             static call => call.StartsWith("kill-session", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task ExistingImplicitSessionIsNotOwnedAndGetsMissingDefaultWindow()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("abacus")]
+    public async Task ExistingSessionIsNotOwnedAndGetsMissingDefaultWindow(string? sessionName)
     {
         if (OperatingSystem.IsWindows()) return;
         using var fixture = await TmuxLeaseFixture.CreateAsync(
             sessionExists: true,
-            windows: ["@4\t0\tshell"]);
+            windows: [$"@4\t0\t{sessionName ?? "shell"}"]);
 
-        var lease = await fixture.CreateLeaseAsync(PaneOptions());
+        var lease = await fixture.CreateLeaseAsync(PaneOptions() with { TmuxSession = sessionName });
 
         Assert.False(lease.OwnsSession);
         Assert.Equal("@2", lease.WindowId);
         Assert.Contains(
             await fixture.CallsAsync(),
             call => call.Contains(
-                $"new-window -d -P -F #{{window_id}} -t {lease.SessionName} -n {TmuxSessionLease.DefaultWindowName}",
+                $"new-window -d -P -F #{{window_id}} -t {lease.SessionName}: -n {TmuxSessionLease.DefaultWindowName}",
                 StringComparison.Ordinal));
         Assert.Contains("set-option -w -t @2 remain-on-exit on", await fixture.CallsAsync());
 
@@ -182,6 +184,10 @@ public sealed class TmuxSessionLeaseTests
                     ;;
                   new-window)
                     test -f '{{session}}' || exit 1
+                    case "$7" in
+                      *:) ;;
+                      *) printf 'create window failed: index 0 in use\n' >&2; exit 1 ;;
+                    esac
                     printf '@2\t1\t%s\n' "$9" >> '{{windowState}}'
                     printf '@2\n'
                     ;;

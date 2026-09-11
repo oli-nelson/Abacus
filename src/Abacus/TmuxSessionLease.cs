@@ -270,7 +270,8 @@ public sealed class TmuxSessionLease : IAsyncDisposable
             workingDirectory,
             [
                 "new-window", "-d", "-P", "-F", "#{window_id}",
-                "-t", sessionName,
+                // An empty window component requests a free index, not an existing window.
+                "-t", $"{sessionName}:",
                 "-n", requestedWindow,
             ],
             cancellationToken);
