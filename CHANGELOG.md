@@ -8,9 +8,111 @@ Unreleased section. Released versions are listed newest first.
 
 ### Added
 
+- Parallel Beads task orchestration with actor-scoped atomic claims, isolated Git
+  workspaces, dedicated `abacus/<issue-id>` branches, and ticket lifecycle
+  supervision. Shared Dolt validation prevents unsafe multi-agent configurations.
+- Interactive OpenCode, Codex, and Claude Code agents, plus OpenCode Server
+  attachment with either tmux panes or directly supervised processes.
+- Explicit model selection and provider-specific effort controls, Claude Code
+  Remote Control, and `abacus models` for discovering installed harness catalogs.
+- Ticket-based model routing through high, medium, and low reasoning labels,
+  with configurable model mappings, optional enforcement, and attention reports
+  for invalid label combinations.
+- Continuous runs, finite `--once` and `--drain` modes, and a standalone
+  `preflight` command that checks readiness without claiming work.
+- Dispatch filters for labels, excluded labels, issue types, priorities, and
+  target branches, plus configurable ticket timeouts with safe recovery.
+- `abacus new` to create a shared Beads project, detached agent worktrees,
+  bundled skills, and launchers for OpenCode, Codex, and Claude Code.
+- Non-destructive `abacus init` for existing repositories and explicit `--repo`
+  selection of the main checkout, independent of agent workspace locations.
+- Bundled Beads planning, issue-quality, user-attention, and Git-instruction
+  audit skills, with `skills install` and confirmation before replacement.
+- Color-coded `abacus health` diagnostics for tools, Beads/Dolt storage,
+  workspaces, configuration, bundled skills, and merge-slot availability.
+- Configurable ticket target branches with an allowlist, default routing,
+  optional enforcement, durable execution bindings, and `targets check` /
+  `targets set` commands for auditing, repair, and explicit branch adoption.
+- A live terminal dashboard showing agent states, ticket details, elapsed time,
+  checkout branches, dirty workspaces, selected models, effort, and run outcomes.
+- A recent-comment feed with attention and author highlighting, wrapped message
+  previews, and a full-text detail view with keyboard scrolling.
+- Global pause/resume of new claims, `--start-paused`, and per-agent stop,
+  restart, and explicitly confirmed workspace-cleanup controls.
+- Persistent user-attention alerts and `attention list` / `attention resolve`
+  commands, including optional response comments and reopening/unassigning work.
+- Best-effort native macOS/Linux desktop notifications for attention, ticket
+  outcomes, and run summaries, with distinct success/failure sounds and an
+  optional terminal-bell fallback.
+- Structured JSONL events, append-only event logs, and correlated stdio controls
+  for observing and operating Abacus without an interactive terminal.
+- Configurable tmux session/window targets and pane layouts, stable agent/ticket
+  pane titles, automatic session creation, and reuse of managed dead panes.
+- Agent prompt extensions through `--append-prompt` and workspace files, plus
+  repository-wide and target-specific merge-instruction overrides. Default
+  merge guidance supports optional Beads merge-slot coordination.
+- `branches prune` for closed-ticket local branches and initial Dolt commit
+  reporting in run summaries to support operator-led recovery.
+- A skippable terminal intro, verbose subprocess diagnostics, and compact
+  redirected output for non-interactive runs.
 - Versioned GitHub releases for Linux and macOS on x64 and ARM64, including
   self-contained binaries, SHA-256 checksums, and native version smoke tests.
 - `abacus version` reports the embedded release version without requiring a
   repository or external tools; source builds report `0.0.0-dev`.
 - A one-command release helper that commits the changelog rollover and atomically
   pushes the release branch and version tag.
+
+### Changed
+
+- **Breaking:** replaced legacy operation flags and implicit-run syntax with
+  explicit commands and grouped subcommands. Added command-scoped help, strict
+  option validation, `--option=value`, and `--` positional-argument handling;
+  OpenCode Server mode must now be selected explicitly.
+- Removed automatic resetting of dirty agent workspaces. Interrupted work is
+  preserved and resumed only when its exact ticket and ownership are safe;
+  destructive cleanup requires explicit operator confirmation.
+- Use OpenCode's full interactive TUI instead of its earlier Mini interface.
+  Keep the model ID unchanged and use OpenCode's configured/session effort when
+  the TUI does not expose variant selection.
+- Prefer the most recently commented ticket among equally high-priority ready
+  candidates, while preserving Beads priority ordering. Skip merge-slot records
+  and tickets with unfinished direct children.
+- Default tmux windows to tiled layout and preserve user-owned sessions; allow
+  automatically created sessions to survive shutdown with
+  `--disown-tmux-session`.
+- Make the dashboard more compact, add `j`/`k` navigation, and keep comment text
+  uncolored while reserving attention/author colors for headers.
+- Clarify agent authority to stage, commit, and merge locally without granting
+  Git push authority; require completion summaries before final ticket updates.
+
+### Fixed
+
+- Reserve interrupted tickets before clean agents enter the ready queue, so
+  another agent cannot take work belonging to a recoverable dirty workspace.
+- Skip issue branches checked out in another worktree without repeatedly
+  claiming and reopening their tickets; keep reopened work eligible in its
+  owning workspace.
+- Retry atomic claim contention and Dolt serialization conflicts without
+  allowing duplicate ownership or hiding ordinary command failures.
+- Preserve terminal ticket outcomes during exit, timeout, and shutdown races;
+  reopen and unassign recoverable interrupted work instead of marking it done.
+- Bound subprocess and host cleanup, tolerate tmux pane races, and stop unsafe
+  recovery with persistent attention when ticket updates or Dolt synchronization
+  cannot be verified.
+- Reject Beads `no-git-ops` during health checks and preflight before any claims.
+  Validate target bindings, branch history, and workspace ownership before
+  changing Git state or launching agents.
+- Preserve attention labels when response comments fail, record supplied
+  messages verbatim, and avoid treating attention resolution as permission to
+  close a ticket.
+
+### Documentation
+
+- Add focused setup, CLI, operations, architecture, target-routing, release,
+  and shared-Dolt guides, including guarded backup and rollback procedures.
+- Add visual quick-start and terminal demos, a dashboard screenshot, parallel
+  worktree demo launchers, and an OpenCode Web demo runner.
+- Add a parent-first shared-file tree demo with progressive task unlocking,
+  agent attribution, and a human-attention checkpoint.
+- Document external CLI contracts, supported tool versions, smoke-test
+  evidence, and agent guidance for maintaining noteworthy Unreleased entries.
