@@ -6,6 +6,8 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-11
+
 ### Added
 
 - Add a bundled welcome-and-jingle mix to the interactive startup animation,
