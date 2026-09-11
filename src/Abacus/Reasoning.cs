@@ -2,7 +2,10 @@ using System.Text.Json;
 
 namespace Abacus;
 
-public sealed record ModelResolution(string Model, string? Label, bool UsedDefault);
+public sealed record ModelResolution(string Model, string Effort, string? Label, bool UsedDefaultModel, bool UsedDefaultEffort)
+{
+    public bool UsedDefault => UsedDefaultModel;
+}
 
 /// <summary>Project-owned policy for routing reasoning-labelled tickets to run-local models.</summary>
 public sealed class ReasoningPolicy(bool enforceLabels = false)
@@ -67,7 +70,9 @@ public sealed class ReasoningPolicy(bool enforceLabels = false)
     public ModelResolution ResolveModel(
         BeadsIssue issue,
         IReadOnlyDictionary<string, string> mappings,
-        string defaultModel)
+        string defaultModel,
+        IReadOnlyDictionary<string, string>? effortMappings = null,
+        string defaultEffort = "high")
     {
         var present = (issue.Labels ?? [])
             .Where(Labels.Contains)
@@ -81,15 +86,20 @@ public sealed class ReasoningPolicy(bool enforceLabels = false)
             if (EnforceLabels)
                 throw new ReasoningLabelException(
                     $"ticket requires exactly one reasoning label: {string.Join(", ", Labels)}");
-            return new ModelResolution(defaultModel, Label: null, UsedDefault: true);
+            return new ModelResolution(defaultModel, defaultEffort, Label: null,
+                UsedDefaultModel: true, UsedDefaultEffort: true);
         }
 
         var label = present[0];
-        return mappings.TryGetValue(label, out var model)
-            ? new ModelResolution(model, label, UsedDefault: false)
-            : EnforceLabels
-                ? throw new ReasoningPolicyException($"no model mapping is configured for {label}")
-                : new ModelResolution(defaultModel, label, UsedDefault: true);
+        var usedDefaultModel = !mappings.TryGetValue(label, out var model);
+        if (usedDefaultModel && EnforceLabels)
+            throw new ReasoningPolicyException($"no model mapping is configured for {label}");
+        var mappedEffort = effortMappings is not null && effortMappings.TryGetValue(label, out var configuredEffort)
+            ? configuredEffort
+            : null;
+        var usedDefaultEffort = mappedEffort is null;
+        return new ModelResolution(model ?? defaultModel, mappedEffort ?? defaultEffort, label,
+            usedDefaultModel, usedDefaultEffort);
     }
 
     public static string LabelForTier(string tier) => tier switch

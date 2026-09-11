@@ -81,7 +81,7 @@ opencode run 'Reply with exactly ATTACHED.' \
 
 The server log recorded a newly-created session with the requested directory and `providerID=opencode modelID=big-pickle`. The client exited 0. This proves Abacus can create attached client sessions entirely through the CLI; no HTTP integration is needed. The `--format json` flag was used only to make this contract check observable and is not required by Abacus.
 
-The [OpenCode model documentation](https://opencode.ai/v2/docs/models) defines variants as provider-specific overlays used for settings such as reasoning effort. OpenCode 1.18.20's TUI entry point has no `--variant` flag, and its model parser treats a `#variant` suffix as part of the model ID rather than as variant metadata. This [upstream OpenCode issue](https://github.com/anomalyco/opencode/issues/7354) tracks the missing top-level variant option. Abacus therefore passes the interactive model ID unchanged; OpenCode uses its configured or session-selected variant. The `run` command accepts `--variant <effort>` directly, including attached-server runs, so OpenCode Server mode applies the requested effort normally. Variant availability remains model-specific.
+The [OpenCode model documentation](https://opencode.ai/v2/docs/models) defines variants as provider-specific overlays used for settings such as reasoning effort. OpenCode 1.18.20's TUI entry point has no `--variant` flag, and its model parser treats a `#variant` suffix as part of the model ID rather than as variant metadata. This [upstream OpenCode issue](https://github.com/anomalyco/opencode/issues/7354) tracks the missing top-level variant option. Abacus therefore parses and strips its own `#effort` suffix before passing the interactive model ID; OpenCode uses its configured or session-selected variant. The `run` command accepts `--variant <effort>` directly, including attached-server runs, so OpenCode Server mode applies the requested effort normally. Variant availability remains model-specific.
 
 ## Codex CLI 0.151.0
 
@@ -96,8 +96,9 @@ codex --cd <workspace> \
 ```
 
 The `<model>` value is resolved per claimed ticket: a configured
-`--reasoning-model` route may replace the run's default `--model`. This does not
-change the command shape or the independently configured `<effort>` value.
+`--reasoning-model` route may replace the run's default `--model`. Abacus parses
+an optional `#effort` suffix from either input and passes the resolved model and
+effort using this unchanged native command shape.
 
 There is deliberately no `exec` subcommand. The [Codex configuration reference](https://developers.openai.com/codex/config-reference) defines `model_reasoning_effort`; Abacus supplies it through the CLI's per-invocation `--config` override. The installed version's `--approve-for-me` flag routes approval requests through automatic review using the workspace-write sandbox, allowing aligned Git, Beads/Dolt, and network operations without waiting for a human. This flag is part of Abacus's Codex 0.151.0 minimum contract; it was confirmed from the installed CLI help, while the upstream reference documents the corresponding automatic-review workflow and `/approve` retry command.
 

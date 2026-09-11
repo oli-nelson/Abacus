@@ -52,6 +52,39 @@ public sealed class ReasoningPolicyTests
             new Dictionary<string, string> { [ReasoningPolicy.MediumLabel] = "medium-model" },
             "default-model");
         Assert.Equal("medium-model", resolution.Model);
+        Assert.Equal("high", resolution.Effort);
         Assert.False(resolution.UsedDefault);
+    }
+
+    [Fact]
+    public void ReasoningLabelResolvesModelAndEffortIndependently()
+    {
+        var issue = new BeadsIssue("abc-2", IssueStatus.Open, Labels: [ReasoningPolicy.LowLabel]);
+        var resolution = new ReasoningPolicy().ResolveModel(
+            issue,
+            new Dictionary<string, string> { [ReasoningPolicy.LowLabel] = "small-model" },
+            "default-model",
+            new Dictionary<string, string> { [ReasoningPolicy.LowLabel] = "low" },
+            "xhigh");
+
+        Assert.Equal("small-model", resolution.Model);
+        Assert.Equal("low", resolution.Effort);
+        Assert.False(resolution.UsedDefaultModel);
+        Assert.False(resolution.UsedDefaultEffort);
+    }
+
+    [Fact]
+    public void MissingReasoningEffortFallsBackToGlobalEffort()
+    {
+        var issue = new BeadsIssue("abc-3", IssueStatus.Open, Labels: [ReasoningPolicy.HighLabel]);
+        var resolution = new ReasoningPolicy().ResolveModel(
+            issue,
+            new Dictionary<string, string> { [ReasoningPolicy.HighLabel] = "large-model" },
+            "default-model",
+            effortMappings: null,
+            defaultEffort: "max");
+
+        Assert.Equal("max", resolution.Effort);
+        Assert.True(resolution.UsedDefaultEffort);
     }
 }

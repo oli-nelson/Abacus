@@ -463,6 +463,21 @@ public sealed class TargetRoutingTests
     }
 
     [Fact]
+    public async Task ReasoningRoutingCarriesPerTierEffortIntoPreparedClaim()
+    {
+        using var f = await RoutingFixture.CreateAsync();
+        await f.AddIssueAsync("abc-1", "main", labels: [ReasoningPolicy.LowLabel]);
+        var claim = await f.ClaimAsync(
+            reasoning: new ReasoningPolicy(),
+            mappings: new Dictionary<string, string> { [ReasoningPolicy.LowLabel] = "low-model" },
+            effortMappings: new Dictionary<string, string> { [ReasoningPolicy.LowLabel] = "low" },
+            defaultEffort: "xhigh");
+
+        Assert.Equal("low-model", claim!.Model);
+        Assert.Equal("low", claim.Effort);
+    }
+
+    [Fact]
     public async Task EnforcedReasoningLabelIsRequired()
     {
         using var f = await RoutingFixture.CreateAsync();
@@ -591,7 +606,9 @@ public sealed class TargetRoutingTests
             ExecutionMode mode = ExecutionMode.Once,
             ReasoningPolicy? reasoning = null,
             IReadOnlyDictionary<string, string>? mappings = null,
-            string defaultModel = "default-model")
+            string defaultModel = "default-model",
+            IReadOnlyDictionary<string, string>? effortMappings = null,
+            string defaultEffort = "high")
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             return await new ClaimCoordinator(
@@ -600,7 +617,9 @@ public sealed class TargetRoutingTests
                     new TicketRecovery(Beads, TextWriter.Null),
                     TextWriter.Null,
                     reasoningModels: mappings,
-                    defaultModel: defaultModel)
+                    defaultModel: defaultModel,
+                    reasoningEfforts: effortMappings,
+                    defaultEffort: defaultEffort)
                 .WaitForPreparedClaimAsync(Agent(filters, reasoning), true, mode, timeout.Token);
         }
         public async Task<string> RunGitAsync(params string[] args)

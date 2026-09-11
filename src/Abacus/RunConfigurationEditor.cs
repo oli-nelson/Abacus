@@ -132,14 +132,14 @@ internal static class RunConfigurationEditor
         if (field.Kind == "agents") { EditAgents(config, ui); return; }
         if (field.Kind == "models")
         {
-            var models = (JsonObject?)config.Document[field.Name]?.DeepClone() ?? new JsonObject();
+            var routes = (JsonObject?)config.Document[field.Name]?.DeepClone() ?? new JsonObject();
             foreach (var tier in new[] { "high", "medium", "low" })
             {
-                var text = Ask($"{tier} model [{models[tier]}] (blank keeps, - clears)", ui);
-                if (text == "-") models.Remove(tier);
-                else if (text.Length > 0) models[tier] = text;
+                var text = Ask($"{tier} model#effort [{routes[tier]}] (blank keeps, - clears)", ui);
+                if (text == "-") routes.Remove(tier);
+                else if (text.Length > 0) routes[tier] = text;
             }
-            config.Document[field.Name] = models;
+            config.Document[field.Name] = routes;
             return;
         }
         Line(field.Hint, ui, TerminalUi.Blue);

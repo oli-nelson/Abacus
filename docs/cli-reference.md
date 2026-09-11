@@ -225,9 +225,8 @@ abacus run [--mode <opencode|codex|claude|opencode-server>] \
   [--tmux-session <name>] \
   [--tmux-window <name-or-index>] \
   [--tmux-layout <layout>] [--disown-tmux-session] \
-  --model <model> \
-  [--reasoning-model <high|medium|low> <model>] \
-  [--effort <effort>] \
+  --model <model[#effort]> \
+  [--reasoning-model <high|medium|low> <model[#effort]>] \
   [--remote-control] \
   [--append-prompt <prompt>] \
   [--label <label>] [--exclude-label <label>] \
@@ -260,9 +259,8 @@ claims, workspace changes, hosted agents, cleanup, or a run summary. It rejects
 | --- | --- | --- |
 | `--agent <name> <workspace>`, `-a <name> <workspace>` | — | Adds an agent and its dedicated Git workspace. Repeat for a pool. |
 | `--mode <mode>` | `opencode` | Selects one of the four supported modes. |
-| `--model <model>` | — | Required fallback model; used when no mapped reasoning route applies. |
-| `--reasoning-model <tier> <model>` | — | Repeatable mapping for `high`, `medium`, and `low`. |
-| `--effort <effort>` | `high` | Nonempty provider-specific value without whitespace. |
+| `--model <model[#effort]>` | — | Required fallback model and optional effort; effort defaults to `high`. |
+| `--reasoning-model <tier> <model[#effort]>` | — | Repeatable mapping for `high`, `medium`, and `low`; an omitted suffix inherits the fallback model's effort. |
 | `--remote-control` | off | Enables Claude Remote Control; rejected in every other mode. |
 
 OpenCode modes require `provider/model`. Codex and Claude accept their native
@@ -289,7 +287,9 @@ claimed tickets require exactly one label. Multiple reasoning labels are always
 invalid. Abacus atomically claims and re-reads such a ticket before setting it
 to `blocked`, clearing its assignee, adding `abacus:needs-user-attention`, and
 recording repair instructions. The selected model is fixed for that agent
-session. `--effort` remains global and is not derived from the label.
+session. Append `#<effort>` to either model value to select its provider-specific
+effort. The fallback model defaults to `high`; a reasoning model without a suffix
+inherits the fallback model's resolved effort.
 
 ### Hosting
 

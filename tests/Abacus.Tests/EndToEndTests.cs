@@ -58,15 +58,17 @@ public sealed partial class EndToEndTests
             var startInfo = DirectStartInfo(root.FullName, bin, workspace, "--once");
             startInfo.ArgumentList.Add("--reasoning-model");
             startInfo.ArgumentList.Add("high");
-            startInfo.ArgumentList.Add("provider/mapped-model");
+            startInfo.ArgumentList.Add("provider/mapped-model#low");
             startInfo.Environment["ABACUS_TEST_REASONING_LABEL"] = ReasoningPolicy.HighLabel;
             using var process = Process.Start(startInfo)!;
             var stderr = process.StandardError.ReadToEndAsync();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             await process.WaitForExitAsync(timeout.Token);
             Assert.Equal(0, process.ExitCode);
-            Assert.Contains("provider/mapped-model",
-                await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
+            var arguments = await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments"));
+            Assert.Contains("provider/mapped-model", arguments);
+            Assert.Contains("--variant", arguments);
+            Assert.Contains("low", arguments);
             Assert.Contains("closed 1", await stderr, StringComparison.Ordinal);
         }
         finally
@@ -415,8 +417,7 @@ public sealed partial class EndToEndTests
                 typeof(Program).Assembly.Location, "run",
                 "--mode", mode,
                 "--tmux-session", "workers",
-                "--model", model,
-                "--effort", "xhigh",
+                "--model", model + "#xhigh",
                 "--once",
                 "-a", "alice", workspace,
             };

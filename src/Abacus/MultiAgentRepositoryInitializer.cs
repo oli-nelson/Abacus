@@ -145,7 +145,6 @@ public sealed partial class MultiAgentRepositoryInitializer(
 
         var baseConfiguration = RunConfiguration.Create(projectRoot);
         baseConfiguration.Document["repo"] = "repo";
-        baseConfiguration.Document["effort"] = "high";
         baseConfiguration.Document["startPaused"] = true;
         baseConfiguration.Document["notify"] = "all";
         baseConfiguration.Document["notifySound"] = true;
@@ -166,10 +165,17 @@ public sealed partial class MultiAgentRepositoryInitializer(
             ("claude", "opus"),
         })
         {
+            var defaultModelSpec = $"{defaultModel}#high";
             var configuration = RunConfiguration.Create(projectRoot);
             configuration.Document["baseConfig"] = "abacus_base.json";
             configuration.Document["mode"] = mode;
-            configuration.Document["model"] = defaultModel;
+            configuration.Document["model"] = defaultModelSpec;
+            configuration.Document["reasoningModels"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["high"] = defaultModelSpec,
+                ["medium"] = defaultModelSpec,
+                ["low"] = defaultModelSpec,
+            };
             var configurationPath = Path.Combine(projectRoot, $"abacus_{mode}.json");
             configuration.Save(configurationPath, overwrite: false);
             configurationPaths.Add(configurationPath);

@@ -104,20 +104,29 @@ public sealed class MultiAgentRepositoryInitializerTests
             var basePath = Path.Combine(result.ProjectRoot, "abacus_base.json");
             var baseConfig = RunConfiguration.Load(basePath).Document;
             Assert.Equal(4, Directory.GetFiles(result.ProjectRoot, "abacus_*.json").Length);
-            Assert.Equal(new[] { "agents", "effort", "notify", "notifySound", "repo", "startPaused", "tuiAudio", "version" }, baseConfig.Select(p => p.Key).Order());
+            Assert.Equal(new[] { "agents", "notify", "notifySound", "repo", "startPaused", "tuiAudio", "version" }, baseConfig.Select(p => p.Key).Order());
             Assert.Equal("repo", baseConfig["repo"]!.GetValue<string>());
-            Assert.Equal("high", baseConfig["effort"]!.GetValue<string>());
             Assert.True(baseConfig["startPaused"]!.GetValue<bool>());
             Assert.Equal("all", baseConfig["notify"]!.GetValue<string>());
             Assert.True(baseConfig["notifySound"]!.GetValue<bool>());
             Assert.True(baseConfig["tuiAudio"]!.GetValue<bool>());
             Assert.Equal(3, baseConfig["agents"]!.AsArray().Count);
-            foreach (var mode in new[] { "opencode", "codex", "claude" })
+            foreach (var (mode, model) in new[]
+            {
+                ("opencode", "openai/gpt-5.6-sol"),
+                ("codex", "gpt-5.6-sol"),
+                ("claude", "opus"),
+            })
             {
                 var harness = RunConfiguration.Load(Path.Combine(result.ProjectRoot, $"abacus_{mode}.json")).Document;
-                Assert.Equal(new[] { "baseConfig", "mode", "model", "version" }, harness.Select(p => p.Key).Order());
+                Assert.Equal(new[] { "baseConfig", "mode", "model", "reasoningModels", "version" }, harness.Select(p => p.Key).Order());
                 Assert.Equal(mode, harness["mode"]!.GetValue<string>());
+                var modelSpec = model + "#high";
+                Assert.Equal(modelSpec, harness["model"]!.GetValue<string>());
                 Assert.Equal("abacus_base.json", harness["baseConfig"]!.GetValue<string>());
+                var reasoningModels = harness["reasoningModels"]!.AsObject();
+                Assert.Equal(new[] { "high", "low", "medium" }, reasoningModels.Select(p => p.Key).Order());
+                Assert.All(reasoningModels, route => Assert.Equal(modelSpec, route.Value!.GetValue<string>()));
             }
 
             Assert.Equal(4, result.ConfigurationPaths.Count);
@@ -159,7 +168,7 @@ public sealed class MultiAgentRepositoryInitializerTests
             foreach (var configPath in result.ConfigurationPaths.Skip(1))
             {
                 var parsed = Options.Parse(["run", "--config", configPath,
-                    "--model", "provider/override", "--effort", "xhigh", "--notify", "off",
+                    "--model", "provider/override#xhigh", "--notify", "off",
                     "--notify-sound=false", "--tui-audio=false", "--start-paused=false"]).Value!;
                 Assert.Equal(result.RepositoryPath, parsed.RepositoryPath);
                 Assert.Equal("provider/override", parsed.Model);

@@ -39,13 +39,12 @@ already exist. Editing existing JSON directly in your preferred editor also work
   "version": 1,
   "repo": "repo",
   "mode": "codex",
-  "model": "gpt-5.6-sol",
-  "effort": "high",
+  "model": "gpt-5.6-sol#high",
   "agents": [
     { "name": "agent-0", "workspace": "worktrees/0" },
     { "name": "agent-1", "workspace": "worktrees/1" }
   ],
-  "reasoningModels": { "high": "gpt-6-astra" },
+  "reasoningModels": { "high": "gpt-6-astra#xhigh", "low": "gpt-5.6-luna#low" },
   "notify": "attention"
 }
 ```
@@ -57,6 +56,10 @@ draft, paths are relative to `--output`'s directory when supplied, otherwise cwd
 CLI paths always remain relative to cwd. No environment-variable or tilde expansion
 is performed inside JSON. Without `repo`, the normal cwd-based repository selection
 still applies.
+
+**Migration:** combine the removed `effort` and `reasoningEfforts` fields into
+their corresponding model strings. For example, use `"model": "gpt#high"` and
+`"reasoningModels": { "low": "small-model#low" }`. The old fields are rejected.
 
 ## Base config inheritance
 
@@ -150,10 +153,9 @@ fields remain required to run. Semantics/defaults match the [CLI reference](cli-
 | `baseConfig` | string path, or null | Base run config file (no CLI equivalent) |
 | `repo` | string path | `--repo` |
 | `mode` | string | `--mode` |
-| `model` | string | `--model` |
-| `effort` | string | `--effort` |
+| `model` | `model` or `model#effort` string | `--model` |
 | `agents` | array of `{ "name": "...", "workspace": "..." }` | `--agent` |
-| `reasoningModels` | object with optional `high`, `medium`, `low` strings | `--reasoning-model` |
+| `reasoningModels` | object with optional `high`, `medium`, `low` model or `model#effort` strings | `--reasoning-model` |
 | `tmuxSession` | string | `--tmux-session` |
 | `tmuxWindow` | string | `--tmux-window` |
 | `tmuxLayout` | string | `--tmux-layout` |
@@ -188,9 +190,9 @@ Run configs are separate from `<repo>/.abacus/targets.json` and
 
 - `abacus_base.json`: shared `repo`, `agents`, default `effort`, and `version`,
   with `startPaused: true`, `notify: "all"`, `notifySound: true`, and `tuiAudio: true`.
-- `abacus_opencode.json`: `version`, `baseConfig`, `mode`, and OpenCode `model`.
-- `abacus_codex.json`: `version`, `baseConfig`, `mode`, and Codex `model`.
-- `abacus_claude.json`: `version`, `baseConfig`, `mode`, and Claude `model`.
+- `abacus_opencode.json`: OpenCode `model#high` plus all three reasoning tiers mapped to it.
+- `abacus_codex.json`: Codex `model#high` plus all three reasoning tiers mapped to it.
+- `abacus_claude.json`: Claude `model#high` plus all three reasoning tiers mapped to it.
 
 Each harness config declares `"baseConfig": "abacus_base.json"`. Edit the base once
 to change shared settings. From the project root, simply execute:

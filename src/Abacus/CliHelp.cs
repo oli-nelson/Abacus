@@ -50,17 +50,18 @@ internal static class CliHelp
         Configuration:
           --config <file>               Load one JSON config; optional baseConfig inherits a base file.
                                         CLI agent/filter lists replace configured lists; reasoning
-                                        models override per tier. CLI overrides win over derived/base values.
+                                        models and efforts override per tier. CLI overrides win over derived/base values.
                                         Paths stay relative to their source file. --config is not repeatable.
                                         Boolean flags accept =false to disable saved settings.
 
         Agent and model:
           --agent, -a <name> <workspace>  Required, repeatable; names and workspaces must be unique.
           --mode <opencode|codex|claude|opencode-server>  Default: opencode.
-          --model <model>                Required fallback; OpenCode uses provider/model IDs.
-          --reasoning-model <tier> <model>
-                                        Repeatable mapping for high, medium, or low ticket labels.
-          --effort <effort>              Default: high; provider-specific value.
+          --model <model[#effort]>       Required fallback; effort defaults to high.
+                                        OpenCode uses provider/model IDs.
+          --reasoning-model <tier> <model[#effort]>
+                                        Repeatable model[#effort] mapping for high, medium, or low.
+                                        A missing suffix inherits the fallback model's effort.
                                         Interactive OpenCode uses its configured variant.
           --remote-control              Claude only; enables interactive Remote Control.
 
@@ -104,7 +105,7 @@ internal static class CliHelp
     {
         "" => Overview,
         "run" => """
-            Usage: abacus run [options] --model <model> --agent <name> <workspace> [--agent ...]
+            Usage: abacus run [options] --model <model[#effort]> --agent <name> <workspace> [--agent ...]
             Without --config, missing required model/agents/server values offer a one-time config
             selection from JSON files in cwd, only on an interactive terminal. If still incomplete,
             report all missing arguments and exit. No picker for --stdio, --verbose, or redirected I/O.
@@ -126,7 +127,7 @@ internal static class CliHelp
 
             """ + Environment.NewLine + RunOptions,
         "preflight" => """
-            Usage: abacus preflight [options] --model <model> --agent <name> <workspace> [--agent ...]
+            Usage: abacus preflight [options] --model <model[#effort]> --agent <name> <workspace> [--agent ...]
             Uses the same configuration and prerequisites as run. Read-only: no ticket claims,
             workspace changes, panes, processes, cleanup, or run summary. Exits after validation.
             Run-only --once and --drain are not accepted.

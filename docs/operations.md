@@ -78,7 +78,7 @@ space permits. Keyboard hints share one row, or share the tmux row on wider
 terminals. Narrow layouts use bounded fallback rows and ellipsize long names
 rather than wrapping them across several lines.
 Each agent also shows
-its current model/effort (including ticket-specific model routing) and its actual
+its current model/effort (including ticket-specific reasoning routing) and its actual
 checked-out branch, or `detached@<commit>`. Read-only Git snapshots refresh roughly
 every five seconds, including paused and stopped agents. `DIRTY` appears beside
 the branch outside preparation, active work, and finalization; it includes tracked

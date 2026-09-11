@@ -140,8 +140,8 @@ and ready-to-use JSON run configs (no shell launcher scripts):
 my-project/
 ├── repo/                     # main checkout and shared Beads project
 ├── worktrees/{0,1,2,3}/      # persistent agent workspaces
-├── abacus_base.json                  # shared repo, agents, effort
-└── abacus_{opencode,codex,claude}.json # baseConfig + mode/model
+├── abacus_base.json                  # shared repo and agents
+└── abacus_{opencode,codex,claude}.json # mode/model + example reasoning routes
 ```
 
 Create some ready Beads issues and launch the pool; Abacus creates its default
@@ -225,11 +225,10 @@ Example with two existing worktrees:
 abacus run --mode codex \
   --tmux-session work \
   --tmux-window agents \
-  --model gpt-5.6-terra \
-  --reasoning-model high gpt-6-astra \
-  --reasoning-model medium gpt-5.6-terra \
-  --reasoning-model low gpt-5.6-luna \
-  --effort high \
+  --model gpt-5.6-terra#high \
+  --reasoning-model high gpt-6-astra#xhigh \
+  --reasoning-model medium gpt-5.6-terra#high \
+  --reasoning-model low gpt-5.6-luna#low \
   -a alice /work/repo-a \
   -a bob /work/repo-b
 ```
@@ -246,7 +245,7 @@ Each configured agent repeats one focused loop:
 
 1. Inspect its assigned workspace and recover resumable interrupted work.
 2. Find eligible ready work and atomically claim one issue.
-3. Resolve its reasoning label to a model, quarantining invalid labels before Git changes.
+3. Resolve its reasoning label to a model and effort, quarantining invalid labels before Git changes.
 4. Create or reuse `abacus/<issue-id>`.
 5. Start the selected coding agent with the issue context and Git instructions.
 6. Watch both the Beads status and the hosted process.
@@ -261,9 +260,9 @@ Add one of `abacus:high_reasoning`, `abacus:medium_reasoning`, or
 
 ```sh
 abacus run --mode codex --model default-model \
-  --reasoning-model high high-model \
-  --reasoning-model medium medium-model \
-  --reasoning-model low low-model \
+  --reasoning-model high high-model#xhigh \
+  --reasoning-model medium medium-model#high \
+  --reasoning-model low low-model#low \
   -a alice /work/repo-a
 ```
 
@@ -271,7 +270,9 @@ abacus run --mode codex --model default-model \
 exactly one reasoning label. Enforcement defaults to off. In optional mode,
 unlabelled tickets and labels without a mapping use `--model`. Multiple reasoning
 labels always block the ticket and add `abacus:needs-user-attention` with repair
-instructions. Model routing does not change the global `--effort` value.
+instructions. Append `#<effort>` to a model to select its effort. A reasoning
+model without a suffix inherits the fallback model's effort; all other omitted
+suffixes default to `high`.
 
 ### Interrupted workspaces
 

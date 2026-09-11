@@ -11,6 +11,17 @@ Unreleased section. Released versions are listed newest first.
 - Add `abacus info` for a concise read-only overview of Git state and worktrees,
   Beads/Dolt identity and commits, ticket counts, and project routing policy.
 
+### Changed
+
+- **Breaking:** Configure reasoning effort by appending `#effort` to `--model`
+  and `--reasoning-model` values. The separate `--effort`, `reasoningEfforts`,
+  and saved `effort` settings are removed; combine them into model strings such
+  as `gpt-6-astra#high`. Unsuffixed fallback models default to `high`, while
+  unsuffixed reasoning routes inherit the fallback effort.
+- Generated harness configs now show reasoning routing explicitly by mapping all
+  three tiers to the harness's default model and explicitly setting every model
+  specification to `#high`; users can edit the examples directly.
+
 ### Fixed
 
 - Avoid tmux window-index collisions when creating the agent window in an

@@ -1,6 +1,6 @@
 namespace Abacus;
 
-public sealed record PreparedClaim(BeadsIssue Issue, string Branch, string? Model = null);
+public sealed record PreparedClaim(BeadsIssue Issue, string Branch, string? Model = null, string? Effort = null);
 
 public sealed partial class ClaimCoordinator(
     Beads beads,
@@ -14,12 +14,16 @@ public sealed partial class ClaimCoordinator(
     ClaimGate? claimGate = null,
     InitialClaimBarrier? initialClaimBarrier = null,
     IReadOnlyDictionary<string, string>? reasoningModels = null,
-    string? defaultModel = null)
+    string? defaultModel = null,
+    IReadOnlyDictionary<string, string>? reasoningEfforts = null,
+    string? defaultEffort = null)
 {
     private readonly DispatchFilters filters = dispatchFilters ?? DispatchFilters.Empty;
     private readonly ClaimGate claimsAllowed = claimGate ?? new ClaimGate();
     private readonly InitialClaimBarrier initialRecovery = initialClaimBarrier ?? new InitialClaimBarrier(1);
     private readonly IReadOnlyDictionary<string, string> modelMappings = reasoningModels
+        ?? new Dictionary<string, string>(StringComparer.Ordinal);
+    private readonly IReadOnlyDictionary<string, string> effortMappings = reasoningEfforts
         ?? new Dictionary<string, string>(StringComparer.Ordinal);
     private bool initialRecoveryPending = true;
     public TimeSpan PollingInterval { get; } = pollingInterval ?? TimeSpan.FromSeconds(5);
@@ -211,7 +215,7 @@ public sealed partial class ClaimCoordinator(
                         issue.Binding!.StartCommit, branch, cancellationToken);
                     issue = verified;
                 }
-                return new PreparedClaim(issue, branch, modelResolution?.Model);
+                return new PreparedClaim(issue, branch, modelResolution?.Model, modelResolution?.Effort);
             }
             catch (AgentHaltedException) { throw; }
             catch (ReasoningLabelException exception)
@@ -363,7 +367,8 @@ public sealed partial class ClaimCoordinator(
         return new PreparedClaim(
             resumed with { Title = resumed.Title ?? reservedIssue.Title },
             expectedBranch,
-            modelResolution?.Model);
+            modelResolution?.Model,
+            modelResolution?.Effort);
     }
 
     private async Task<ModelResolution> ResolveReasoningAsync(
@@ -378,7 +383,9 @@ public sealed partial class ClaimCoordinator(
         return agent.Reasoning!.ResolveModel(
             current,
             modelMappings,
-            defaultModel ?? throw new ReasoningPolicyException("the default model is unavailable"));
+            defaultModel ?? throw new ReasoningPolicyException("the default model is unavailable"),
+            effortMappings,
+            defaultEffort ?? throw new ReasoningPolicyException("the default effort is unavailable"));
     }
 
     private async Task RejectReasoningAsync(
@@ -628,7 +635,8 @@ public sealed class AgentLoop(
 
                 IAgentRun run;
                 var resolvedModel = claim.Model ?? model;
-                await log.SetModelAsync(agent.Name, resolvedModel, effort);
+                var resolvedEffort = claim.Effort ?? effort;
+                await log.SetModelAsync(agent.Name, resolvedModel, resolvedEffort);
                 try
                 {
                     var launchAgent = agent.Targets is null ? agent : agent with
@@ -639,7 +647,7 @@ public sealed class AgentLoop(
                         launchAgent,
                         claim.Issue,
                         resolvedModel,
-                        effort,
+                        resolvedEffort,
                         serverUrl,
                         cancellationToken);
                 }

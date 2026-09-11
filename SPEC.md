@@ -40,10 +40,12 @@ repository state. It then creates `<agent-count>` detached Git worktrees at
 Beads initialization must be non-interactive and select the maintainer role.
 
 The project root receives `abacus_base.json` with the created named worktrees,
-repository path, shared effort default, `startPaused: true`, `notify: "all"`,
+repository path, `startPaused: true`, `notify: "all"`,
 `notifySound: true`, and `tuiAudio: true`. `abacus_opencode.json`,
 `abacus_codex.json`, and `abacus_claude.json` contain version, baseConfig, mode,
-and model. Their baseConfig is `abacus_base.json`. Paths are relative to their
+model with an explicit `#high` effort, and all three reasoning-model tiers
+initially mapped to that same `model#high` specification as editable examples.
+Their baseConfig is `abacus_base.json`. Paths are relative to their
 config directory. Do not generate shell launcher scripts. From the project root,
 execute `abacus run` and select a harness config (not the incomplete shared base).
 For non-interactive use or invocation from elsewhere, pass
@@ -148,8 +150,8 @@ have their own bases, up to 64 files. Reject missing/malformed bases, cycles,
 and excessive depth. Apply deepest base first, then each derived config, then
 explicit CLI overrides. Omitted fields inherit; null clears an inherited value
 back to unset/default. Agent/filter arrays replace their entire list (including
-empty arrays); reasoning models merge per tier, with null clearing a tier or the
-whole mapping. A layer specifying once/drain replaces the previous execution
+empty arrays); reasoning model specifications merge per tier, with null clearing
+a tier or the whole mapping. A layer specifying once/drain replaces the previous execution
 choice; both true within one layer remain invalid. Validate each file's structure,
 but only the final composition must meet runtime requirements. Relative paths
 retain the directory of the file that supplied each value. The editor edits only
@@ -176,7 +178,7 @@ readiness remain normal preflight checks, not config-selection prerequisites.
 
 All run settings are supported. Explicit CLI scalars and boolean flags override
 saved values, CLI agent/filter lists replace their saved list, and reasoning model
-routes override per tier. Boolean CLI flags accept `=true` or `=false`. An explicit
+specifications override per tier. Boolean CLI flags accept `=true` or `=false`. An explicit
 once/drain option replaces the configured execution choice; conflicting explicit
 options remain errors. Duplicate non-repeatable CLI options remain errors.
 Preflight ignores saved
@@ -249,9 +251,8 @@ abacus run [--tmux-session <session_name>] \
   [--tmux-window <window_name_or_index>] \
   [--tmux-layout <layout>] \
   [--disown-tmux-session] \
-  --model <model> \
-  [--reasoning-model <high|medium|low> <model>] \
-  [--effort <effort>] \
+  --model <model[#effort]> \
+  [--reasoning-model <high|medium|low> <model[#effort]>] \
   [--remote-control] \
   [--repo <main-checkout>] [--target-filter <branch>] \
   [--label <label>] [--exclude-label <label>] \
@@ -265,13 +266,20 @@ abacus run [--tmux-session <session_name>] \
   -a <agent_name> <git_workspace_path>
 ```
 
-`--mode` defaults to `opencode`. `--model` is required. `--effort` defaults to `high` and accepts a nonempty provider-specific variant name without whitespace. OpenCode modes require a `provider/model` ID; Codex and Claude accept their native model IDs and aliases. Model and effort availability remain the selected CLI's responsibility. Interactive OpenCode is the exception: OpenCode 1.18.20's TUI entry point does not expose variant selection, so Abacus passes the model unchanged and OpenCode uses its configured or session-selected variant.
+`--mode` defaults to `opencode`. `--model <model[#effort]>` is required. The
+optional suffix selects a nonempty provider-specific effort without whitespace
+and defaults to `high`. OpenCode modes require a `provider/model` ID before the
+suffix; Codex and Claude accept their native model IDs and aliases. Model and
+effort availability remain the selected CLI's responsibility. Interactive
+OpenCode is the exception: OpenCode 1.18.20's TUI entry point does not expose
+variant selection, so Abacus strips the suffix from the model passed to OpenCode
+and OpenCode uses its configured or session-selected variant.
 
-`--reasoning-model <tier> <model>` is repeatable for the exact tiers `high`,
-`medium`, and `low`. It maps the Beads labels `abacus:high_reasoning`,
+`--reasoning-model <tier> <model[#effort]>` is repeatable for the exact tiers
+`high`, `medium`, and `low`. It maps the Beads labels `abacus:high_reasoning`,
 `abacus:medium_reasoning`, and `abacus:low_reasoning` to model IDs valid for the
-selected harness. The global `--effort` remains unchanged; reasoning labels route
-only the model. Project policy loads from `<repo>/.abacus/reasoning.json`:
+selected harness and optional provider-specific efforts. A missing tier suffix
+inherits the fallback model's effort. Project policy loads from `<repo>/.abacus/reasoning.json`:
 
 ```json
 {
@@ -378,7 +386,7 @@ a pane other than the ID Abacus recorded at launch.
 To connect the agents to an existing OpenCode server:
 
 ```sh
-abacus run --mode opencode-server --model <provider/model> --effort <effort> \
+abacus run --mode opencode-server --model <provider/model[#effort]> \
   --opencode-server 127.0.0.1:1234 \
   [--once | --drain] \
   -a <agent_name> <git_workspace_path> \

@@ -64,7 +64,8 @@ public sealed record Options(
     bool TuiAudio = false,
     bool StartPaused = false,
     bool DisownTmuxSession = false,
-    IReadOnlyDictionary<string, string>? ReasoningModels = null)
+    IReadOnlyDictionary<string, string>? ReasoningModels = null,
+    IReadOnlyDictionary<string, string>? ReasoningEfforts = null)
 {
     public const string DefaultTmuxLayout = "tiled";
 
@@ -80,6 +81,9 @@ public sealed record Options(
 
     public IReadOnlyDictionary<string, string> EffectiveReasoningModels =>
         ReasoningModels ?? new Dictionary<string, string>(StringComparer.Ordinal);
+
+    public IReadOnlyDictionary<string, string> EffectiveReasoningEfforts =>
+        ReasoningEfforts ?? new Dictionary<string, string>(StringComparer.Ordinal);
 
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -132,7 +136,7 @@ public sealed record Options(
         string? configPath = null;
         var stdioRequested = false;
         var verboseRequested = false;
-        var overriddenTiers = new HashSet<string>(StringComparer.Ordinal);
+        var overriddenModelTiers = new HashSet<string>(StringComparer.Ordinal);
         var optionValues = new List<string>();
         var positionals = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -178,7 +182,7 @@ public sealed record Options(
             }
             if (canonical == "--stdio") stdioRequested = true;
             if (canonical == "--verbose") verboseRequested = true;
-            if (canonical == "--reasoning-model") overriddenTiers.Add(values[0]);
+            if (canonical == "--reasoning-model") overriddenModelTiers.Add(values[0]);
             if (canonical == "--config") configPath = CanonicalizePath(values[0]);
             else if (canonical == "--repo") SetRepository(values[0]);
             else { optionValues.Add(canonical); optionValues.AddRange(values); }
@@ -189,7 +193,8 @@ public sealed record Options(
         OptionsParseResult ParseConfigured(string path)
         {
             if (repositoryPath is not null) seen.Add("--repo");
-            var configured = RunConfiguration.Load(path).ResolveInheritance().Arguments(command, seen, overriddenTiers);
+            var configured = RunConfiguration.Load(path).ResolveInheritance().Arguments(
+                command, seen, overriddenModelTiers);
             if (repositoryPath is not null) configured.AddRange(["--repo", repositoryPath]);
             // No callback here: a selected/explicit config gets exactly one validation attempt.
             return Parse([command, .. configured, .. optionValues]);
@@ -292,7 +297,7 @@ public sealed record Options(
             return option switch
             {
                 "--agent" or "--reasoning-model" => 2,
-                "--config" or "--mode" or "--model" or "--effort" or "--tmux-session" or "--tmux-window" or "--tmux-layout"
+                "--config" or "--mode" or "--model" or "--tmux-session" or "--tmux-window" or "--tmux-layout"
                     or "--opencode-server" or "--target-filter" or "--append-prompt" or "--label" or "--exclude-label"
                     or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify" => 1,
                 "--remote-control" or "--notify-sound" or "--verbose" => 0,
@@ -343,6 +348,7 @@ public sealed record Options(
         var appendAgentPromptSpecified = false;
         var agents = new List<AgentOptions>();
         var reasoningModels = new Dictionary<string, string>(StringComparer.Ordinal);
+        var reasoningEfforts = new Dictionary<string, string>(StringComparer.Ordinal);
 
         for (var index = 0; index < arguments.Count; index++)
         {
@@ -389,9 +395,6 @@ public sealed record Options(
                     var reasoningModel = ReadValue(arguments, ref index, argument);
                     if (!reasoningModels.TryAdd(label, reasoningModel))
                         throw new OptionsException($"--reasoning-model {tier} can only be specified once");
-                    break;
-                case "--effort":
-                    effort = ReadValue(arguments, ref index, argument);
                     break;
                 case "--opencode-server":
                     server = ReadValue(arguments, ref index, argument);
@@ -536,6 +539,10 @@ public sealed record Options(
             throw new OptionsException("--append-prompt cannot be empty");
         }
 
+        if (!string.IsNullOrWhiteSpace(model))
+        {
+            (model, effort) = ParseModelSpec(model, "high", "--model");
+        }
         if (!string.IsNullOrWhiteSpace(model) && !IsValidModel(model, agentMode))
         {
             throw new OptionsException(agentMode is AgentMode.OpenCode or AgentMode.OpenCodeServer
@@ -543,22 +550,19 @@ public sealed record Options(
                 : "--model cannot contain whitespace");
         }
 
-        foreach (var (label, mappedModel) in reasoningModels)
+        foreach (var (label, mappedModelSpec) in reasoningModels.ToArray())
         {
+            var tier = label["abacus:".Length..^"_reasoning".Length];
+            var (mappedModel, mappedEffort) = ParseModelSpec(
+                mappedModelSpec, effort, $"--reasoning-model {tier}");
             if (!IsValidModel(mappedModel, agentMode))
             {
-                var tier = label["abacus:".Length..^"_reasoning".Length];
                 throw new OptionsException(agentMode is AgentMode.OpenCode or AgentMode.OpenCodeServer
                     ? $"--reasoning-model {tier} must use OpenCode's provider/model format"
                     : $"--reasoning-model {tier} cannot contain whitespace");
             }
-        }
-
-        if (string.IsNullOrEmpty(effort)
-            || effort.Any(char.IsWhiteSpace)
-            || effort.Contains('#', StringComparison.Ordinal))
-        {
-            throw new OptionsException("--effort must be a nonempty variant name without whitespace or '#'");
+            reasoningModels[label] = mappedModel;
+            reasoningEfforts[label] = mappedEffort;
         }
 
         var duplicateName = agents
@@ -583,7 +587,7 @@ public sealed record Options(
         }
 
         var missing = new List<string>();
-        if (string.IsNullOrWhiteSpace(model)) missing.Add("--model <model> is required");
+        if (string.IsNullOrWhiteSpace(model)) missing.Add("--model <model[#effort]> is required");
         if (agents.Count == 0) missing.Add("at least one -a <agent_name> <git_workspace_path> pair is required");
         for (var agentIndex = 0; agentIndex < agents.Count; agentIndex++)
         {
@@ -621,7 +625,8 @@ public sealed record Options(
                 targetBranches.AsReadOnly(),
                 stdio, eventLogPath, noIntro, tuiAudio, startPaused,
                 DisownTmuxSession: disownTmuxSession,
-                ReasoningModels: reasoningModels),
+                ReasoningModels: reasoningModels,
+                ReasoningEfforts: reasoningEfforts),
             ShowHelp: false);
     }
 
@@ -637,6 +642,22 @@ public sealed record Options(
         }
 
         return value;
+    }
+
+    private static (string Model, string Effort) ParseModelSpec(
+        string value,
+        string fallbackEffort,
+        string option)
+    {
+        var separator = value.IndexOf('#');
+        var model = separator < 0 ? value : value[..separator];
+        var effort = separator < 0 ? fallbackEffort : value[(separator + 1)..];
+        if (string.IsNullOrWhiteSpace(model) || model.Any(char.IsWhiteSpace))
+            throw new OptionsException($"{option} requires a nonempty model ID without whitespace");
+        if (string.IsNullOrEmpty(effort) || effort.Any(char.IsWhiteSpace)
+            || effort.Contains('#', StringComparison.Ordinal))
+            throw new OptionsException($"{option} effort suffix must be a nonempty value without whitespace or '#'");
+        return (model, effort);
     }
 
     private static int ParsePriority(string value)

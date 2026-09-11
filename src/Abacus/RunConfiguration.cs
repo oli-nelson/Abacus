@@ -17,9 +17,8 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         new("repo", "--repo", "path", "Main checkout path (relative to this config)"),
         new("mode", "--mode", "string", "opencode, codex, claude, opencode-server; default opencode"),
         new("model", "--model", "string", "Required fallback model; OpenCode uses provider/model"),
-        new("effort", "--effort", "string", "Provider-specific effort; default high"),
         new("agents", "--agent", "agents", "Named agent workspaces"),
-        new("reasoningModels", "--reasoning-model", "models", "Optional high / medium / low model routes"),
+        new("reasoningModels", "--reasoning-model", "models", "Optional high / medium / low model#effort routes"),
         new("tmuxSession", "--tmux-session", "string", "Optional session name"),
         new("tmuxWindow", "--tmux-window", "string", "Optional window name"),
         new("tmuxLayout", "--tmux-layout", "string", "tiled, even-horizontal, even-vertical, main-horizontal, main-vertical"),
@@ -152,7 +151,7 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
     }
 
     internal List<string> Arguments(string command, IReadOnlySet<string>? overridden = null,
-        IReadOnlySet<string>? overriddenTiers = null)
+        IReadOnlySet<string>? overriddenModelTiers = null)
     {
         ValidateShape();
         var args = new List<string>();
@@ -181,7 +180,7 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
                     break;
                 case "models":
                     foreach (var (tier, model) in (JsonObject)value)
-                        if (model is not null && overriddenTiers?.Contains(tier) != true)
+                        if (model is not null && overriddenModelTiers?.Contains(tier) != true)
                             args.AddRange([field.Option, tier, Text(model)]);
                     break;
                 case "list":

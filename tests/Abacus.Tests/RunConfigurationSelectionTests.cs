@@ -19,15 +19,14 @@ public sealed class RunConfigurationSelectionTests : IDisposable
         var path = Write("run.json", Complete);
         var output = new StringWriter();
         var calls = 0;
-        var options = Options.Parse(["run", "--effort", "low", "--no-intro=false", "--"], missing =>
+        var options = Options.Parse(["run", "--model", "provider/cli#low", "--no-intro=false", "--"], missing =>
         {
             calls++;
-            Assert.Contains(missing, m => m.Contains("--model"));
             Assert.Contains(missing, m => m.Contains("workspace"));
             return RunConfigurationSelection.Select(root.FullName, missing, new StringReader("1\n"), output);
         }).Value!;
         Assert.Equal(1, calls);
-        Assert.Equal("saved", options.Model);
+        Assert.Equal("provider/cli", options.Model);
         Assert.Equal("low", options.Effort);
         Assert.False(options.NoIntro);
         Assert.Contains("Missing required", output.ToString());

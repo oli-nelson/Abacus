@@ -6,7 +6,8 @@
 > **Reasoning routing:** `.abacus/reasoning.json` optionally requires one of
 > `abacus:high_reasoning`, `abacus:medium_reasoning`, or
 > `abacus:low_reasoning` on executable tickets. Runtime `--reasoning-model`
-> options map those tiers to models; otherwise `--model` is the fallback.
+> options map those tiers to `model#effort` specifications; otherwise `--model`
+> is the fallback.
 
 This guide takes you from an installed binary to a running agent. Choose one
 setup path; you do not need to perform every walkthrough.
@@ -100,8 +101,10 @@ The initializer:
    and writes `.abacus/reasoning.json` with `enforceLabels: false`.
 5. Commits the initial repository state.
 6. Adds the requested detached worktrees.
-7. Writes `abacus_base.json` with the repository, created worktrees, and shared
-   effort, plus three harness/model configs that reference it with `baseConfig`.
+7. Writes `abacus_base.json` with the repository and created worktrees, plus three
+   harness/model configs that reference it with `baseConfig` and demonstrate all
+   reasoning tiers by mapping each one to the harness's default model; every
+   generated model specification explicitly uses the `#high` effort suffix.
    It sets `startPaused: true`, `notify: "all"`, `notifySound: true`, and
    `tuiAudio: true`.
    No shell launcher scripts are generated.
@@ -134,8 +137,9 @@ config; the non-interactive routes never open the picker:
 abacus run --config /path/to/my-project/abacus_codex.json --start-paused=false
 ```
 
-Generated config paths are relative to their own file. CLI `--model`, `--effort`,
-`--tmux-session`, and `--reasoning-model high <model>` override saved values.
+Generated config paths are relative to their own file. CLI
+`--model <model[#effort]>`, `--tmux-session`, and
+`--reasoning-model high <model[#effort]>` override saved values.
 For custom inherited settings, create `local.json` with
 `"baseConfig": "abacus_codex.json"` and use `abacus run --config local.json`.
 
@@ -254,8 +258,7 @@ abacus run \
   --mode opencode \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
-  --model "$MODEL" \
-  --effort "$EFFORT" \
+  --model "$MODEL#$EFFORT" \
   -a "$AGENT" "$REPO"
 ```
 
@@ -344,8 +347,7 @@ abacus run \
   --mode codex \
   --tmux-session abacus-work \
   --tmux-window agents \
-  --model gpt-5.6-terra \
-  --effort high \
+  --model gpt-5.6-terra#high \
   -a alice "$WORKTREES/alice" \
   -a bob "$WORKTREES/bob" \
   -a carol "$WORKTREES/carol" \
@@ -373,8 +375,7 @@ export REPO=/path/to/your/repository
 
 abacus run \
   --mode opencode-server \
-  --model provider/model \
-  --effort high \
+  --model provider/model#high \
   --opencode-server 127.0.0.1:4096 \
   -a alice "$REPO"
 ```

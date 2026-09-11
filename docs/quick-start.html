@@ -1133,8 +1133,7 @@ abacus run --repo "$REPO" \
   --mode claude \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
-  --model "$MODEL" \
-  --effort high \
+  --model "${MODEL}#high" \
   --notify attention \
   --notify-sound \
   -a alice "$AGENT_WORKTREE"</code></pre>
@@ -1150,7 +1149,7 @@ abacus run --repo "$REPO" \
             <div class="code-label"><span>Remotely steerable local session</span><button class="copy-button" type="button">Copy</button></div>
             <pre><code>abacus run --repo "$REPO" --mode claude --remote-control \
   --tmux-session "$SESSION" --tmux-window "$WINDOW" \
-  --model "$MODEL" --effort high \
+  --model "${MODEL}#high" \
   --notify all --notify-sound \
   -a alice "$AGENT_WORKTREE"</code></pre>
           </div>
@@ -1200,8 +1199,7 @@ abacus health --repo "$REPO"</code></pre>
   --mode claude \
   --tmux-session "$SESSION" \
   --tmux-window "$WINDOW" \
-  --model "$MODEL" \
-  --effort high \
+  --model "${MODEL}#high" \
   --notify all \
   --notify-sound \
   -a alice "$WORKTREES/alice" \

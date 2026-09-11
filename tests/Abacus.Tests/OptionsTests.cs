@@ -44,8 +44,7 @@ public sealed class OptionsTests
             "--tmux-session", "workers",
             "--tmux-window", "agents",
             "--tmux-layout", "tiled",
-            "--model", "provider/model",
-            "--effort", "xhigh",
+            "--model", "provider/model#xhigh",
             "--mode", "opencode-server", "--opencode-server", "127.0.0.1:1234",
             "-a", "alice", first,
             "-a", "bob", second,
@@ -138,16 +137,19 @@ public sealed class OptionsTests
         var result = Options.Parse([
             "run",
             "--mode", "codex",
-            "--model", "default-model",
-            "--reasoning-model", "high", "high-model",
+            "--model", "default-model#medium",
+            "--reasoning-model", "high", "high-model#xhigh",
             "--reasoning-model", "medium", "medium-model",
-            "--reasoning-model", "low", "low-model",
+            "--reasoning-model", "low", "low-model#low",
             "-a", "alice", "/tmp/a",
         ]);
 
         Assert.Equal("high-model", result.Value!.EffectiveReasoningModels[ReasoningPolicy.HighLabel]);
         Assert.Equal("medium-model", result.Value.EffectiveReasoningModels[ReasoningPolicy.MediumLabel]);
         Assert.Equal("low-model", result.Value.EffectiveReasoningModels[ReasoningPolicy.LowLabel]);
+        Assert.Equal("xhigh", result.Value!.EffectiveReasoningEfforts[ReasoningPolicy.HighLabel]);
+        Assert.Equal("medium", result.Value.EffectiveReasoningEfforts[ReasoningPolicy.MediumLabel]);
+        Assert.Equal("low", result.Value.EffectiveReasoningEfforts[ReasoningPolicy.LowLabel]);
     }
 
     [Theory]
@@ -169,6 +171,19 @@ public sealed class OptionsTests
             "run", "--mode", "codex", "--model", "default-model",
             "--reasoning-model", "high", "one",
             "--reasoning-model", "high", "two",
+            "-a", "alice", "/tmp/a",
+        ]));
+    }
+
+    [Theory]
+    [InlineData("mapped-model#")]
+    [InlineData("mapped-model#not valid")]
+    [InlineData("mapped-model#high#other")]
+    public void RejectsInvalidReasoningModelEffortSuffix(string model)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse([
+            "run", "--mode", "codex", "--model", "default-model",
+            "--reasoning-model", "high", model,
             "-a", "alice", "/tmp/a",
         ]));
     }
@@ -425,16 +440,15 @@ public sealed class OptionsTests
     }
 
     [Theory]
-    [InlineData("")]
-    [InlineData("extra high")]
-    [InlineData("high#other")]
-    public void RejectsInvalidEffort(string effort)
+    [InlineData("provider/model#")]
+    [InlineData("provider/model#extra high")]
+    [InlineData("provider/model#high#other")]
+    public void RejectsInvalidModelEffortSuffix(string model)
     {
         Assert.Throws<OptionsException>(() => Options.Parse([
             "run",
             "--tmux-session", "workers",
-            "--model", "provider/model",
-            "--effort", effort,
+            "--model", model,
             "-a", "alice", "/tmp/a",
         ]));
     }
@@ -710,7 +724,6 @@ public sealed class OptionsTests
     [InlineData("run", "--tmux-session", "s", "--model", "model", "-a", "alice", "/tmp/a")]
     [InlineData("run", "--tmux-session", "s", "--model", "/model", "-a", "alice", "/tmp/a")]
     [InlineData("run", "--tmux-session", "s", "--model", "provider/", "-a", "alice", "/tmp/a")]
-    [InlineData("run", "--tmux-session", "s", "--model", "provider/model#high", "-a", "alice", "/tmp/a")]
     [InlineData("run", "--tmux-session", "s", "--model", "one/two/three", "-a", "alice", "/tmp/a")]
     [InlineData("run", "--mode", "invalid", "--tmux-session", "s", "--model", "provider/model", "-a", "alice", "/tmp/a")]
     [InlineData("run", "--tmux-session", "s", "--model", "provider/model", "--unknown", "x", "-a", "alice", "/tmp/a")]

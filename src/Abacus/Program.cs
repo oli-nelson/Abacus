@@ -257,7 +257,9 @@ public static class Program
         events?.Emit("run.starting", new
         {
             options.Model,
+            options.Effort,
             ReasoningModels = options.EffectiveReasoningModels,
+            ReasoningEfforts = options.EffectiveReasoningEfforts,
             options.AgentMode,
             options.ExecutionMode,
             options.Agents,

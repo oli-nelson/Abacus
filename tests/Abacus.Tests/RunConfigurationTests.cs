@@ -13,9 +13,9 @@ public sealed class RunConfigurationTests : IDisposable
         return path;
     }
     private const string Complete = """
-        {"version":1,"repo":"repo","mode":"codex","model":"saved",
+        {"version":1,"repo":"repo","mode":"codex","model":"saved#medium",
          "agents":[{"name":"one","workspace":"worktrees/one"}],"eventLog":"events.jsonl",
-         "labels":["saved"],"reasoningModels":{"high":"high-saved","low":"low-saved"},
+         "labels":["saved"],"reasoningModels":{"high":"high-saved#max","low":"low-saved#low"},
          "once":true,"noIntro":true,"tuiAudio":true}
         """;
 
@@ -24,20 +24,21 @@ public sealed class RunConfigurationTests : IDisposable
     {
         var options = Options.Parse(["run", "--config=" + Write(Complete)]).Value!;
         Assert.Equal("saved", options.Model);
-        Assert.Equal("high", options.Effort);
+        Assert.Equal("medium", options.Effort);
         Assert.Equal(Path.Combine(root.FullName, "repo"), options.RepositoryPath);
         Assert.Equal(Path.Combine(root.FullName, "worktrees/one"), options.Agents.Single().WorkspacePath);
         Assert.Equal(Path.Combine(root.FullName, "events.jsonl"), options.EventLogPath);
         Assert.Equal(ExecutionMode.Once, options.ExecutionMode);
+        Assert.Equal("max", options.EffectiveReasoningEfforts[ReasoningPolicy.HighLabel]);
     }
 
     [Fact]
     public void CliOverridesScalarsListsFlagsAndIndividualReasoningTiers()
     {
         var path = Write(Complete);
-        var options = Options.Parse(["--repo", "/tmp/controller", "run", "--model", "cli", "--config", path,
+        var options = Options.Parse(["--repo", "/tmp/controller", "run", "--model", "cli#xhigh", "--config", path,
             "-a", "replacement", "/tmp/replacement", "--label", "new", "--label", "another",
-            "--reasoning-model", "high", "high-cli", "--drain", "--no-intro=false",
+            "--reasoning-model", "high", "high-cli#max", "--drain", "--no-intro=false",
             "--tui-audio=false"]).Value!;
         Assert.Equal("cli", options.Model);
         Assert.Equal("/tmp/controller", options.RepositoryPath);
@@ -45,6 +46,8 @@ public sealed class RunConfigurationTests : IDisposable
         Assert.Equal(new[] { "new", "another" }, options.DispatchFilters!.Labels);
         Assert.Equal("high-cli", options.EffectiveReasoningModels[ReasoningPolicy.HighLabel]);
         Assert.Equal("low-saved", options.EffectiveReasoningModels[ReasoningPolicy.LowLabel]);
+        Assert.Equal("max", options.EffectiveReasoningEfforts[ReasoningPolicy.HighLabel]);
+        Assert.Equal("low", options.EffectiveReasoningEfforts[ReasoningPolicy.LowLabel]);
         Assert.Equal(ExecutionMode.Drain, options.ExecutionMode);
         Assert.False(options.NoIntro);
         Assert.False(options.TuiAudio);
@@ -131,6 +134,7 @@ public sealed class RunConfigurationTests : IDisposable
     [InlineData("{\"version\":1,\"agents\":[{\"workspce\":\"a\"}]}")]
     [InlineData("{\"version\":1,\"model\":\"a\",\"model\":\"b\"}")]
     [InlineData("{\"version\":1,\"reasoningModels\":{\"other\":\"a\"}}")]
+    [InlineData("{\"version\":1,\"reasoningEfforts\":{\"other\":\"high\"}}")]
     public void MalformedDocumentsFailClearly(string json) =>
         Assert.Throws<OptionsException>(() => RunConfiguration.Load(Write(json)));
 
@@ -138,7 +142,7 @@ public sealed class RunConfigurationTests : IDisposable
     public void SupportsAllRemainingRunSettingsAndFalseOverrides()
     {
         var path = Write("""
-            {"version":1,"mode":"claude","model":"opus","effort":"max",
+            {"version":1,"mode":"claude","model":"opus#max",
              "agents":[{"name":"one","workspace":"one"}],
              "tmuxSession":"workers","tmuxWindow":"agents","tmuxLayout":"even-horizontal",
              "remoteControl":true,"targetFilters":["main"],"excludeLabels":["skip"],
@@ -211,11 +215,11 @@ public sealed class RunConfigurationTests : IDisposable
     public void DerivedSettingsOverrideBaseAndCliHasFinalPrecedence()
     {
         var first = Write(Complete);
-        var second = Child(first, """{"version":1,"model":"second","effort":"medium"}""", "second.json");
+        var second = Child(first, """{"version":1,"model":"second#medium"}""", "second.json");
         var last = Child(second, """{"version":1,"model":"last"}""");
         var options = Options.Parse(["run", "--config", last]).Value!;
         Assert.Equal("last", options.Model);
-        Assert.Equal("medium", options.Effort);
+        Assert.Equal("high", options.Effort);
         Assert.Single(options.Agents);
         Assert.Equal("cli", Options.Parse(["run", "--model", "cli", "--config", last]).Value!.Model);
         Assert.Equal(Complete, File.ReadAllText(first));
@@ -249,12 +253,12 @@ public sealed class RunConfigurationTests : IDisposable
     }
 
     [Fact]
-    public void ListsReplaceAndModelsMergePerTierWithExplicitClears()
+    public void ListsReplaceAndReasoningRoutesMergePerTierWithExplicitClears()
     {
         var first = Write(Complete);
         var second = Child(first, """
             {"version":1,"labels":[],"noIntro":false,"repo":null,"eventLog":null,"once":null,
-             "reasoningModels":{"high":null,"medium":"new-medium"}}
+             "reasoningModels":{"high":null,"medium":"new-medium#medium"}}
             """);
         var options = Options.Parse(["run", "--config", second]).Value!;
         Assert.Empty(options.DispatchFilters!.Labels);
@@ -265,13 +269,19 @@ public sealed class RunConfigurationTests : IDisposable
         Assert.False(options.EffectiveReasoningModels.ContainsKey(ReasoningPolicy.HighLabel));
         Assert.Equal("new-medium", options.EffectiveReasoningModels[ReasoningPolicy.MediumLabel]);
         Assert.Equal("low-saved", options.EffectiveReasoningModels[ReasoningPolicy.LowLabel]);
-        options = Options.Parse(["run", "--config", second, "--reasoning-model", "high", "cli-high", "--label", "cli-label"]).Value!;
+        Assert.Equal("medium", options.EffectiveReasoningEfforts[ReasoningPolicy.MediumLabel]);
+        Assert.Equal("low", options.EffectiveReasoningEfforts[ReasoningPolicy.LowLabel]);
+        options = Options.Parse(["run", "--config", second,
+            "--reasoning-model", "high", "cli-high#xhigh",
+            "--label", "cli-label"]).Value!;
         Assert.Equal("cli-high", options.EffectiveReasoningModels[ReasoningPolicy.HighLabel]);
+        Assert.Equal("xhigh", options.EffectiveReasoningEfforts[ReasoningPolicy.HighLabel]);
         Assert.Equal(new[] { "cli-label" }, options.DispatchFilters!.Labels);
         var third = Child(second, """{"version":1,"agents":[],"reasoningModels":null}""", "third.json");
         Assert.Throws<OptionsException>(() => Options.Parse(["run", "--config", third]));
         options = Options.Parse(["run", "--config", third, "-a", "cli", "/tmp/cli"]).Value!;
         Assert.Empty(options.EffectiveReasoningModels);
+        Assert.Empty(options.EffectiveReasoningEfforts);
         Assert.Equal("cli", options.Agents.Single().Name);
     }
 
