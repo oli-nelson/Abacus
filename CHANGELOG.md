@@ -21,6 +21,8 @@ Unreleased section. Released versions are listed newest first.
   overrides. Interactive runs missing required arguments offer a one-time config
   picker; non-interactive runs fail directly without discovery or prompts.
 
+## [0.1.1] - 2026-09-11
+
 ### Changed
 
 - New projects now create a shared base JSON config and three inheriting harness
