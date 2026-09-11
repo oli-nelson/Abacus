@@ -144,7 +144,10 @@ public sealed class ClaimTests
             var queue = Path.Combine(root.FullName, "queue");
             await File.WriteAllTextAsync(queue, "abc-123");
             var script = Path.Combine(root.FullName, "bd");
-            await File.WriteAllTextAsync(script, """
+            var stagedScript = Path.Combine(root.FullName, "bd.tmp");
+            // Publish the executable only after its writer is closed and mode is final;
+            // immediate parallel execs can otherwise observe ETXTBSY on Linux.
+            File.WriteAllText(stagedScript, """
                 #!/bin/sh
                 root=$(dirname "$0")
                 if test "$1" = ready; then
@@ -171,7 +174,10 @@ public sealed class ClaimTests
                   exit 1
                 fi
                 """);
-            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            File.SetUnixFileMode(
+                stagedScript,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            File.Move(stagedScript, script);
 
             var beads = new Beads(new CommandRunner(TextWriter.Null), script);
             var claims = await Task.WhenAll(
