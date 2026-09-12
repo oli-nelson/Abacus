@@ -50,6 +50,8 @@ public sealed class AbacusApplication(
             static agent => agent.Name,
             static _ => new AgentControl(),
             StringComparer.Ordinal);
+        var agentRuns = new AgentRunRegistry();
+        var mergeSlotReclaimer = new MergeSlotReclaimer(beads, log);
         var inputMonitor = Task.CompletedTask;
         var controlShutdown = false;
         TmuxSessionLease? tmuxSessionLease = null;
@@ -74,6 +76,8 @@ public sealed class AbacusApplication(
             var dashboardMonitor = MonitorDashboardAsync(
                 beads,
                 git,
+                mergeSlotReclaimer,
+                agentRuns,
                 preflight.Agents,
                 preflight.Options.LatestCommentCount,
                 includeLatestComments: log is ConsoleOutput dashboard && (dashboard.IsInteractiveDashboard || dashboard.Events is not null),
@@ -136,6 +140,7 @@ public sealed class AbacusApplication(
                     log,
                     git,
                     agentControls[agent.Name],
+                    agentRuns,
                     notifier,
                     preflight.Options.EffectiveExtraArguments).RunAsync(linkedCancellation.Token);
             }).ToArray();
@@ -232,14 +237,20 @@ public sealed class AbacusApplication(
     private async Task MonitorDashboardAsync(
         Beads beads,
         Git git,
+        MergeSlotReclaimer mergeSlotReclaimer,
+        AgentRunRegistry agentRuns,
         IReadOnlyList<ValidatedAgent> agents,
         int latestCommentCount,
         bool includeLatestComments,
         CancellationToken cancellationToken)
     {
         var agent = agents[0];
+        var configuredAgents = agents
+            .Select(static validated => validated.Name)
+            .ToHashSet(StringComparer.Ordinal);
         string? lastAttentionFailure = null;
         string? lastCommentsFailure = null;
+        string? lastMergeSlotFailure = null;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -259,6 +270,29 @@ public sealed class AbacusApplication(
                 {
                     await log.WarningAsync("abacus", exception.Message);
                     lastAttentionFailure = exception.Message;
+                }
+            }
+
+            try
+            {
+                var mergeSlot = await beads.ReadMergeSlotStatusAsync(
+                    agent.WorkspacePath,
+                    agent.Name,
+                    cancellationToken);
+                await log.SetMergeSlotAsync(await mergeSlotReclaimer.ReclaimAsync(
+                    agent.WorkspacePath,
+                    configuredAgents,
+                    agentRuns.IsRunning,
+                    mergeSlot,
+                    cancellationToken));
+                lastMergeSlotFailure = null;
+            }
+            catch (BeadsException exception)
+            {
+                if (!string.Equals(lastMergeSlotFailure, exception.Message, StringComparison.Ordinal))
+                {
+                    await log.WarningAsync("abacus", exception.Message);
+                    lastMergeSlotFailure = exception.Message;
                 }
             }
 

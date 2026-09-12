@@ -25,6 +25,7 @@ internal interface IAgentOutput
     Task SetTicketAsync(string agentName, string issueId, string? title);
     Task SetUserAttentionIssuesAsync(IReadOnlyList<BeadsIssue> issues);
     Task SetLatestCommentsAsync(IReadOnlyList<BeadsComment> comments);
+    Task SetMergeSlotAsync(MergeSlotStatus status);
     Task SetPersistentAlertAsync(string source, string message);
     Task ClearPersistentAlertAsync(string source);
     Task ClearTicketAsync(string agentName);
@@ -89,6 +90,11 @@ internal static class OutputExtensions
         IReadOnlyList<BeadsComment> comments) =>
         output is IAgentOutput agentOutput
             ? agentOutput.SetLatestCommentsAsync(comments)
+            : Task.CompletedTask;
+
+    public static Task SetMergeSlotAsync(this TextWriter output, MergeSlotStatus status) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.SetMergeSlotAsync(status)
             : Task.CompletedTask;
 
     public static Task SetPersistentAlertAsync(
@@ -206,6 +212,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private readonly Dictionary<string, string> persistentAlerts = new(StringComparer.Ordinal);
     private IReadOnlyList<BeadsIssue> userAttentionIssues = [];
     private IReadOnlyList<BeadsComment> latestComments = [];
+    private MergeSlotStatus mergeSlot = MergeSlotStatus.NotConfigured;
     private readonly Timer? refreshTimer;
     private string systemStatus = "Running preflight checks";
     private string? tmuxSessionName;
@@ -513,6 +520,31 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         return Task.CompletedTask;
     }
 
+    public Task SetMergeSlotAsync(MergeSlotStatus status)
+    {
+        lock (gate)
+        {
+            if (mergeSlot == status)
+            {
+                return Task.CompletedTask;
+            }
+
+            var wasHeld = mergeSlot.IsHeld;
+            mergeSlot = status;
+            Events?.Emit("merge-slot.changed", status);
+            if (interactive)
+            {
+                RenderDashboard();
+            }
+            else if (status.IsHeld || wasHeld)
+            {
+                WriteEvent("abacus", "INFO", DescribeMergeSlot(status));
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task ClearTicketAsync(string agentName) =>
         UpdateRowAsync(agentName, row => row with
         {
@@ -720,7 +752,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 status = new { claimsEnabled, systemStatus, agents = agents.Values.ToArray(),
                     tmux = tmuxSessionName is null ? null : new { session = tmuxSessionName, window = tmuxWindowName },
                     attention = userAttentionIssues, alerts = new Dictionary<string, string>(persistentAlerts),
-                    comments = latestComments, warnings = warnings.ToArray() },
+                    comments = latestComments, mergeSlot, warnings = warnings.ToArray() },
             });
         }
     }
@@ -781,6 +813,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         }
 
         var nameWidth = Math.Clamp(agents.Keys.DefaultIfEmpty(string.Empty).Max(static name => name.Length), 8, 20);
+        var mergePositions = MergeQueuePositions(mergeSlot);
         var rowIndex = 0;
         foreach (var row in agents.Values)
         {
@@ -801,9 +834,22 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             var status = state.PadRight(10);
             var ticket = row.IssueId is null ? string.Empty
                 : string.IsNullOrEmpty(row.TicketTitle) ? row.IssueId : $"{row.IssueId} — {row.TicketTitle}";
-            var headerLines = WrapCommentText(ticket, Math.Max(1, width - prefix.Length));
+            var badge = MergeSlotAgentBadge(mergeSlot, mergePositions, row.Name);
+            var badgeSuffix = badge is null ? string.Empty : "  " + badge;
+            // Reserve badge room in the ticket line so the merge marker never truncates away.
+            var headerWidth = Math.Max(1, width - prefix.Length - badgeSuffix.Length);
+            var headerLines = WrapCommentText(ticket, headerWidth);
             builder.Append(Color(stateColor, prefix));
             builder.Append(Color(Bold, headerLines.FirstOrDefault() ?? string.Empty));
+            if (badge is not null)
+            {
+                var headerText = headerLines.FirstOrDefault() ?? string.Empty;
+                builder.Append(new string(' ', Math.Max(1, headerWidth - headerText.Length)));
+                var holder = mergeSlot.IsHeld
+                    && string.Equals(mergeSlot.Holder, row.Name, StringComparison.Ordinal);
+                builder.Append(Color(holder ? Bold + Magenta : Yellow, badge));
+            }
+
             builder.Append("\u001b[K\n");
             foreach (var continuation in headerLines.Skip(1))
                 builder.Append(new string(' ', prefix.Length)).Append(continuation).Append("\u001b[K\n");
@@ -1185,6 +1231,51 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         }
     }
 
+    /// <summary>One-line merge-slot state for plain and verbose event output.</summary>
+    internal static string DescribeMergeSlot(MergeSlotStatus status)
+    {
+        var label = status.Id is null ? "merge slot" : $"merge slot {status.Id}";
+        if (!status.IsHeld)
+        {
+            return $"{label} available";
+        }
+
+        var queue = status.Queue.Count == 0
+            ? "queue empty"
+            : "queue " + string.Join(
+                ", ",
+                status.Queue.Select(static (name, index) => $"#{index + 1} {name}"));
+        return $"{label} held by {status.Holder} • {queue}";
+    }
+
+    /// <summary>Priority-ordered waiter positions, keeping each agent's best position.</summary>
+    internal static IReadOnlyDictionary<string, int> MergeQueuePositions(MergeSlotStatus status)
+    {
+        var positions = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var index = 0; index < status.Queue.Count; index++)
+        {
+            positions.TryAdd(status.Queue[index], index + 1);
+        }
+
+        return positions;
+    }
+
+    /// <summary>Inline merge marker for one agent's dashboard row, or null when uninvolved.</summary>
+    internal static string? MergeSlotAgentBadge(
+        MergeSlotStatus status,
+        IReadOnlyDictionary<string, int> positions,
+        string agentName)
+    {
+        if (status.IsHeld && string.Equals(status.Holder, agentName, StringComparison.Ordinal))
+        {
+            return "⇄ holding merge slot";
+        }
+
+        return positions.TryGetValue(agentName, out var position)
+            ? $"⇄ merge queue #{position}"
+            : null;
+    }
+
     internal static IReadOnlyList<string> FormatHeaderLines(int width, int agentCount,
         string model, string effort, bool effortIsRequested, bool claimingEnabled,
         string? session, string? window)
@@ -1227,12 +1318,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     {
         var idleWorkspace = row.Activity is not (AgentActivity.Preparing or AgentActivity.Working or AgentActivity.Finalizing);
         var dirty = idleWorkspace && row.IsDirty == true ? "DIRTY • " : string.Empty;
-        yield return $"{dirty}branch: {row.Branch ?? "unknown"}";
-        // Only surface the running harness settings while an agent process is actually hosted.
-        if (row.RunActive)
-        {
-            yield return $"effort {row.Effort ?? effort}{(effortIsRequested ? " (requested)" : "")} • model: {row.Model ?? model}";
-        }
+        // Branch, resolved model, and reasoning effort share one line, in that order.
+        yield return $"{dirty}branch: {row.Branch ?? "unknown"}"
+            + $" • model: {row.Model ?? model}"
+            + $" • effort {row.Effort ?? effort}{(effortIsRequested ? " (requested)" : "")}";
 
         var runParts = new List<string>();
         if (row.RunLocation is not null && row.Activity != AgentActivity.Working)

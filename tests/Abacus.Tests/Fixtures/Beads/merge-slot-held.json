@@ -1,0 +1,9 @@
+{
+  "available": false,
+  "holder": "alice",
+  "id": "abc-merge-slot",
+  "waiters": [
+    "bob",
+    "carol"
+  ]
+}

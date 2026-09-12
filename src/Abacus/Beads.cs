@@ -57,11 +57,66 @@ public sealed record BeadsComment(
     DateTimeOffset CreatedAt,
     bool NeedsUserAttention);
 
+/// <summary>
+/// Snapshot of the repository merge slot. Only the holder and queue observed while
+/// the slot is held are meaningful; Beads keeps stale waiter metadata after release.
+/// </summary>
+public sealed record MergeSlotStatus(
+    bool Exists,
+    string? Id,
+    string? Holder,
+    IReadOnlyList<string> Waiters)
+{
+    public static MergeSlotStatus NotConfigured { get; } = new(false, null, null, []);
+
+    public bool IsHeld => Exists && !string.IsNullOrWhiteSpace(Holder);
+
+    /// <summary>
+    /// Priority-ordered waiters, meaningful only while the slot is held. Beads keeps
+    /// the holder and released waiters in the metadata, so the queue drops the current
+    /// holder and repeats.
+    /// </summary>
+    public IReadOnlyList<string> Queue
+    {
+        get
+        {
+            if (!IsHeld)
+            {
+                return [];
+            }
+
+            var queue = new List<string>();
+            foreach (var waiter in Waiters)
+            {
+                if (!string.IsNullOrWhiteSpace(waiter)
+                    && !string.Equals(waiter, Holder, StringComparison.Ordinal)
+                    && !queue.Contains(waiter, StringComparer.Ordinal))
+                {
+                    queue.Add(waiter);
+                }
+            }
+
+            return queue;
+        }
+    }
+
+    // Polling rebuilds the waiter list each cycle, so compare it by value.
+    public bool Equals(MergeSlotStatus? other) =>
+        other is not null
+        && Exists == other.Exists
+        && string.Equals(Id, other.Id, StringComparison.Ordinal)
+        && string.Equals(Holder, other.Holder, StringComparison.Ordinal)
+        && Waiters.SequenceEqual(other.Waiters, StringComparer.Ordinal);
+
+    public override int GetHashCode() => HashCode.Combine(Exists, Id, Holder, Waiters.Count);
+}
+
 public sealed partial class Beads(CommandRunner runner, string executable = "bd")
 {
     private sealed record ReadyCandidate(BeadsIssue Issue, int? Priority, bool HasComments);
 
     private const string MergeSlotLabel = "gt:slot";
+    private const string MergeSlotActor = "abacus";
     public const string NeedsUserAttentionLabel = "abacus:needs-user-attention";
     public const string DisableNoGitOpsCommand = "bd config set no-git-ops false";
 
@@ -570,6 +625,52 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
         return ParseLatestComments(result.StandardOutput, count);
     }
 
+    public async Task<MergeSlotStatus> ReadMergeSlotStatusAsync(
+        string workspace,
+        string? agentName,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(
+            workspace,
+            agentName,
+            ["merge-slot", "check", "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(result, "check the Beads merge slot");
+        return ParseMergeSlotStatus(result.StandardOutput);
+    }
+
+    /// <summary>
+    /// Releases a merge slot that a dead harness left claimed. The holder is passed for
+    /// verification so a slot that changed hands since the last poll is never released.
+    /// </summary>
+    public Task<CommandResult> ReleaseMergeSlotAsync(
+        string workspace,
+        string holder,
+        CancellationToken cancellationToken) =>
+        RunWithActorAsync(
+            workspace,
+            MergeSlotActor,
+            ["merge-slot", "release", "--holder", holder, "--json"],
+            cancellationToken);
+
+    /// <summary>Replaces the stored merge-slot waiter queue, preserving unrelated metadata.</summary>
+    public Task<CommandResult> SetMergeSlotWaitersAsync(
+        string slotId,
+        string workspace,
+        IReadOnlyList<string> waiters,
+        CancellationToken cancellationToken)
+    {
+        var metadata = JsonSerializer.Serialize(new Dictionary<string, IReadOnlyList<string>>
+        {
+            ["waiters"] = waiters,
+        });
+        return RunWithActorAsync(
+            workspace,
+            MergeSlotActor,
+            ["update", slotId, "--metadata", metadata, "--json"],
+            cancellationToken);
+    }
+
     public Task<CommandResult> PullAsync(
         string workspace,
         string agentName,
@@ -997,6 +1098,63 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
         "closed" => IssueStatus.Closed,
         _ => IssueStatus.Unknown,
     };
+
+    internal static MergeSlotStatus ParseMergeSlotStatus(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            var id = root.TryGetProperty("id", out var idElement)
+                && idElement.ValueKind is JsonValueKind.String
+                ? idElement.GetString()
+                : null;
+            if (root.TryGetProperty("error", out var errorElement)
+                && errorElement.ValueKind is JsonValueKind.String)
+            {
+                var error = errorElement.GetString() ?? "unknown error";
+                return error.Equals("not found", StringComparison.OrdinalIgnoreCase)
+                    ? new MergeSlotStatus(false, id, Holder: null, [])
+                    : throw new BeadsException($"Beads merge-slot check failed: {error}");
+            }
+
+            if (!root.TryGetProperty("available", out var availableElement)
+                || availableElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                throw new BeadsException("Beads merge-slot check returned no availability value");
+            }
+
+            var holder = root.TryGetProperty("holder", out var holderElement)
+                && holderElement.ValueKind is JsonValueKind.String
+                ? holderElement.GetString()
+                : null;
+            var waiters = new List<string>();
+            if (root.TryGetProperty("waiters", out var waitersElement)
+                && waitersElement.ValueKind is JsonValueKind.Array)
+            {
+                foreach (var waiter in waitersElement.EnumerateArray())
+                {
+                    var name = waiter.ValueKind is JsonValueKind.String ? waiter.GetString() : null;
+                    // Beads appends waiters without de-duplicating, so keep the
+                    // first (highest-priority) position for a repeated name.
+                    if (!string.IsNullOrWhiteSpace(name) && !waiters.Contains(name, StringComparer.Ordinal))
+                    {
+                        waiters.Add(name);
+                    }
+                }
+            }
+
+            return new MergeSlotStatus(
+                Exists: true,
+                id,
+                Holder: string.IsNullOrWhiteSpace(holder) ? null : holder,
+                waiters);
+        }
+        catch (JsonException exception)
+        {
+            throw new BeadsException($"Beads returned invalid merge-slot JSON: {exception.Message}");
+        }
+    }
 
     private static void EnsureCommandSuccess(CommandResult result, string operation)
     {

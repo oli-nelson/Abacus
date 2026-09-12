@@ -106,7 +106,7 @@ public sealed class OutputTests
         var locationLine = frame.Split('\n').Single(line => line.Contains(location, StringComparison.Ordinal));
         Assert.Contains("WORKING", locationLine);
         Assert.DoesNotContain("↳", locationLine);
-        Assert.Equal(2, frame.Split("↳", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, frame.Split("↳", StringSplitOptions.None).Length - 1);
     }
 
     [Theory]
@@ -139,7 +139,7 @@ public sealed class OutputTests
     }
 
     [Fact]
-    public async Task DashboardShowsEffortAndModelOnlyWhileAnAgentProcessIsRunning()
+    public async Task DashboardShowsBranchModelAndEffortOnOneOrderedLine()
     {
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice"], "default-model", false,
@@ -149,24 +149,25 @@ public sealed class OutputTests
 
         await output.SetWorkspaceAsync("alice", "abacus/abc-1", false);
         await output.SetModelAsync("alice", "routed-model", "medium");
-        await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI running");
-        // WORKING alone does not prove a hosted process; the run must be registered.
-        Assert.DoesNotContain("effort medium • model: routed-model", Frame());
+        await output.SetAgentAsync("alice", AgentActivity.Idle, "No ready tickets");
+        // Every row reports branch, model, and reasoning effort on one line, in order.
+        Assert.Contains("branch: abacus/abc-1 • model: routed-model • effort medium", Frame());
         Assert.Equal(1, MetadataRows());
 
+        // A hosted process adds its location row without splitting the ordered line.
         await output.SetRunLocationAsync("alice", "pane %1");
-        Assert.Contains("effort medium • model: routed-model", Frame());
-        Assert.Equal(2, MetadataRows());
+        await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI running");
+        Assert.Contains("branch: abacus/abc-1 • model: routed-model • effort medium", Frame());
+        Assert.Equal(1, MetadataRows());
 
-        // Once the hosted process ends, the row stops advertising its harness settings
-        // and the default model is not re-advertised while the agent is idle.
+        // Clearing the ticket falls back to the run's default model and effort.
         await output.ClearRunAsync("alice");
-        await output.SetAgentAsync("alice", AgentActivity.Idle, "No ready tickets");
-        Assert.DoesNotContain("effort medium • model: routed-model", Frame());
-        Assert.DoesNotContain("effort high • model: default-model", Frame());
-        // The retained run location is still reported, but without harness settings.
-        Assert.Contains("pane %1", Frame());
-        Assert.Equal(2, MetadataRows());
+        await output.ClearTicketAsync("alice");
+        Assert.Contains("branch: abacus/abc-1 • model: default-model • effort high", Frame());
+
+        // An unreadable workspace reports an unknown branch beside the same settings.
+        await output.SetWorkspaceAsync("alice", null, null);
+        Assert.Contains("branch: unknown • model: default-model • effort high", Frame());
     }
 
     [Fact]
@@ -503,6 +504,103 @@ public sealed class OutputTests
     }
 
     [Fact]
+    public async Task MergeSlotHolderAndQueuePositionsAppearOnAgentRowsOnly()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice", "bob", "carol"],
+            "provider/model",
+            verbose: false,
+            interactive: true, terminalSize: () => (100, 24),
+            color: false);
+        await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI running");
+        await output.SetAgentAsync("bob", AgentActivity.Working, "abc-2 • agent CLI running");
+        // Beads keeps the acquiring agent in the waiter list, so alice is listed twice.
+        await SetActiveMergeSlotAsync(output, "alice", "alice", "bob", "carol");
+
+        var frame = writer.ToString().Split("\u001b[H")[^1];
+        Assert.Contains("holding merge slot", RowContaining(frame, "alice"), StringComparison.Ordinal);
+        Assert.Contains("merge queue #1", RowContaining(frame, "bob"), StringComparison.Ordinal);
+        Assert.Contains("merge queue #2", RowContaining(frame, "carol"), StringComparison.Ordinal);
+        // Ownership lives on the agent entries; there is no separate merge-slot panel.
+        Assert.DoesNotContain("MERGE SLOT", frame, StringComparison.Ordinal);
+
+        // Releasing the slot clears every row marker, even while Beads keeps its
+        // stale waiter metadata.
+        await output.SetMergeSlotAsync(new MergeSlotStatus(
+            Exists: true, "abc-merge-slot", Holder: null, ["bob", "carol"]));
+        frame = writer.ToString().Split("\u001b[H")[^1];
+        Assert.DoesNotContain("merge slot", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("merge queue", frame, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MergeSlotWaitersWithoutAMatchingAgentRowAreNotDisplayed()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: false,
+            interactive: true, terminalSize: () => (100, 24),
+            color: false);
+        await SetActiveMergeSlotAsync(output, "alice", "remote-agent");
+
+        var frame = writer.ToString().Split("\u001b[H")[^1];
+        Assert.Contains("holding merge slot", RowContaining(frame, "alice"), StringComparison.Ordinal);
+        Assert.DoesNotContain("remote-agent", frame, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MissingMergeSlotLeavesTheDashboardUnchanged()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: false,
+            interactive: true, terminalSize: () => (100, 24),
+            color: false);
+        await output.SetMergeSlotAsync(MergeSlotStatus.NotConfigured);
+
+        var frame = writer.ToString().Split("\u001b[H")[^1];
+        Assert.Contains("alice", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("merge", frame, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RedirectedOutputReportsMergeSlotTransitions()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(
+            writer,
+            ["alice"],
+            "provider/model",
+            verbose: false,
+            interactive: false,
+            color: false);
+
+        await output.SetMergeSlotAsync(MergeSlotStatus.NotConfigured);
+        Assert.DoesNotContain("merge slot", writer.ToString(), StringComparison.Ordinal);
+
+        await SetActiveMergeSlotAsync(output, "alice", "bob");
+        await SetActiveMergeSlotAsync(output, "alice", "bob");
+        await output.SetMergeSlotAsync(new MergeSlotStatus(
+            Exists: true, "abc-merge-slot", Holder: null, ["bob"]));
+
+        var lines = writer.ToString()
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(static line => line.Contains("merge slot", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(2, lines.Length);
+        Assert.Contains("held by alice • queue #1 bob", lines[0], StringComparison.Ordinal);
+        Assert.Contains("available", lines[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task EnterOnSelectedCommentShowsItsCompleteWrappedText()
     {
         var writer = new StringWriter();
@@ -680,6 +778,16 @@ public sealed class OutputTests
         string text,
         bool attention = false) =>
         new(id, issueId, title, author, text, DateTimeOffset.Parse("2026-09-02T12:00:00Z"), attention);
+
+    private static Task SetActiveMergeSlotAsync(
+        ConsoleOutput output,
+        string holder,
+        params string[] waiters) =>
+        output.SetMergeSlotAsync(new MergeSlotStatus(
+            Exists: true, "abc-merge-slot", holder, waiters));
+
+    private static string RowContaining(string frame, string agentName) =>
+        frame.Split('\n').First(line => line.Contains($" {agentName} ", StringComparison.Ordinal));
 
     private static ConsoleKeyInfo Key(ConsoleKey key, char character = '\0') =>
         new(character, key, shift: false, alt: false, control: false);

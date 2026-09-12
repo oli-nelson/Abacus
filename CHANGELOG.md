@@ -8,6 +8,8 @@ Unreleased section. Released versions are listed newest first.
 
 ### Added
 
+- Show Beads merge-slot ownership on the live dashboard's agent rows: the holder
+  is marked and every waiting agent shows its position in the queue.
 - Add `abacus info` for a concise read-only overview of Git state and worktrees,
   Beads/Dolt identity and commits, ticket counts, and project routing policy.
 - Add `--extra-args` and repeatable `--reasoning-args <tier>` (or the saved
@@ -19,10 +21,10 @@ Unreleased section. Released versions are listed newest first.
 
 ### Changed
 
-- Show an agent's model/effort line on the dashboard only while that agent has a
-  running agent process. Idle, waiting, paused, and stopped rows no longer
-  display harness settings the run is not currently using; the compact header
-  still reports the run's default model/effort.
+- Report each agent's branch, model, and reasoning effort on one dashboard
+  metadata line, in that order. Every row shows the settings it is using or
+  would use instead of hiding them between tickets; the compact header still
+  reports the run's default model/effort.
 - **Breaking:** Configure reasoning effort by appending `#effort` to `--model`
   and `--reasoning-model` values. The separate `--effort`, `reasoningEfforts`,
   and saved `effort` settings are removed; combine them into model strings such
@@ -34,6 +36,10 @@ Unreleased section. Released versions are listed newest first.
 
 ### Fixed
 
+- Reclaim merge slots and waiter entries that name one of the run's agents while
+  that agent has no running harness. A crashed, stopped, or exited agent can no
+  longer leave the merge slot claimed forever and block every other agent;
+  ownership belonging to other agents is left untouched.
 - Stop telling agents to wait for the Beads merge slot with a shell retry loop.
   The agent prompt now requires harness-native waiting and forbids shell retry
   loops and background or detached processes, which could otherwise keep

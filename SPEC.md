@@ -411,13 +411,24 @@ With no tmux-related option, each OpenCode Server agent starts as a directly sup
 Server attachment requires explicit `--mode opencode-server` with `--opencode-server <host:port>`; the address alone never changes modes. With no tmux-related option, this mode remains directly hosted. Supplying `--tmux-session`, `--tmux-window`, `--tmux-layout`, or `--disown-tmux-session` requests pane hosting; an omitted session then uses the repository-derived default. The server option is rejected for all other explicit modes.
 
 The dashboard header shows the default model and reasoning effort; each agent row
-shows its ticket-resolved model/effort and actual checked-out branch (or detached
-commit). A read-only Git snapshot refreshes approximately every five seconds,
+reports its actual checked-out branch (or detached commit), its resolved model,
+and its reasoning effort together on one metadata line, in that order. A
+read-only Git snapshot refreshes approximately every five seconds,
 including paused/stopped agents. Show a DIRTY marker for tracked or untracked
 changes outside Preparing, Working, and Finalizing. Failed reads clear stale
 branch/dirty data to unknown. OpenCode TUI effort is labelled requested, since
 that harness does not expose CLI effort selection. Workspace/model snapshots
 also appear as additive fields in structured agent.state events.
+
+While the repository merge slot is held, the holder's agent row is marked as
+holding it and every row for a configured agent in the waiter queue shows that
+agent's queue position. Merge-slot ownership appears only on agent entries. That
+snapshot refreshes in the same periodic monitoring cycle as user-attention
+detection, using read-only `bd merge-slot check`. Because a harness that is gone
+can neither hold nor wait for a merge, Abacus releases a slot and prunes queue
+entries that name one of its configured agents while that agent has no running
+harness, leaves ownership held by any other agent alone, and reports each
+reclamation as a dashboard warning.
 
 By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, paused, waiting, idle, syncing, preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. For pane-hosted runs, the dashboard also shows the resolved tmux session and window names so the operator can attach from another shell. The dashboard starts with new ticket claims enabled unless `--start-paused` is supplied; in that case its header shows claims paused from the first frame. Pressing Shift-Tab toggles new claims on or off for all agents; pausing does not interrupt tickets that are already active. The header shows the current claim state, and agents waiting for permission display a paused state. The up and down arrows select agent and latest-comment rows. Enter opens the selected agent's action panel or the selected comment's complete detail view; long comments scroll with the arrow or Page Up and Page Down keys, and Escape returns to the dashboard. Stop interrupts that agent's hosted process, keeps its current ticket reserved, and parks the loop. Restart interrupts an active process when necessary and relaunches the reserved ticket, or resumes a parked or idle loop. Clean Workspace requires explicit confirmation, safely reopens any active ticket, runs `git reset --hard` followed by `git clean -fd`, and leaves the agent parked until Restart. A successful clean clears that agent's persistent recovery alert. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. Warnings remain visible in the dashboard, and idle states are visually distinct from failures. `--verbose` (also accepted as `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
 

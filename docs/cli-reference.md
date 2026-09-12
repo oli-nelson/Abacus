@@ -415,6 +415,14 @@ persistent recovery failures. `all` also reports every outcome and the final
 summary. Notification delivery is best effort and never changes orchestration
 results. See [Operations](operations.md#desktop-notifications).
 
+The dashboard also tracks the repository merge slot. While it is held, the
+holder's agent row is marked and waiting agents show their queue position; the
+agent rows are the only merge-slot display. Because a harness that is gone can
+neither hold nor wait for a merge, Abacus releases a slot and prunes queue
+entries naming one of its configured agents while that agent has no running
+harness, leaves ownership held by any other agent alone, and reports each
+reclamation as a warning.
+
 ### Execution length
 
 | Option | Behavior |

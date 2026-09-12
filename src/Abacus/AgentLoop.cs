@@ -535,11 +535,13 @@ public sealed class AgentLoop(
     TextWriter log,
     Git git,
     AgentControl agentControl,
+    AgentRunRegistry? agentRuns = null,
     DesktopNotifier? notifier = null,
     IReadOnlyList<string>? defaultArguments = null)
 {
     private readonly AgentControl control = agentControl;
     private readonly Git workspaceGit = git;
+    private readonly AgentRunRegistry runs = agentRuns ?? new AgentRunRegistry();
     private readonly IReadOnlyList<string> extraArguments = defaultArguments ?? AgentArguments.Empty;
     private BeadsIssue? suspendedIssue;
 
@@ -702,6 +704,7 @@ public sealed class AgentLoop(
                 }
 
                 await log.SetRunLocationAsync(agent.Name, run.Location);
+                runs.MarkRunning(agent.Name);
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Working,
@@ -721,7 +724,9 @@ public sealed class AgentLoop(
                 finally
                 {
                     // The hosted agent process is gone once supervision ends, so stop
-                    // advertising its model and effort on the dashboard row.
+                    // advertising its model and effort, and let the merge-slot reclaimer
+                    // free any slot this harness left claimed.
+                    runs.MarkStopped(agent.Name);
                     await log.ClearRunAsync(agent.Name);
                 }
 

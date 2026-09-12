@@ -138,4 +138,84 @@ public sealed class BeadsFixtureTests
             root.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public void HeldMergeSlotFixtureCarriesHolderAndPriorityQueue()
+    {
+        var status = Beads.ParseMergeSlotStatus(Fixture("merge-slot-held.json"));
+
+        Assert.True(status.Exists);
+        Assert.Equal("abc-merge-slot", status.Id);
+        Assert.Equal("alice", status.Holder);
+        Assert.True(status.IsHeld);
+        Assert.Equal(["bob", "carol"], status.Queue);
+    }
+
+    [Fact]
+    public void AvailableMergeSlotIgnoresStaleWaiterMetadata()
+    {
+        var status = Beads.ParseMergeSlotStatus(Fixture("merge-slot-open.json"));
+
+        Assert.True(status.Exists);
+        Assert.False(status.IsHeld);
+        Assert.Empty(status.Queue);
+    }
+
+    [Fact]
+    public void MissingMergeSlotIsReportedWithoutAnError()
+    {
+        var status = Beads.ParseMergeSlotStatus(Fixture("merge-slot-none.json"));
+
+        Assert.False(status.Exists);
+        Assert.False(status.IsHeld);
+        Assert.Empty(status.Queue);
+    }
+
+    [Fact]
+    public void RepeatedWaitersKeepTheirHighestPriorityPositionAndUnknownErrorsFail()
+    {
+        var status = Beads.ParseMergeSlotStatus(
+            """{"available":false,"holder":"alice","id":"abc-merge-slot","waiters":["bob","bob","carol"]}""");
+        Assert.Equal(["bob", "carol"], status.Queue);
+
+        var failure = Assert.Throws<BeadsException>(() => Beads.ParseMergeSlotStatus(
+            """{"available":false,"error":"database unreachable","id":"abc-merge-slot"}"""));
+        Assert.Contains("database unreachable", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MergeSlotStatusUsesBeadsMergeSlotCheck()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-merge-slot-");
+        try
+        {
+            var script = Path.Combine(root.FullName, "bd");
+            await File.WriteAllTextAsync(script, """
+                #!/bin/sh
+                printf '%s\n' "$*" > "$PWD/calls"
+                printf '%s\n' '{"available":false,"holder":"alice","id":"abc-merge-slot","waiters":["bob"]}'
+                """);
+            File.SetUnixFileMode(
+                script,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var status = await new Beads(new CommandRunner(TextWriter.Null), script)
+                .ReadMergeSlotStatusAsync(root.FullName, "alice", CancellationToken.None);
+
+            Assert.Equal("alice", status.Holder);
+            Assert.Equal(["bob"], status.Queue);
+            Assert.Equal(
+                "merge-slot check --json",
+                (await File.ReadAllTextAsync(Path.Combine(root.FullName, "calls"))).Trim());
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
 }

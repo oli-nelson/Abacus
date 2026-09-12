@@ -77,13 +77,13 @@ The compact header places run status and default model/effort side by side when
 space permits. Keyboard hints share one row, or share the tmux row on wider
 terminals. Narrow layouts use bounded fallback rows and ellipsize long names
 rather than wrapping them across several lines.
-Each agent also shows
-its actual checked-out branch, or `detached@<commit>`. The row's model/effort
-line (including ticket-specific reasoning routing) appears only while that agent
-hosts a running agent process, and disappears once the process ends, so idle,
-waiting, paused, and stopped rows are not labelled with harness settings the run
-is no longer using. The compact header always reports the run's default
-model/effort. Read-only Git snapshots refresh roughly
+Each agent reports three ordered facts on one metadata line: its actual
+checked-out branch (or `detached@<commit>`), the model it is using or would use,
+and that model's reasoning effort — `branch: … • model: … • effort …`. Every
+row reports them, including idle, waiting, paused, and stopped rows, so a
+ticket-resolved model stays visible while the agent merges and falls back to the
+run's default once the ticket ends. The compact header always reports the run's
+default model/effort. Read-only Git snapshots refresh roughly
 every five seconds, including paused and stopped agents. `DIRTY` appears beside
 the branch outside preparation, active work, and finalization; it includes tracked
 and untracked changes. An unavailable snapshot shows `branch: unknown`, not stale
@@ -139,6 +139,25 @@ Header colors provide quick attribution:
 Change the count with `--latest-comments <1-100>`. The comment snapshot is
 read-only. If refresh fails, Abacus keeps the previous snapshot and emits a
 deduplicated warning.
+
+### Merge slot
+
+When the repository configures a Beads merge slot, the dashboard shows who owns
+it. The holding agent's row is marked `⇄ holding merge slot`, every agent in the
+waiter queue shows `⇄ merge queue #<position>`, and nothing else is drawn, so
+ownership is read straight from the agent rows. Waiters that belong to another
+machine or run hold a queue position but have no row to mark, so they are not
+displayed. The slot is refreshed every five seconds with read-only
+`bd merge-slot check`.
+
+A harness that is gone can neither hold nor wait for a merge, so Abacus releases
+a slot and prunes queue entries that name one of its configured agents while that
+agent has no running agent process. This frees a slot stranded by a crashed,
+stopped, or exited harness instead of blocking every other agent. Ownership held
+by an agent this run does not host is never touched, and each reclamation is
+reported as a warning. Beads itself never removes waiters, so Abacus also drops
+the current holder from the stored queue and keeps each agent at its best
+position.
 
 ### Logs instead of a dashboard
 

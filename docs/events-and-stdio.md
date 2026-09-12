@@ -65,7 +65,7 @@ correlate results. IDs are echoed, not persisted or deduplicated.
 
 | Command | Behavior |
 | --- | --- |
-| `status` | Returns claim permission, full agent rows, the resolved tmux target when pane-hosted, current attention issues, persistent alerts, recent comments, and recent warnings. |
+| `status` | Returns claim permission, full agent rows, the resolved tmux target when pane-hosted, current attention issues, persistent alerts, recent comments, the merge slot, and recent warnings. |
 | `pause` / `resume` | Disable/enable new claims; active tickets continue. |
 | `stop` | Interrupt the named agent, retain its ticket reservation, and park its loop. |
 | `restart` | Interrupt/relaunch the reserved ticket or resume the parked loop. |
@@ -76,12 +76,13 @@ Responses are `control.result` events with `data.id`, `data.command`, and
 `data.ok`. Failures include `data.error`; status succeeds with `data.status`.
 Agent rows include `branch`, nullable `isDirty`, `model`, `effort`, and `runActive`.
 Workspace fields refresh roughly every five seconds and become null when a read
-fails. `runActive` is true only while that agent hosts a running agent process;
-the dashboard shows the row's `model`/`effort` line only then, while the event
-stream always carries both fields. Model/effort describe the current launch
+fails. `runActive` is true only while that agent hosts a running agent process.
+The dashboard shows each row's `branch`, `model`, and `effort` on one metadata
+line whether or not a process is running. Model/effort describe the current launch
 selection, reverting to defaults when the ticket is cleared. OpenCode TUI effort
 is requested, not confirmed by that harness. These fields are also included in
-`agent.state` events.
+`agent.state` events. `status` also carries `mergeSlot` with `exists`, `id`,
+`holder`, and `waiters`, matching the dashboard's merge-slot markers.
 Malformed input may have a null ID/command. Unknown commands/agents, duplicate or
 unexpected properties, missing fields, unconfirmed cleanup, and oversized lines
 (over 65,536 characters) fail without terminating the session. A pending agent

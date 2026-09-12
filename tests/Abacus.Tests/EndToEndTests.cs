@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using Abacus;
 
 namespace Abacus.Tests;
@@ -238,6 +239,76 @@ public sealed partial class EndToEndTests
         }
         finally
         {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AbandonedMergeSlotClaimIsReleasedWithoutARunningHarness()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-merge-slot-");
+        Process? process = null;
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+            // No ready ticket, so no agent harness ever runs during this test.
+            await File.WriteAllTextAsync(Path.Combine(root.FullName, "claimed"), string.Empty);
+            await File.WriteAllTextAsync(
+                Path.Combine(root.FullName, "merge-slot"),
+                """{"available":false,"holder":"alice","id":"abc-merge-slot","waiters":["alice","bob"]}""");
+
+            var startInfo = DirectStartInfo(root.FullName, bin, workspace, executionOption: null);
+            process = Process.Start(startInfo)!;
+            var errorText = new StringBuilder();
+            var stderr = DrainAsync(process.StandardError, errorText);
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            string Errors()
+            {
+                lock (errorText)
+                {
+                    return errorText.ToString();
+                }
+            }
+
+            using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            while (!Errors().Contains("no running harness", StringComparison.Ordinal))
+            {
+                await Task.Delay(20, wait.Token);
+            }
+
+            await RunAsync("/bin/kill", "-INT", process.Id.ToString());
+            await process.WaitForExitAsync(wait.Token);
+            await stderr;
+            var calls = await File.ReadAllTextAsync(
+                Path.Combine(root.FullName, "bd-calls"),
+                wait.Token);
+            Assert.Contains("merge-slot release --holder alice --json", calls, StringComparison.Ordinal);
+            Assert.Contains(
+                """update abc-merge-slot --metadata {"waiters":["bob"]} --json""",
+                calls,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "released the Beads merge slot held by alice, which has no running harness",
+                Errors(),
+                StringComparison.Ordinal);
+            Assert.Empty(await stdout);
+        }
+        finally
+        {
+            if (process is { HasExited: false })
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+
+            process?.Dispose();
             root.Delete(recursive: true);
         }
     }
@@ -550,6 +621,11 @@ public sealed partial class EndToEndTests
               else
                 printf '[]\n'
               fi
+            elif test "$1" = merge-slot && test "$2" = check; then
+              if test -f "$root/merge-slot"; then cat "$root/merge-slot"; else printf '{"available":false,"error":"not found","id":"abc-merge-slot"}\n'; fi
+            elif test "$1" = merge-slot && test "$2" = release; then
+              rm -f "$root/merge-slot"
+              printf '{"id":"abc-merge-slot","released":true}\n'
             elif test "$1" = list; then
               printf '[]\n'
             elif test "$1" = show; then
@@ -566,7 +642,9 @@ public sealed partial class EndToEndTests
                 printf '[{"id":"abc-1","title":"Implement remote control","status":"%s","assignee":"%s","labels":%s,"metadata":{"abacus_target":"main"%s}}]\n' "$status" "$assignee" "$labels" "$binding"
               fi
             elif test "$1" = update; then
-              if test "$3" = --claim; then
+              if test "$2" = abc-merge-slot; then
+                printf '[]\n'
+              elif test "$3" = --claim; then
                 touch "$root/claimed"; printf 'in_progress' > "$root/status"
                 printf '[{"id":"abc-1","title":"Implement remote control","status":"in_progress"}]\n'
               elif test "$3" = --metadata; then
@@ -702,6 +780,24 @@ public sealed partial class EndToEndTests
         while (!File.Exists(path))
         {
             await Task.Delay(20, cancellation.Token);
+        }
+    }
+
+    private static async Task DrainAsync(StreamReader reader, StringBuilder target)
+    {
+        var buffer = new char[1024];
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer);
+            if (read == 0)
+            {
+                return;
+            }
+
+            lock (target)
+            {
+                target.Append(buffer, 0, read);
+            }
         }
     }
 
