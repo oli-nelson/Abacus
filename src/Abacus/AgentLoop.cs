@@ -708,12 +708,21 @@ public sealed class AgentLoop(
                     $"{claim.Issue.Id} • agent CLI running");
                 try
                 {
-                    await supervisor.SuperviseAsync(agent, claim.Issue, run, cancellationToken);
+                    try
+                    {
+                        await supervisor.SuperviseAsync(agent, claim.Issue, run, cancellationToken);
+                    }
+                    catch (OperationCanceledException) when (control.ShouldPreserveClaimOnInterruption)
+                    {
+                        suspendedIssue = claim.Issue;
+                        throw;
+                    }
                 }
-                catch (OperationCanceledException) when (control.ShouldPreserveClaimOnInterruption)
+                finally
                 {
-                    suspendedIssue = claim.Issue;
-                    throw;
+                    // The hosted agent process is gone once supervision ends, so stop
+                    // advertising its model and effort on the dashboard row.
+                    await log.ClearRunAsync(agent.Name);
                 }
 
                 await log.SetAgentAsync(

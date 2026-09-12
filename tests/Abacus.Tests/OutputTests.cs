@@ -116,7 +116,7 @@ public sealed class OutputTests
     [InlineData(AgentActivity.Working, false)]
     [InlineData(AgentActivity.Preparing, false)]
     [InlineData(AgentActivity.Finalizing, false)]
-    public async Task DashboardShowsBranchAndModelEffortWithDirtyMarkerOnlyOutsideActiveWork(
+    public async Task DashboardShowsDirtyMarkerOnlyOutsideActiveWork(
         AgentActivity activity, bool showDirty)
     {
         var writer = new StringWriter();
@@ -129,7 +129,6 @@ public sealed class OutputTests
         var frame = writer.ToString().Split("\u001b[H")[^1];
         Assert.Contains("Default model: default-model • effort high", frame);
         Assert.Contains("branch: abacus/abc-1", frame);
-        Assert.Contains("effort medium • model: routed-model", frame);
         Assert.Equal(showDirty, frame.Contains("DIRTY", StringComparison.Ordinal));
         await output.SetWorkspaceAsync("alice", null, null);
         await output.ClearTicketAsync("alice");
@@ -137,7 +136,37 @@ public sealed class OutputTests
         Assert.Contains("branch: unknown", frame);
         Assert.DoesNotContain("DIRTY", frame);
         Assert.DoesNotContain("routed-model", frame);
-        Assert.Contains("effort high • model: default-model", frame);
+    }
+
+    [Fact]
+    public async Task DashboardShowsEffortAndModelOnlyWhileAnAgentProcessIsRunning()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "default-model", false,
+            interactive: true, terminalSize: () => (100, 24), color: false, effort: "high");
+        string Frame() => writer.ToString().Split("\u001b[H")[^1];
+        int MetadataRows() => Frame().Split("↳", StringSplitOptions.None).Length - 1;
+
+        await output.SetWorkspaceAsync("alice", "abacus/abc-1", false);
+        await output.SetModelAsync("alice", "routed-model", "medium");
+        await output.SetAgentAsync("alice", AgentActivity.Working, "abc-1 • agent CLI running");
+        // WORKING alone does not prove a hosted process; the run must be registered.
+        Assert.DoesNotContain("effort medium • model: routed-model", Frame());
+        Assert.Equal(1, MetadataRows());
+
+        await output.SetRunLocationAsync("alice", "pane %1");
+        Assert.Contains("effort medium • model: routed-model", Frame());
+        Assert.Equal(2, MetadataRows());
+
+        // Once the hosted process ends, the row stops advertising its harness settings
+        // and the default model is not re-advertised while the agent is idle.
+        await output.ClearRunAsync("alice");
+        await output.SetAgentAsync("alice", AgentActivity.Idle, "No ready tickets");
+        Assert.DoesNotContain("effort medium • model: routed-model", Frame());
+        Assert.DoesNotContain("effort high • model: default-model", Frame());
+        // The retained run location is still reported, but without harness settings.
+        Assert.Contains("pane %1", Frame());
+        Assert.Equal(2, MetadataRows());
     }
 
     [Fact]
@@ -147,6 +176,7 @@ public sealed class OutputTests
         using var output = new ConsoleOutput(writer, ["alice"], "provider/model", false,
             interactive: true, terminalSize: () => (100, 24), color: false, effort: "high", effortIsRequested: true);
         await output.SetModelAsync("alice", "provider/routed", "high");
+        await output.SetRunLocationAsync("alice", "pane %1");
         Assert.Contains("effort high (requested)", writer.ToString());
     }
 

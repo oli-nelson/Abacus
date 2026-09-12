@@ -19,6 +19,10 @@ Unreleased section. Released versions are listed newest first.
 
 ### Changed
 
+- Show an agent's model/effort line on the dashboard only while that agent has a
+  running agent process. Idle, waiting, paused, and stopped rows no longer
+  display harness settings the run is not currently using; the compact header
+  still reports the run's default model/effort.
 - **Breaking:** Configure reasoning effort by appending `#effort` to `--model`
   and `--reasoning-model` values. The separate `--effort`, `reasoningEfforts`,
   and saved `effort` settings are removed; combine them into model strings such

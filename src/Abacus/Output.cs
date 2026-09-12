@@ -29,6 +29,7 @@ internal interface IAgentOutput
     Task ClearPersistentAlertAsync(string source);
     Task ClearTicketAsync(string agentName);
     Task SetRunLocationAsync(string agentName, string location);
+    Task ClearRunAsync(string agentName);
     Task SetLastExitCodeAsync(string agentName, int? exitCode);
     Task SetTmuxTargetAsync(string sessionName, string windowName);
     Task WarningAsync(string source, string message);
@@ -106,6 +107,11 @@ internal static class OutputExtensions
     public static Task SetRunLocationAsync(this TextWriter output, string agentName, string location) =>
         output is IAgentOutput agentOutput
             ? agentOutput.SetRunLocationAsync(agentName, location)
+            : Task.CompletedTask;
+
+    public static Task ClearRunAsync(this TextWriter output, string agentName) =>
+        output is IAgentOutput agentOutput
+            ? agentOutput.ClearRunAsync(agentName)
             : Task.CompletedTask;
 
     public static Task SetLastExitCodeAsync(this TextWriter output, string agentName, int? exitCode) =>
@@ -404,6 +410,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             IssueId = issueId,
             TicketTitle = title,
             RunLocation = null,
+            RunActive = false,
             RetryCount = 0,
         });
 
@@ -512,6 +519,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             IssueId = null,
             TicketTitle = null,
             RunLocation = null,
+            RunActive = false,
             Model = model,
             Effort = effort,
         });
@@ -520,9 +528,13 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         UpdateRowAsync(agentName, row => row with
         {
             RunLocation = location,
+            RunActive = true,
             LastExitCode = null,
             HasExitObservation = false,
         });
+
+    public Task ClearRunAsync(string agentName) =>
+        UpdateRowAsync(agentName, row => row with { RunActive = false });
 
     public Task SetLastExitCodeAsync(string agentName, int? exitCode) =>
         UpdateRowAsync(agentName, row => row with
@@ -1216,7 +1228,12 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         var idleWorkspace = row.Activity is not (AgentActivity.Preparing or AgentActivity.Working or AgentActivity.Finalizing);
         var dirty = idleWorkspace && row.IsDirty == true ? "DIRTY • " : string.Empty;
         yield return $"{dirty}branch: {row.Branch ?? "unknown"}";
-        yield return $"effort {row.Effort ?? effort}{(effortIsRequested ? " (requested)" : "")} • model: {row.Model ?? model}";
+        // Only surface the running harness settings while an agent process is actually hosted.
+        if (row.RunActive)
+        {
+            yield return $"effort {row.Effort ?? effort}{(effortIsRequested ? " (requested)" : "")} • model: {row.Model ?? model}";
+        }
+
         var runParts = new List<string>();
         if (row.RunLocation is not null && row.Activity != AgentActivity.Working)
         {
@@ -1394,7 +1411,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         string? Branch = null,
         bool? IsDirty = null,
         string? Model = null,
-        string? Effort = null)
+        string? Effort = null,
+        bool RunActive = false)
     {
         public static AgentRow Create(string name, string? workspacePath = null) => new(
             name,

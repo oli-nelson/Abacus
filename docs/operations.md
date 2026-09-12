@@ -78,8 +78,12 @@ space permits. Keyboard hints share one row, or share the tmux row on wider
 terminals. Narrow layouts use bounded fallback rows and ellipsize long names
 rather than wrapping them across several lines.
 Each agent also shows
-its current model/effort (including ticket-specific reasoning routing) and its actual
-checked-out branch, or `detached@<commit>`. Read-only Git snapshots refresh roughly
+its actual checked-out branch, or `detached@<commit>`. The row's model/effort
+line (including ticket-specific reasoning routing) appears only while that agent
+hosts a running agent process, and disappears once the process ends, so idle,
+waiting, paused, and stopped rows are not labelled with harness settings the run
+is no longer using. The compact header always reports the run's default
+model/effort. Read-only Git snapshots refresh roughly
 every five seconds, including paused and stopped agents. `DIRTY` appears beside
 the branch outside preparation, active work, and finalization; it includes tracked
 and untracked changes. An unavailable snapshot shows `branch: unknown`, not stale

@@ -74,11 +74,14 @@ correlate results. IDs are echoed, not persisted or deduplicated.
 
 Responses are `control.result` events with `data.id`, `data.command`, and
 `data.ok`. Failures include `data.error`; status succeeds with `data.status`.
-Agent rows include `branch`, nullable `isDirty`, `model`, and `effort`. Workspace
-fields refresh roughly every five seconds and become null when a read fails.
-Model/effort describe the current launch selection, reverting to defaults when
-the ticket is cleared. OpenCode TUI effort is requested, not confirmed by that
-harness. These fields are also included in `agent.state` events.
+Agent rows include `branch`, nullable `isDirty`, `model`, `effort`, and `runActive`.
+Workspace fields refresh roughly every five seconds and become null when a read
+fails. `runActive` is true only while that agent hosts a running agent process;
+the dashboard shows the row's `model`/`effort` line only then, while the event
+stream always carries both fields. Model/effort describe the current launch
+selection, reverting to defaults when the ticket is cleared. OpenCode TUI effort
+is requested, not confirmed by that harness. These fields are also included in
+`agent.state` events.
 Malformed input may have a null ID/command. Unknown commands/agents, duplicate or
 unexpected properties, missing fields, unconfirmed cleanup, and oversized lines
 (over 65,536 characters) fail without terminating the session. A pending agent
@@ -113,7 +116,7 @@ inside strings are JSON-escaped. Consumers should ignore unknown types/fields.
 | `run.starting` | Parsed default model/effort, reasoning model/effort mappings, default and per-tier extra harness arguments, harness mode, execution mode, configured agents |
 | `system`, `warning` | Message; warnings also include source |
 | `command` | Source and subprocess command diagnostic (including exit diagnostics); independent of `--verbose` |
-| `agent.state` | Full row: name, activity, detail, changedAt, issueId, ticketTitle, runLocation, workspacePath, lastExitCode, hasExitObservation, retryCount |
+| `agent.state` | Full row: name, activity, detail, changedAt, issueId, ticketTitle, runLocation, workspacePath, lastExitCode, hasExitObservation, retryCount, branch, isDirty, model, effort, runActive |
 | `tmux.target` | Resolved session and window names for a pane-hosted run |
 | `claims.changed` | `enabled` |
 | `attention.changed`, `comments.changed` | Replacement `issues` / `comments` arrays (empty clears them) |
