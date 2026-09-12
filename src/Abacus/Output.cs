@@ -188,6 +188,11 @@ internal static class OutputExtensions
 
 public sealed class ConsoleOutput : TextWriter, IAgentOutput
 {
+    /// <summary>A notice is only useful while its condition is current; stale rows are noise.</summary>
+    private static readonly TimeSpan DefaultAlertLifetime = TimeSpan.FromMinutes(1);
+    private const int MaximumTransientAlerts = 3;
+    private const int MinimumAlertLines = 3;
+    private const int MaximumAlertLines = 8;
     private const string Reset = "\u001b[0m";
     private const string Bold = "\u001b[1m";
     private const string Dim = "\u001b[2m";
@@ -208,8 +213,9 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private readonly string effort;
     private readonly bool effortIsRequested;
     private readonly Dictionary<string, AgentRow> agents;
-    private readonly Queue<string> warnings = new();
+    private readonly List<TransientAlert> transientAlerts = [];
     private readonly Dictionary<string, string> persistentAlerts = new(StringComparer.Ordinal);
+    private readonly TimeSpan alertLifetime;
     private IReadOnlyList<BeadsIssue> userAttentionIssues = [];
     private IReadOnlyList<BeadsComment> latestComments = [];
     private MergeSlotStatus mergeSlot = MergeSlotStatus.NotConfigured;
@@ -239,10 +245,12 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         bool startPaused = false,
         string effort = "high",
         bool effortIsRequested = false,
-        Func<(int Width, int Height)>? terminalSize = null)
+        Func<(int Width, int Height)>? terminalSize = null,
+        TimeSpan? alertLifetime = null)
     {
         this.writer = writer;
         this.terminalSize = terminalSize;
+        this.alertLifetime = alertLifetime ?? DefaultAlertLifetime;
         Events = events;
         claimingEnabled = !startPaused;
         this.verbose = verbose;
@@ -466,6 +474,13 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             var changed = !persistentAlerts.TryGetValue(source, out var current)
                 || !string.Equals(current, message, StringComparison.Ordinal);
             persistentAlerts[source] = message;
+            // The persistent alert now carries this condition, so drop its duplicate notice.
+            transientAlerts.RemoveAll(alert =>
+                string.Equals(alert.Source, source, StringComparison.Ordinal)
+                && string.Equals(
+                    alert.Message,
+                    NormalizeAlertMessage(source, message),
+                    StringComparison.Ordinal));
             if (changed) Events?.Emit("alert.raised", new { source, message });
             if (interactive)
             {
@@ -484,7 +499,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     {
         lock (gate)
         {
-            if (persistentAlerts.Remove(source))
+            var cleared = persistentAlerts.Remove(source);
+            // The condition is over, so this source's transient notices are stale too.
+            var clearedAlerts = transientAlerts.RemoveAll(alert =>
+                string.Equals(alert.Source, source, StringComparison.Ordinal)) > 0;
+            if (cleared || clearedAlerts)
             {
                 Events?.Emit("alert.cleared", new { source });
                 if (interactive) RenderDashboard();
@@ -599,13 +618,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     {
         lock (gate)
         {
-            if (warnings.Count == 3)
-            {
-                warnings.Dequeue();
-            }
-
             Events?.Emit("warning", new { source, message });
-            warnings.Enqueue($"{source}: {message}");
+            RaiseAlert(source, NormalizeAlertMessage(source, message));
             if (interactive)
             {
                 RenderDashboard();
@@ -752,7 +766,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 status = new { claimsEnabled, systemStatus, agents = agents.Values.ToArray(),
                     tmux = tmuxSessionName is null ? null : new { session = tmuxSessionName, window = tmuxWindowName },
                     attention = userAttentionIssues, alerts = new Dictionary<string, string>(persistentAlerts),
-                    comments = latestComments, mergeSlot, warnings = warnings.ToArray() },
+                    comments = latestComments, mergeSlot,
+                    warnings = transientAlerts
+                        .Select(static alert => $"{alert.Source}: {alert.Message}")
+                        .ToArray() },
             });
         }
     }
@@ -838,21 +855,27 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             var badgeSuffix = badge is null ? string.Empty : "  " + badge;
             // Reserve badge room in the ticket line so the merge marker never truncates away.
             var headerWidth = Math.Max(1, width - prefix.Length - badgeSuffix.Length);
-            var headerLines = WrapCommentText(ticket, headerWidth);
-            builder.Append(Color(stateColor, prefix));
-            builder.Append(Color(Bold, headerLines.FirstOrDefault() ?? string.Empty));
-            if (badge is not null)
+            // An agent without a ticket needs no header line; its selector moves to the status row.
+            var headerLines = ticket.Length == 0 && badge is null
+                ? []
+                : WrapCommentText(ticket, headerWidth);
+            if (headerLines.Count > 0)
             {
-                var headerText = headerLines.FirstOrDefault() ?? string.Empty;
-                builder.Append(new string(' ', Math.Max(1, headerWidth - headerText.Length)));
-                var holder = mergeSlot.IsHeld
-                    && string.Equals(mergeSlot.Holder, row.Name, StringComparison.Ordinal);
-                builder.Append(Color(holder ? Bold + Magenta : Yellow, badge));
+                builder.Append(Color(stateColor, prefix));
+                builder.Append(Color(Bold, headerLines[0]));
+                if (badge is not null)
+                {
+                    builder.Append(new string(' ', Math.Max(1, headerWidth - headerLines[0].Length)));
+                    var holder = mergeSlot.IsHeld
+                        && string.Equals(mergeSlot.Holder, row.Name, StringComparison.Ordinal);
+                    builder.Append(Color(holder ? Bold + Magenta : Yellow, badge));
+                }
+
+                builder.Append("\u001b[K\n");
+                foreach (var continuation in headerLines.Skip(1))
+                    builder.Append(new string(' ', prefix.Length)).Append(continuation).Append("\u001b[K\n");
             }
 
-            builder.Append("\u001b[K\n");
-            foreach (var continuation in headerLines.Skip(1))
-                builder.Append(new string(' ', prefix.Length)).Append(continuation).Append("\u001b[K\n");
             var detail = row.Detail;
             // Keep structured/plain logs unchanged; the TUI header already identifies this ticket.
             if (row.IssueId is not null && detail.StartsWith($"{row.IssueId} • ", StringComparison.Ordinal))
@@ -864,7 +887,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 // Reserve room for the location when the progress text needs truncation.
                 detail = Truncate(detail, Math.Max(0, available - location.Length)) + location;
             }
-            builder.Append(new string(' ', prefix.Length)).Append(Color(stateColor, status));
+            builder.Append(headerLines.Count > 0
+                ? new string(' ', prefix.Length)
+                : Color(stateColor, prefix));
+            builder.Append(Color(stateColor, status));
             builder.Append(Color(Dim, elapsed)).Append(' ').Append(Truncate(detail, available));
             builder.Append("\u001b[K\n");
 
@@ -917,34 +943,31 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             }
         }
 
-        if (userAttentionIssues.Count > 0 || persistentAlerts.Count > 0)
+        PruneAlerts();
+        var alerts = CollectAlerts();
+        if (alerts.Count > 0)
         {
-            builder.Append(Color(Bold + Red, $" ! USER ATTENTION ({userAttentionIssues.Count + persistentAlerts.Count})"));
+            var attentionCount = alerts.Count(static alert => alert.NeedsAttention);
+            var heading = attentionCount > 0
+                ? $" ! USER ATTENTION ({attentionCount})"
+                : $" ! ALERTS ({alerts.Count})";
+            builder.Append(Color(
+                Bold + (attentionCount > 0 ? Red : Yellow),
+                Truncate(heading, width)));
             builder.Append("\u001b[K\n");
-            foreach (var issue in userAttentionIssues)
+            // Reserve the dividers, status row, and comments header below the alerts, but
+            // never shrink the block so far that it only reports a hidden count.
+            var usedRows = builder.ToString().Count(static character => character == '\n');
+            var budget = Math.Clamp(GetHeight() - usedRows - 4, MinimumAlertLines, MaximumAlertLines);
+            foreach (var alertLine in FormatAlertLines(alerts, width, budget))
             {
-                builder.Append(Color(Red, "   ! "));
-                builder.Append(Truncate(
-                    OutputExtensions.FormatIssue(issue),
-                    Math.Max(0, width - 5)));
-                builder.Append("\u001b[K\n");
-            }
-
-            foreach (var (source, message) in persistentAlerts.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
-            {
-                builder.Append(Color(Red, "   ! "));
-                builder.Append(Truncate($"{source} — {message}", Math.Max(0, width - 5)));
+                builder.Append(Color(alertLine.NeedsAttention ? Red : Yellow, alertLine.Text));
                 builder.Append("\u001b[K\n");
             }
         }
 
         builder.Append(Color(Dim, line)).Append("\u001b[K\n");
         builder.Append(Color(Dim, " " + Truncate(systemStatus, Math.Max(0, width - 1)))).Append("\u001b[K\n");
-        foreach (var warning in warnings)
-        {
-            builder.Append(Color(Yellow, " ! " + Truncate(warning, Math.Max(0, width - 3))));
-            builder.Append("\u001b[K\n");
-        }
 
         builder.Append(Color(Dim, line)).Append("\u001b[K\n");
         builder.Append(Color(Bold, $" LATEST COMMENTS ({latestComments.Count})")).Append("\u001b[K\n");
@@ -1345,6 +1368,130 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         }
     }
 
+    /// <summary>Collapses whitespace and drops a redundant "[source] " prefix.</summary>
+    internal static string NormalizeAlertMessage(string source, string message)
+    {
+        var text = SingleLine(message);
+        var prefix = $"[{source}] ";
+        return text.StartsWith(prefix, StringComparison.Ordinal) ? text[prefix.Length..] : text;
+    }
+
+    /// <summary>
+    /// Keeps one short-lived notice per source so resolved conditions stop occupying rows.
+    /// Repeated or superseding notices refresh in place instead of stacking duplicates.
+    /// </summary>
+    private void RaiseAlert(string source, string message)
+    {
+        PruneAlerts();
+        if (persistentAlerts.TryGetValue(source, out var persistent)
+            && string.Equals(
+                NormalizeAlertMessage(source, persistent),
+                message,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        transientAlerts.RemoveAll(alert =>
+            string.Equals(alert.Source, source, StringComparison.Ordinal));
+        transientAlerts.Add(new TransientAlert(source, message, DateTimeOffset.UtcNow));
+        while (transientAlerts.Count > MaximumTransientAlerts)
+        {
+            transientAlerts.RemoveAt(0);
+        }
+    }
+
+    private void PruneAlerts()
+    {
+        var cutoff = DateTimeOffset.UtcNow - alertLifetime;
+        transientAlerts.RemoveAll(alert => alert.UpdatedAt <= cutoff);
+    }
+
+    /// <summary>Newest transient notices first, after the rows that need user attention.</summary>
+    private List<DashboardAlert> CollectAlerts()
+    {
+        var alerts = new List<DashboardAlert>(
+            userAttentionIssues.Count + persistentAlerts.Count + transientAlerts.Count);
+        foreach (var issue in userAttentionIssues)
+        {
+            alerts.Add(new DashboardAlert(issue.Id, SingleLine(issue.Title ?? string.Empty), true));
+        }
+
+        foreach (var (source, message) in persistentAlerts.OrderBy(
+            static pair => pair.Key,
+            StringComparer.Ordinal))
+        {
+            alerts.Add(new DashboardAlert(source, SingleLine(message), true));
+        }
+
+        for (var index = transientAlerts.Count - 1; index >= 0; index--)
+        {
+            alerts.Add(new DashboardAlert(
+                transientAlerts[index].Source,
+                transientAlerts[index].Message,
+                false));
+        }
+
+        return alerts;
+    }
+
+    /// <summary>
+    /// Wrapped alert rows. Text is never silently clipped: rows that exceed the space
+    /// budget collapse into one counted summary row instead.
+    /// </summary>
+    internal static IReadOnlyList<AlertLine> FormatAlertLines(
+        IReadOnlyList<DashboardAlert> alerts,
+        int width,
+        int maximumLines)
+    {
+        var lines = new List<AlertLine>();
+        if (width <= 0 || maximumLines <= 0)
+        {
+            return lines;
+        }
+
+        var contentWidth = Math.Max(1, width - 5);
+        var wrapped = new List<IReadOnlyList<string>>(alerts.Count);
+        var used = 0;
+        foreach (var alert in alerts)
+        {
+            var rows = WrapCommentText(AlertText(alert), contentWidth);
+            // While later alerts could still be dropped, keep a row for the summary count.
+            var reserve = wrapped.Count + 1 < alerts.Count ? 1 : 0;
+            if (used + rows.Count + reserve > maximumLines)
+            {
+                break;
+            }
+
+            wrapped.Add(rows);
+            used += rows.Count;
+        }
+
+        for (var alertIndex = 0; alertIndex < wrapped.Count; alertIndex++)
+        {
+            var needsAttention = alerts[alertIndex].NeedsAttention;
+            for (var index = 0; index < wrapped[alertIndex].Count; index++)
+            {
+                var marker = index == 0 ? $"   {(needsAttention ? '!' : '•')} " : "     ";
+                lines.Add(new AlertLine(marker + wrapped[alertIndex][index], needsAttention));
+            }
+        }
+
+        var hidden = alerts.Count - wrapped.Count;
+        if (hidden > 0)
+        {
+            var qualifier = wrapped.Count > 0 ? " more" : string.Empty;
+            lines.Add(new AlertLine(
+                $"   … {hidden}{qualifier} alert{(hidden == 1 ? string.Empty : "s")} not shown",
+                false));
+        }
+
+        return lines;
+    }
+
+    private static string AlertText(DashboardAlert alert) =>
+        alert.Message.Length == 0 ? alert.Source : $"{alert.Source} — {alert.Message}";
+
     internal static (string Header, IReadOnlyList<string> Comments) FormatLatestCommentLines(
         BeadsComment comment,
         int width)
@@ -1516,6 +1663,12 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             false,
             0);
     }
+
+    private sealed record TransientAlert(string Source, string Message, DateTimeOffset UpdatedAt);
+
+    internal sealed record DashboardAlert(string Source, string Message, bool NeedsAttention);
+
+    internal sealed record AlertLine(string Text, bool NeedsAttention);
 
     private enum DashboardPanel
     {

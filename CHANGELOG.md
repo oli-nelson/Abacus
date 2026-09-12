@@ -21,6 +21,9 @@ Unreleased section. Released versions are listed newest first.
 
 ### Changed
 
+- Drop the blank ticket line from dashboard rows for agents that hold no ticket,
+  so the name, state, and progress share one row and idle agents stop consuming
+  vertical space.
 - Report each agent's branch, model, and reasoning effort on one dashboard
   metadata line, in that order. Every row shows the settings it is using or
   would use instead of hiding them between tickets; the compact header still
@@ -36,6 +39,15 @@ Unreleased section. Released versions are listed newest first.
 
 ### Fixed
 
+- Keep the dashboard alert block compact and current. Alert text now wraps
+  instead of being clipped, each agent or Abacus source keeps a single notice
+  row, a notice that repeats or restates that source's persistent alert no
+  longer adds a duplicate row, clearing an alert also clears its source's
+  notices, and an unrepeated notice expires after about a minute. The block
+  keeps the newest rows that the observed terminal height leaves room for,
+  never fewer than three, and ends with a counted `… n more alerts not shown`
+  row, so resolved and superseded alerts stop occupying vertical space without
+  clipping text or crowding out the status and comments when they fit.
 - Reclaim merge slots and waiter entries that name one of the run's agents while
   that agent has no running harness. A crashed, stopped, or exited agent can no
   longer leave the merge slot claimed forever and block every other agent;

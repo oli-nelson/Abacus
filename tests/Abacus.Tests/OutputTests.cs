@@ -779,6 +779,193 @@ public sealed class OutputTests
         bool attention = false) =>
         new(id, issueId, title, author, text, DateTimeOffset.Parse("2026-09-02T12:00:00Z"), attention);
 
+    private static string LastFrame(StringWriter writer) =>
+        writer.ToString().Split("\u001b[H")[^1];
+
+    [Theory]
+    [InlineData("[alice] review the workspace", "review the workspace")]
+    [InlineData("  review \t the workspace  ", "review the workspace")]
+    [InlineData("review the workspace", "review the workspace")]
+    public void AlertMessagesDropRedundantSourcePrefixesAndCollapseWhitespace(
+        string message,
+        string expected) =>
+        Assert.Equal(expected, ConsoleOutput.NormalizeAlertMessage("alice", message));
+
+    [Fact]
+    public async Task RepeatedWarningsFromOneSourceOccupyOneDashboardRow()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (100, 24), color: false);
+
+        await output.WarningAsync("alice", "review the workspace");
+        await output.WarningAsync("alice", "[alice] review the workspace");
+        await output.WarningAsync("alice", "push failed (2/3)");
+
+        var frame = LastFrame(writer);
+        Assert.Contains("! ALERTS (1)", frame, StringComparison.Ordinal);
+        Assert.Contains("• alice — push failed (2/3)", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("review the workspace", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("USER ATTENTION", frame, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WarningsMatchingAPersistentAlertDoNotDuplicateIt()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (100, 24), color: false);
+
+        await output.WarningAsync("alice", "Could not reopen abc-9; no more work will be claimed");
+        await output.SetPersistentAlertAsync("alice", "Could not reopen abc-9; no more work will be claimed");
+        await output.WarningAsync("alice", "[alice] Could not reopen abc-9; no more work will be claimed");
+
+        var frame = LastFrame(writer);
+        Assert.Contains("! USER ATTENTION (1)", frame, StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            frame.Split('\n').Count(line =>
+                line.Contains("Could not reopen abc-9", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task ClearingAnAgentsAlertAlsoClearsItsNotices()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (100, 24), color: false);
+
+        await output.SetPersistentAlertAsync("alice", "Recovery could not be verified");
+        await output.WarningAsync("alice", "could not poll abc-9 (1/3)");
+        await output.ClearPersistentAlertAsync("alice");
+
+        var frame = LastFrame(writer);
+        Assert.DoesNotContain("USER ATTENTION", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("ALERTS", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("could not poll abc-9", frame, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AlertsExpireOnceTheirConditionPasses()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (100, 24), color: false,
+            alertLifetime: TimeSpan.FromMilliseconds(30));
+
+        await output.WarningAsync("alice", "could not poll abc-9 (1/3)");
+        Assert.Contains("could not poll abc-9", LastFrame(writer), StringComparison.Ordinal);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(80));
+        await output.SetAgentAsync("alice", AgentActivity.Working, "abc-9 • agent CLI running");
+
+        var frame = LastFrame(writer);
+        Assert.DoesNotContain("could not poll abc-9", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("ALERTS", frame, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LongAlertsWrapInsteadOfClippingTheirText()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (80, 24), color: false);
+
+        await output.WarningAsync(
+            "alice",
+            "Could not safely resume abc-9: issue is closed, not open for recovery. "
+            + "The workspace changes were preserved for the next claim.");
+
+        var frame = LastFrame(writer);
+        Assert.Contains("next claim.", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("…", frame, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AlertLinesReportHowManyRowsTheSpaceBudgetHid()
+    {
+        var alerts = new List<ConsoleOutput.DashboardAlert>
+        {
+            new("abc-1", "Choose a save format", true),
+            new("alice", "could not poll abc-1 (1/3)", false),
+            new("bob", "push failed (2/3)", false),
+            new("carol", "workspace is dirty", false),
+        };
+
+        var lines = ConsoleOutput.FormatAlertLines(alerts, 80, 3);
+
+        Assert.Equal(3, lines.Count);
+        Assert.Equal("   ! abc-1 — Choose a save format", lines[0].Text);
+        Assert.True(lines[0].NeedsAttention);
+        Assert.Equal("   • alice — could not poll abc-1 (1/3)", lines[1].Text);
+        Assert.False(lines[1].NeedsAttention);
+        Assert.Contains("2 more alerts not shown", lines[2].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AlertLinesWrapTextWithinTheAvailableWidth()
+    {
+        var message = string.Join(
+            ' ',
+            Enumerable.Range(1, 12).Select(static index => $"word{index}"));
+        var lines = ConsoleOutput.FormatAlertLines(
+            [new ConsoleOutput.DashboardAlert("alice", message, false)],
+            40,
+            maximumLines: 8);
+
+        Assert.True(lines.Count > 1);
+        Assert.All(lines, line => Assert.True(line.Text.Length <= 40));
+        Assert.StartsWith("   • alice — word1", lines[0].Text, StringComparison.Ordinal);
+        Assert.Contains("word12", lines[^1].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AlertLinesReportHiddenAlertsWithoutClaimingUnshownRows()
+    {
+        var lines = ConsoleOutput.FormatAlertLines(
+            [new ConsoleOutput.DashboardAlert(
+                "alice",
+                string.Join(' ', Enumerable.Range(1, 30).Select(static index => $"word{index}")),
+                false)],
+            40,
+            maximumLines: 2);
+
+        var summary = Assert.Single(lines);
+        Assert.Contains("1 alert not shown", summary.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("more", summary.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ShortTerminalStillShowsTheNewestAlertDetails()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["a0", "a1", "a2", "a3"], "p/model", false,
+            interactive: true, terminalSize: () => (80, 20), color: false);
+
+        await output.SetUserAttentionIssuesAsync(
+            [new BeadsIssue("abc-1", IssueStatus.Blocked, "Choose a save format")]);
+        await output.WarningAsync("a0", "could not poll abc-1 (1/3)");
+
+        var frame = LastFrame(writer);
+        Assert.Contains("abc-1 — Choose a save format", frame, StringComparison.Ordinal);
+        Assert.Contains("a0 — could not poll abc-1 (1/3)", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("alerts not shown", frame, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AgentsWithoutTicketsUseOneRowInsteadOfABlankHeaderLine()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (100, 24), color: false);
+
+        await output.SetAgentAsync("alice", AgentActivity.Idle, "No ready tickets");
+
+        var row = RowContaining(LastFrame(writer), "alice");
+        Assert.Contains("IDLE", row, StringComparison.Ordinal);
+        Assert.Contains("No ready tickets", row, StringComparison.Ordinal);
+    }
+
     private static Task SetActiveMergeSlotAsync(
         ConsoleOutput output,
         string holder,

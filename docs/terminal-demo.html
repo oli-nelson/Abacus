@@ -78,7 +78,7 @@ const initialComments = [
   {id:'atlas-p2x', title:'Cache repository health checks between refreshes', author:'agent-1', text:'Added cache invalidation for settings changes. Verifying that a failed probe cannot leave a stale healthy result visible.'},
   {id:'atlas-w9q', title:'Retry interrupted artifact uploads', author:'agent-5', text:'Resumed the existing branch with local changes preserved. Upload checkpoints are in place; checking retry behavior after a disconnect.'}
 ];
-let agents, comments, claims, frozen, selected, panel, opened, scroll, tick, resolved, system, finished;
+let agents, comments, claims, frozen, selected, panel, opened, scroll, tick, resolved, system, notice, finished;
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const color = (s,c='') => `<span class="${c}">${esc(s)}</span>`;
 const line = (s,c='') => `<div class="line">${color(s,c)}</div>`;
@@ -95,6 +95,7 @@ function wrap(text, size) {
 }
 function reset() {
   agents=structuredClone(initialAgents); comments=structuredClone(initialComments); claims=true; frozen=false; selected=-1; panel=''; opened=null; scroll=0; tick=0; resolved=false; finished=false; system='Preflight passed; starting agent loops';
+  notice='agent-5 — could not poll atlas-w9q (1/3): Beads command timed out';
   document.querySelector('#notice').textContent=''; render();
 }
 function actionButton(label,action,cls='') { return `<button class="inline ${cls}" data-action="${action}">${esc(label)}</button>`; }
@@ -127,8 +128,8 @@ function render() {
       else ['[S] Stop agent|stop','[R] Restart agent|restart','[C] Clean workspace|clean','[Esc] Close|close'].forEach(s=>{const [label,action]=s.split('|');h+=`<div class="line">   ${actionButton(label,action)}</div>`;});
     }
     if(!resolved) h+=line(' ! USER ATTENTION (1)','bold red')+`<div class="line">${color('   ! ','red')}${esc('atlas-d3f — Define retention policy for audit events')}</div>`;
+    if(notice) h+=`<div class="line">${color('   • ','yellow')}${esc(notice)}</div>`;
     h+=rule()+line(' '+system,'dim');
-    h+=line(' ! agent-5: could not poll atlas-w9q (1/3): Beads command timed out','yellow');
     h+=rule()+line(` LATEST COMMENTS (${comments.length})`,'bold');
     comments.forEach((c,i)=>{
       const index=agents.length+i;
@@ -171,7 +172,7 @@ function advance() {
   tick++; agents.forEach(a=>a.seconds++);
   const a2=agents[2],a3=agents[3],a5=agents[5];
   if(tick===9&&a3.state==='PREPARING'){a3.state='WORKING';a3.seconds=0;a3.pane='tmux pane %9';a3.detail='atlas-r8c • agent CLI in tmux pane %9';}
-  if(tick===15&&a5.state==='RECOVERING'){a5.state='WORKING';a5.seconds=0;a5.detail='atlas-w9q • ticket status readable again; agent remains supervised';}
+  if(tick===15&&a5.state==='RECOVERING'){a5.state='WORKING';a5.seconds=0;a5.detail='atlas-w9q • ticket status readable again; agent remains supervised';notice='';}
   if(tick===20&&a2.state==='FINALIZING'){a2.state=claims?'IDLE':'PAUSED';a2.seconds=0;a2.id=null;a2.pane=null;a2.detail=claims?'No ready tickets; checking again soon':'New ticket claims paused';}
   if(tick%24===0&&panel==='') {
     const active=agents.filter(a=>a.state==='WORKING');
@@ -206,7 +207,7 @@ terminal.addEventListener('keydown',e=>{
 document.querySelector('#motion').onclick=()=>{frozen=!frozen;render();};
 document.querySelector('#reset').onclick=reset;
 document.querySelector('#resolve').onclick=()=>{
-  resolved=true;comments.forEach(c=>c.attention=false);addComment({id:'atlas-d3f',title:'Define retention policy for audit events',author:'onelson',text:'Keep audit events for 90 days, including administrative events. Approved the proposed daily cleanup. Reopening for implementation.'});
+  resolved=true;notice='';comments.forEach(c=>c.attention=false);addComment({id:'atlas-d3f',title:'Define retention policy for audit events',author:'onelson',text:'Keep audit events for 90 days, including administrative events. Approved the proposed daily cleanup. Reopening for implementation.'});
   system='User-attention snapshot refreshed';
   document.querySelector('#notice').textContent='Simulated: abacus attention resolve atlas-d3f --message "Keep audit events for 90 days, including administrative events." --reopen';render();
 };

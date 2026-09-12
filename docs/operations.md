@@ -68,10 +68,25 @@ An interactive terminal shows one row per configured agent. Rows move through:
 | `STOPPED` | This loop has ended. |
 
 Each agent's header contains its name and active issue ID/title. Status and
-progress appear below, without repeating the ticket label; long titles wrap.
+progress appear below, without repeating the ticket label; long titles wrap. An
+agent with no ticket has no title to show, so its name, state, and progress share
+one line instead of leaving a blank row.
 Active rows also include time in the current state, pane or
-process location, retry count, and most recently observed exit code. Warnings
-remain visible, while idle polling is visually distinct from failure retries.
+process location, retry count, and most recently observed exit code.
+
+Below the agent rows, one alert block lists the work that needs you and the
+current notices. Red attention rows carry issues labelled
+`abacus:needs-user-attention` and persistent recovery alerts; yellow notice rows
+carry one live message per agent or Abacus source. Notice text wraps to the
+terminal width instead of being clipped. A notice that repeats, or that restates
+that source's persistent alert, refreshes the existing row instead of adding a
+duplicate, resolving an alert clears its source's notice, and an unrepeated
+notice expires after about a minute so resolved conditions stop consuming rows.
+The block uses only the space the agent rows leave behind: on short terminals it
+keeps the newest rows that fit, never fewer than three, and ends with a counted
+`… n more alerts not shown` row rather than clipping text or pushing the status
+and comments off screen. Idle polling stays visually distinct from failure
+retries.
 
 The compact header places run status and default model/effort side by side when
 space permits. Keyboard hints share one row, or share the tmux row on wider

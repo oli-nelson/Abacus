@@ -65,7 +65,7 @@ correlate results. IDs are echoed, not persisted or deduplicated.
 
 | Command | Behavior |
 | --- | --- |
-| `status` | Returns claim permission, full agent rows, the resolved tmux target when pane-hosted, current attention issues, persistent alerts, recent comments, the merge slot, and recent warnings. |
+| `status` | Returns claim permission, full agent rows, the resolved tmux target when pane-hosted, current attention issues, persistent alerts, recent comments, the merge slot, and the live notices (`warnings`) as `source: message` strings. |
 | `pause` / `resume` | Disable/enable new claims; active tickets continue. |
 | `stop` | Interrupt the named agent, retain its ticket reservation, and park its loop. |
 | `restart` | Interrupt/relaunch the reserved ticket or resume the parked loop. |
@@ -115,13 +115,13 @@ inside strings are JSON-escaped. Consumers should ignore unknown types/fields.
 | Type | `data` |
 | --- | --- |
 | `run.starting` | Parsed default model/effort, reasoning model/effort mappings, default and per-tier extra harness arguments, harness mode, execution mode, configured agents |
-| `system`, `warning` | Message; warnings also include source |
+| `system`, `warning` | Message; warnings also include source. A `warning` is a dashboard notice that supersedes the same source's earlier notice, clears when that source's persistent alert clears, and expires about a minute after its last repeat. |
 | `command` | Source and subprocess command diagnostic (including exit diagnostics); independent of `--verbose` |
 | `agent.state` | Full row: name, activity, detail, changedAt, issueId, ticketTitle, runLocation, workspacePath, lastExitCode, hasExitObservation, retryCount, branch, isDirty, model, effort, runActive |
 | `tmux.target` | Resolved session and window names for a pane-hosted run |
 | `claims.changed` | `enabled` |
 | `attention.changed`, `comments.changed` | Replacement `issues` / `comments` arrays (empty clears them) |
-| `alert.raised`, `alert.cleared` | Source and, when raised, message |
+| `alert.raised`, `alert.cleared` | Source and, when raised, message. `alert.raised` records a persistent alert; `alert.cleared` means the source now has no alert on the dashboard, including when only its notices were dropped. |
 | `control.ready` | Supported commands and initial claim permission |
 | `control.result` | Correlated command result described above |
 | `control.requested` | TUI-originated agent action |

@@ -1398,9 +1398,10 @@ abacus run --repo "$REPO" --latest-comments 12 \
 <span class="t-red"> ! USER ATTENTION (2)</span>
 <span class="t-red">   ! ab-c72 — Choose the public endpoint name</span>
 <span class="t-red">   ! bob — All Beads push attempts failed; no more work will be claimed</span>
+<span class="t-yellow">   • bob — Agent CLI exited with code 17 while ab-f09 remained</span>
+<span class="t-yellow">     in_progress</span>
 <span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
  <span class="t-dim">Agent loops started</span>
- <span class="t-yellow">! bob: Agent CLI exited with code 17 while ab-f09 remained in_progress</span>
 <span class="t-dim">────────────────────────────────────────────────────────────────────────</span>
  LATEST COMMENTS (2)
  <span class="t-red">• ab-c72 — Choose the public endpoint name          • alice</span>
@@ -1412,8 +1413,8 @@ abacus run --repo "$REPO" --latest-comments 12 \
         <div class="grid-2">
           <section class="card">
             <p class="kicker">Bottom area</p>
-            <h3>Status, warnings, comments</h3>
-            <p>The current system status appears beneath the divider, followed by the three most recent warnings and the latest-comments log.</p>
+            <h3>Alerts, status, comments</h3>
+            <p>One alert block lists what needs you and what just happened: red attention rows for issues and persistent recovery alerts, then one yellow notice row per agent or Abacus source. Long text wraps instead of being clipped, repeats refresh the row instead of stacking, resolved alerts clear, and unrepeated notices expire after about a minute. The current system status and the latest-comments log follow beneath their dividers. The block uses only the space the agent rows leave behind: on short terminals it keeps the newest rows that fit, never fewer than three, and ends with a counted <code>… n more alerts not shown</code> row.</p>
           </section>
           <section class="card">
             <p class="kicker">Terminal behavior</p>
