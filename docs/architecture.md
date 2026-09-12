@@ -106,6 +106,9 @@ workspace, and resolved bound destination. It:
 - grants local Git staging, commit, and merge authority;
 - forbids `git push`;
 - provides a merge-slot-aware fallback merge process;
+- requires harness-native waiting, forbids shell retry loops or other processes
+  that would outlive the agent session, and reserves blocking for waits that
+  look hopeless to resolve;
 - defines the user-attention label protocol; and
 - makes the agent responsible for choosing `closed`, `open`, or `blocked`.
 

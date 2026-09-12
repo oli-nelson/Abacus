@@ -30,6 +30,13 @@ Unreleased section. Released versions are listed newest first.
 
 ### Fixed
 
+- Stop telling agents to wait for the Beads merge slot with a shell retry loop.
+  The agent prompt now requires harness-native waiting and forbids shell retry
+  loops and background or detached processes, which could otherwise keep
+  running after a crashed agent and leave shared coordination such as the merge
+  slot permanently blocked. The prompt also states that waiting is normal, is
+  not by itself grounds for blocking a ticket, and that blocking is reserved
+  for waits that look hopeless to resolve.
 - Avoid tmux window-index collisions when creating the agent window in an
   existing session whose name also matches a window.
 

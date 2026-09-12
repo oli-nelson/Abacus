@@ -669,6 +669,30 @@ Follow any more restrictive user or repository instruction.
 The bound destination is refs/heads/<target_branch>. Custom instructions cannot
 redirect this ticket to another branch. Do not change abacus_target or abacus_execution.
 
+Waiting and long-running processes:
+Waiting for a lock, merge slot, build, another agent, or any other event is
+normal and is not by itself a reason to block this ticket. When you need to
+wait, use only your harness's own waiting mechanism: run one command, inspect
+its result, and try again later in this session, for as long as the event can
+still plausibly occur. Keep working the ticket once the wait resolves.
+
+Never leave work running outside this session. Do not write shell
+`until`/`while`/`for` retry loops or use trailing `&`, `nohup`, `disown`,
+`setsid`, `at`, or detached tmux, screen, or other background jobs. A process
+that survives this harness exiting, such as
+`until bd merge-slot acquire --holder "$BEADS_ACTOR"; do sleep 2; done`, keeps
+running after Abacus cleans up this session and can break shared coordination
+such as the merge slot for every other agent.
+
+Mark the ticket blocked only when the wait looks hopeless to resolve without
+outside help: you have retried in this session several times over a sustained
+period (minutes, not seconds), the event still has not happened, and nothing
+you can do will make it happen (for example, `bd merge-slot check` keeps
+reporting a held slot that never becomes available). When you do block, state
+in the note what you were waiting for, how long you retried, and why you
+concluded the wait cannot resolve. A slow wait is not a hopeless wait: while
+there is still a plausible path, keep waiting and keep retrying.
+
 Read the ticket with:
 
   bd show <issue_id> --include-comments --json
@@ -681,10 +705,13 @@ Otherwise, use this basic merge strategy:
 
 1. Check for a Beads merge slot with `bd merge-slot check --json`. If the response
    reports that no merge slot exists, continue without one; do not create one. If a
-   slot exists, acquire it before merging, waiting and retrying while another agent
-   holds it:
+   slot exists, acquire it before merging by running this command once:
 
-     until bd merge-slot acquire --holder "$BEADS_ACTOR"; do sleep 2; done
+     bd merge-slot acquire --holder "$BEADS_ACTOR"
+
+   If another agent holds the slot, wait with your harness's own waiting mechanism
+   and run that same single command again later in this session. Never wrap it in a
+   shell retry loop, and never block the ticket just because the slot is held.
 
 2. While holding the merge slot when one is configured, merge the latest local
    `<target_branch>` into the issue branch. Resolve any conflicts and commit the result.
