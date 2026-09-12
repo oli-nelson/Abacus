@@ -10,6 +10,12 @@ Unreleased section. Released versions are listed newest first.
 
 - Add `abacus info` for a concise read-only overview of Git state and worktrees,
   Beads/Dolt identity and commits, ticket counts, and project routing policy.
+- Add `--extra-args` and repeatable `--reasoning-args <tier>` (or the saved
+  `extraArgs` and `reasoningArgs` fields) to pass additional harness CLI
+  arguments such as a provider selector. Per-tier arguments replace the default
+  for tickets carrying that reasoning label, so one run can mix providers per
+  reasoning level. Values are split with shell-style quoting and passed without
+  shell interpretation.
 
 ### Changed
 

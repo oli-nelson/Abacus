@@ -260,6 +260,8 @@ public static class Program
             options.Effort,
             ReasoningModels = options.EffectiveReasoningModels,
             ReasoningEfforts = options.EffectiveReasoningEfforts,
+            ExtraArguments = options.EffectiveExtraArguments,
+            ReasoningArguments = options.EffectiveReasoningArguments,
             options.AgentMode,
             options.ExecutionMode,
             options.Agents,

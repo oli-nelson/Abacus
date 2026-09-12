@@ -5,6 +5,90 @@ namespace Abacus.Tests;
 public sealed class AgentCommandTests
 {
     [Fact]
+    public void ExtraArgumentsPrecedeThePromptForCodexAndClaude()
+    {
+        var codex = AgentCommandFactory.Create(
+            AgentMode.Codex,
+            "/bin/codex",
+            "gpt-5.6-terra",
+            "/work/repo",
+            null,
+            "alice • abc-1",
+            "high",
+            extraArguments: ["-p", "deepseek"]);
+        Assert.Equal(
+            [
+                "--cd", "/work/repo",
+                "--model", "gpt-5.6-terra",
+                "--config", "model_reasoning_effort=high",
+                "--approve-for-me",
+                "-p", "deepseek",
+                "ticket prompt",
+            ],
+            codex.WithPrompt("ticket prompt"));
+
+        var claude = AgentCommandFactory.Create(
+            AgentMode.Claude,
+            "/bin/claude",
+            "sonnet",
+            "/work/repo",
+            null,
+            "alice • abc-1",
+            "high",
+            true,
+            "abc-1 • ticket title",
+            ["-p", "deepseek"]);
+        Assert.Equal(
+            [
+                "--model", "sonnet",
+                "--effort", "high",
+                "--permission-mode", "auto",
+                "--name", "alice • abc-1",
+                "--remote-control", "abc-1 • ticket title",
+                "-p", "deepseek",
+                "ticket prompt",
+            ],
+            claude.WithPrompt("ticket prompt"));
+    }
+
+    [Fact]
+    public void ExtraArgumentsFollowThePromptForOpenCodeModes()
+    {
+        var interactive = AgentCommandFactory.Create(
+            AgentMode.OpenCode,
+            "/bin/opencode",
+            "provider/model",
+            "/work/repo",
+            null,
+            "alice • abc-1",
+            "high",
+            extraArguments: ["-p", "deepseek"]);
+        Assert.Equal(
+            ["--prompt", "ticket prompt", "--model", "provider/model", "-p", "deepseek"],
+            interactive.WithPrompt("ticket prompt"));
+
+        var attached = AgentCommandFactory.Create(
+            AgentMode.OpenCodeServer,
+            "/bin/opencode",
+            "provider/model",
+            "/work/repo",
+            "http://127.0.0.1:1234",
+            "alice • abc-1",
+            "high",
+            extraArguments: ["-p", "deepseek"]);
+        Assert.Equal(
+            [
+                "run", "ticket prompt",
+                "--model", "provider/model",
+                "--variant", "high",
+                "--attach", "http://127.0.0.1:1234",
+                "--dir", "/work/repo",
+                "-p", "deepseek",
+            ],
+            attached.WithPrompt("ticket prompt"));
+    }
+
+    [Fact]
     public void OpenCodeCommandKeepsVariantOutOfModelId()
     {
         var command = AgentCommandFactory.Create(

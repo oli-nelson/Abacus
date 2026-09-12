@@ -7,7 +7,8 @@
 > `abacus:high_reasoning`, `abacus:medium_reasoning`, or
 > `abacus:low_reasoning` on executable tickets. Runtime `--reasoning-model`
 > options map those tiers to `model#effort` specifications; otherwise `--model`
-> is the fallback.
+> is the fallback. `--extra-args` and `--reasoning-args <tier>` add harness CLI
+> arguments such as a provider selector to every launch or to one tier.
 
 This guide takes you from an installed binary to a running agent. Choose one
 setup path; you do not need to perform every walkthrough.
@@ -139,7 +140,8 @@ abacus run --config /path/to/my-project/abacus_codex.json --start-paused=false
 
 Generated config paths are relative to their own file. CLI
 `--model <model[#effort]>`, `--tmux-session`, and
-`--reasoning-model high <model[#effort]>` override saved values.
+`--reasoning-model high <model[#effort]>` override saved values, and
+`--extra-args` / `--reasoning-args high <arguments>` add harness CLI arguments.
 For custom inherited settings, create `local.json` with
 `"baseConfig": "abacus_codex.json"` and use `abacus run --config local.json`.
 

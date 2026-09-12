@@ -50,7 +50,8 @@ internal static class CliHelp
         Configuration:
           --config <file>               Load one JSON config; optional baseConfig inherits a base file.
                                         CLI agent/filter lists replace configured lists; reasoning
-                                        models and efforts override per tier. CLI overrides win over derived/base values.
+                                        models, efforts, and arguments override per tier.
+                                        CLI overrides win over derived/base values.
                                         Paths stay relative to their source file. --config is not repeatable.
                                         Boolean flags accept =false to disable saved settings.
 
@@ -63,6 +64,11 @@ internal static class CliHelp
                                         Repeatable model[#effort] mapping for high, medium, or low.
                                         A missing suffix inherits the fallback model's effort.
                                         Interactive OpenCode uses its configured variant.
+          --extra-args <string>          Extra CLI arguments for every agent launch, e.g. -p deepseek.
+                                        Split on whitespace; quote values that contain spaces.
+          --reasoning-args <tier> <string>
+                                        Repeatable extra CLI arguments for high, medium, or low.
+                                        A mapped tier replaces the default --extra-args value.
           --remote-control              Claude only; enables interactive Remote Control.
 
         Hosting:

@@ -130,12 +130,13 @@ internal static class RunConfigurationEditor
             return;
         }
         if (field.Kind == "agents") { EditAgents(config, ui); return; }
-        if (field.Kind == "models")
+        if (field.Kind is "models" or "args")
         {
             var routes = (JsonObject?)config.Document[field.Name]?.DeepClone() ?? new JsonObject();
             foreach (var tier in new[] { "high", "medium", "low" })
             {
-                var text = Ask($"{tier} model#effort [{routes[tier]}] (blank keeps, - clears)", ui);
+                var label = field.Kind == "models" ? "model#effort" : "extra arguments";
+                var text = Ask($"{tier} {label} [{routes[tier]}] (blank keeps, - clears)", ui);
                 if (text == "-") routes.Remove(tier);
                 else if (text.Length > 0) routes[tier] = text;
             }

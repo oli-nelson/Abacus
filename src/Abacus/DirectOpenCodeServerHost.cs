@@ -66,7 +66,8 @@ public sealed class DirectOpenCodeServerHost(
         string model,
         string effort,
         string? serverUrl,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? extraArguments = null)
     {
         if (serverUrl is null)
         {
@@ -80,7 +81,8 @@ public sealed class DirectOpenCodeServerHost(
             agent.WorkspacePath,
             serverUrl,
             $"{agent.Name} • {issue.Id}",
-            effort);
+            effort,
+            extraArguments: extraArguments);
         var prompt = Prompt.Render(
             agent.Name,
             issue.Id,
@@ -105,9 +107,12 @@ public sealed class DirectOpenCodeServerHost(
         }
 
         startInfo.Environment["BEADS_ACTOR"] = agent.Name;
+        var extraDetail = extraArguments is { Count: > 0 }
+            ? " " + string.Join(' ', extraArguments)
+            : string.Empty;
         await log.DebugCommandAsync(
             agent.Name,
-            $"{executable} run <prompt for {issue.Id}> --model {model} --variant {effort} --attach {serverUrl} --dir {agent.WorkspacePath}");
+            $"{executable} run <prompt for {issue.Id}> --model {model} --variant {effort} --attach {serverUrl} --dir {agent.WorkspacePath}{extraDetail}");
 
         var process = new Process { StartInfo = startInfo };
         try
@@ -207,8 +212,9 @@ public sealed class DirectOpenCodeServerHost(
         string model,
         string effort,
         string? serverUrl,
-        CancellationToken cancellationToken) =>
-        await StartAgentAsync(agent, issue, model, effort, serverUrl, cancellationToken);
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? extraArguments) =>
+        await StartAgentAsync(agent, issue, model, effort, serverUrl, cancellationToken, extraArguments);
 
     Task<bool> IAgentHost.IsRunningAsync(
         IAgentRun run,

@@ -33,6 +33,7 @@ Abacus should own only the orchestration state machine. It should not reimplemen
 - Support exactly four agent modes: interactive OpenCode, interactive Codex, interactive Claude Code, and OpenCode Server attachment. Do not call agent server APIs.
 - Accept `--remote-control` only for Claude Code. Keep Claude interactive and enable Remote Control with an explicit `<issue-id> • <issue-title>` session name. Do not implement the remote-control protocol in Abacus.
 - Require one default `--model <model[#effort]>` value per Abacus invocation. Accept repeatable `--reasoning-model <high|medium|low> <model[#effort]>` routes and load the project enforcement toggle from `.abacus/reasoning.json`. Resolve the claimed ticket's exact reasoning label after its atomic claim and before Git mutation; quarantine missing strict labels and conflicting labels with user attention. In optional mode, absent labels and unmapped single labels use the default model. Default an omitted effort suffix to `high`; a reasoning route without a suffix inherits the fallback model's effort. Translate the resolved model and effort into the selected CLI's native arguments where supported. Preserve OpenCode's `provider/model` validation while allowing native Codex and Claude model identifiers. Interactive OpenCode 1.18.20 has no TUI variant option, so strip the suffix from its model ID and let OpenCode use its configured or session-selected variant.
+- Accept one default `--extra-args <arguments>` string plus repeatable `--reasoning-args <high|medium|low> <arguments>` strings that replace it per resolved reasoning tier. Split the string into argv tokens with quote and backslash handling, never through a shell, and place the tokens before the trailing prompt for Codex and Claude and after the generated flags for the OpenCode modes. This lets one run select providers or profiles per reasoning level without a new plugin mechanism.
 - Parse only the small amount of JSON/JSONL emitted by `bd` that Abacus needs: issue ID, issue title and status, direct-child status, Dolt identity, remote presence, and the comment fields and labels needed by the dashboard. Query Beads by label rather than importing its issue model when the dashboard needs attention alerts; use read-only `bd export` for the latest-comment snapshot so embedded and server-backed modes share one path.
 - Pass ordinary command arguments through `ProcessStartInfo.ArgumentList`, not interpolated shell strings. Use a generated shell wrapper only where tmux needs a pane command and process-exit marker.
 - Keep transient runtime state in memory; persist ticket execution bindings in Beads metadata. A temporary per-run directory may contain prompt files, pane wrapper scripts, and exit markers; there is no Abacus database.
@@ -183,6 +184,8 @@ Before building the loop, capture the exact behavior of the locally supported co
     [--disown-tmux-session] \
     --model <model[#effort]> \
     [--reasoning-model <high|medium|low> <model[#effort]>] \
+    [--extra-args <arguments>] \
+    [--reasoning-args <high|medium|low> <arguments>] \
     [--remote-control] \
     [--repo <main-checkout>] [--target-filter <branch>] \
     [--label <label>] [--exclude-label <label>] \
@@ -456,6 +459,9 @@ All checks happen before any ticket is claimed or agent run is created.
 - The CLI and prompt match SPEC.md.
 - `--mode` selects exactly one of OpenCode, Codex, Claude, or OpenCode Server; server attachment requires explicit `--mode opencode-server`.
 - `--model <model[#effort]>` is required as the fallback. Each selected agent instance receives either that model/effort pair or the pair mapped from its ticket's single reasoning label.
+- Extra harness arguments come from `--extra-args` or the winning tier's
+  `--reasoning-args`, are split without shell interpretation, and are passed to
+  every mode in the documented position.
 - `--model <model[#effort]>` defaults an omitted effort suffix to `high`; reasoning model specifications without a suffix inherit it. Codex, Claude Code, and OpenCode Server receive the resolved native effort or variant selection. Interactive OpenCode uses its configured or session-selected variant until the TUI exposes a variant CLI option.
 - `--remote-control` keeps Claude Code interactive while exposing its CLI-managed Remote Control feature; it is rejected in Codex and both OpenCode modes.
 - Optional dispatch filters limit every fresh and same-agent resumed ready claim without reimplementing Beads query semantics.

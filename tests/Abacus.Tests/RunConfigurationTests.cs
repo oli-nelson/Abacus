@@ -135,6 +135,9 @@ public sealed class RunConfigurationTests : IDisposable
     [InlineData("{\"version\":1,\"model\":\"a\",\"model\":\"b\"}")]
     [InlineData("{\"version\":1,\"reasoningModels\":{\"other\":\"a\"}}")]
     [InlineData("{\"version\":1,\"reasoningEfforts\":{\"other\":\"high\"}}")]
+    [InlineData("{\"version\":1,\"reasoningArgs\":{\"other\":\"-p deepseek\"}}")]
+    [InlineData("{\"version\":1,\"reasoningArgs\":{\"high\":[\"-p\"]}}")]
+    [InlineData("{\"version\":1,\"extraArgs\":[\"-p\",\"deepseek\"]}")]
     public void MalformedDocumentsFailClearly(string json) =>
         Assert.Throws<OptionsException>(() => RunConfiguration.Load(Write(json)));
 
@@ -283,6 +286,41 @@ public sealed class RunConfigurationTests : IDisposable
         Assert.Empty(options.EffectiveReasoningModels);
         Assert.Empty(options.EffectiveReasoningEfforts);
         Assert.Equal("cli", options.Agents.Single().Name);
+    }
+
+    [Fact]
+    public void ExtraArgumentFieldsLoadMergeAndOverridePerTier()
+    {
+        var baseConfig = Write("""
+            {"version":1,"mode":"codex","model":"saved","extraArgs":"-p openai",
+             "agents":[{"name":"one","workspace":"worktrees/one"}],
+             "reasoningArgs":{"high":"-p deepseek","low":"-p openai --fast"}}
+            """);
+        var options = Options.Parse(["run", "--config", baseConfig]).Value!;
+        Assert.Equal(["-p", "openai"], options.EffectiveExtraArguments);
+        Assert.Equal(["-p", "deepseek"], options.EffectiveReasoningArguments[ReasoningPolicy.HighLabel]);
+        Assert.Equal(["-p", "openai", "--fast"], options.EffectiveReasoningArguments[ReasoningPolicy.LowLabel]);
+
+        var derived = Child(baseConfig, """
+            {"version":1,"extraArgs":"-p anthropic",
+             "reasoningArgs":{"high":null,"medium":"-p deepseek"}}
+            """);
+        options = Options.Parse(["run", "--config", derived]).Value!;
+        Assert.Equal(["-p", "anthropic"], options.EffectiveExtraArguments);
+        Assert.False(options.EffectiveReasoningArguments.ContainsKey(ReasoningPolicy.HighLabel));
+        Assert.Equal(["-p", "deepseek"], options.EffectiveReasoningArguments[ReasoningPolicy.MediumLabel]);
+        Assert.Equal(["-p", "openai", "--fast"], options.EffectiveReasoningArguments[ReasoningPolicy.LowLabel]);
+
+        options = Options.Parse(["run", "--config", derived,
+            "--reasoning-args", "high", "-p mistral",
+            "--extra-args", "-p anthropic --verbose"]).Value!;
+        Assert.Equal(["-p", "anthropic", "--verbose"], options.EffectiveExtraArguments);
+        Assert.Equal(["-p", "mistral"], options.EffectiveReasoningArguments[ReasoningPolicy.HighLabel]);
+
+        var cleared = Child(derived, """{"version":1,"extraArgs":null,"reasoningArgs":null}""", "cleared.json");
+        options = Options.Parse(["run", "--config", cleared]).Value!;
+        Assert.Empty(options.EffectiveExtraArguments);
+        Assert.Empty(options.EffectiveReasoningArguments);
     }
 
     [Fact]

@@ -128,6 +128,34 @@ public sealed class TmuxAgentHostTests
     }
 
     [Fact]
+    public async Task WrapperQuotesExtraAgentArgumentsBeforeThePrompt()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await TmuxFixture.CreateAsync();
+        var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "extra args space")).FullName;
+        var tmux = fixture.CreateTmux(mode: AgentMode.Codex);
+
+        var run = await tmux.StartAgentAsync(
+            Agent("alice", workspace),
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
+            "gpt-5.6-terra",
+            "high",
+            null,
+            CancellationToken.None,
+            ["-p", "deepseek", "--config", "model=\"a b\""]);
+
+        var wrapper = await File.ReadAllTextAsync(run.WrapperPath);
+        Assert.Contains(
+            "'-p' 'deepseek' '--config' 'model=\"a b\"' \"$prompt\"",
+            wrapper,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ClaudeWrapperUsesInteractiveSessionWithStableNameAndAutoPermissions()
     {
         if (OperatingSystem.IsWindows())

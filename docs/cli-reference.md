@@ -227,6 +227,8 @@ abacus run [--mode <opencode|codex|claude|opencode-server>] \
   [--tmux-layout <layout>] [--disown-tmux-session] \
   --model <model[#effort]> \
   [--reasoning-model <high|medium|low> <model[#effort]>] \
+  [--extra-args "<arguments>"] \
+  [--reasoning-args <high|medium|low> "<arguments>"] \
   [--remote-control] \
   [--append-prompt <prompt>] \
   [--label <label>] [--exclude-label <label>] \
@@ -261,6 +263,8 @@ claims, workspace changes, hosted agents, cleanup, or a run summary. It rejects
 | `--mode <mode>` | `opencode` | Selects one of the four supported modes. |
 | `--model <model[#effort]>` | — | Required fallback model and optional effort; effort defaults to `high`. |
 | `--reasoning-model <tier> <model[#effort]>` | — | Repeatable mapping for `high`, `medium`, and `low`; an omitted suffix inherits the fallback model's effort. |
+| `--extra-args "<arguments>"` | — | Extra harness CLI arguments for every launch, for example a provider selector such as `-p deepseek`. Split on whitespace; quote values that contain spaces. |
+| `--reasoning-args <tier> "<arguments>"` | — | Repeatable extra harness CLI arguments for `high`, `medium`, and `low`. A mapped tier replaces `--extra-args` for the tickets carrying that label. |
 | `--remote-control` | off | Enables Claude Remote Control; rejected in every other mode. |
 
 OpenCode modes require `provider/model`. Codex and Claude accept their native
@@ -290,6 +294,21 @@ recording repair instructions. The selected model is fixed for that agent
 session. Append `#<effort>` to either model value to select its provider-specific
 effort. The fallback model defaults to `high`; a reasoning model without a suffix
 inherits the fallback model's resolved effort.
+
+Extra arguments let one abacus run mix harness providers or profiles per reasoning
+level. `--extra-args` applies to every launched agent CLI, and
+`--reasoning-args <tier>` replaces it for tickets labelled with that reasoning
+level, so `--extra-args "-p openai" --reasoning-args high "-p deepseek"` sends
+high-reasoning tickets to DeepSeek and every other ticket to OpenAI. Each mapped
+tier is independent: a tier without `--reasoning-args` keeps the default
+arguments. Repository and project policy still come from the same run
+configuration, and a reasoning label routes the tier even when no
+`--reasoning-model` mapping exists for it.
+
+The value is a command-line string, not a shell command. Abacus splits it on
+whitespace with single/double quoting and backslash escapes, then passes each
+token through the process argument list, so nothing is expanded or reinterpreted
+by a shell.
 
 ### Hosting
 
@@ -431,14 +450,17 @@ interpolation:
 
 | Mode | Effective command |
 | --- | --- |
-| OpenCode | `opencode --prompt <prompt> --model <provider/model>` |
-| Codex | `codex --cd <workspace> --model <model> --config model_reasoning_effort=<effort> --approve-for-me <prompt>` |
-| Claude | `claude --model <model> --effort <effort> --permission-mode auto --name <agent-ticket> [--remote-control <issue-ticket>] <prompt>` |
-| OpenCode Server | `opencode run <prompt> --model <provider/model> --variant <effort> --attach <url> --dir <workspace>` |
+| OpenCode | `opencode --prompt <prompt> --model <provider/model> [extra arguments]` |
+| Codex | `codex --cd <workspace> --model <model> --config model_reasoning_effort=<effort> --approve-for-me [extra arguments] <prompt>` |
+| Claude | `claude --model <model> --effort <effort> --permission-mode auto --name <agent-ticket> [--remote-control <issue-ticket>] [extra arguments] <prompt>` |
+| OpenCode Server | `opencode run <prompt> --model <provider/model> --variant <effort> --attach <url> --dir <workspace> [extra arguments]` |
 
 OpenCode's interactive TUI at the supported version does not expose a variant
 option, so it uses the configured or session-selected variant. Server mode can
 pass `--variant` directly.
+
+Extra arguments are appended in the position shown above: before the trailing
+prompt for Codex and Claude, and after the generated flags for the OpenCode modes.
 
 ## Exit and output behavior
 

@@ -56,6 +56,35 @@ public sealed class DirectOpenCodeServerHostTests
     }
 
     [Fact]
+    public async Task AttachedProcessReceivesExtraAgentArguments()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fixture = await DirectFixture.CreateAsync(exitImmediately: true);
+        var host = fixture.CreateHost();
+        var run = await host.StartAgentAsync(
+            fixture.Agent,
+            new BeadsIssue("abc-1", IssueStatus.InProgress, TargetBranch: "main"),
+            "provider/exact-model",
+            "high",
+            "http://127.0.0.1:4096",
+            CancellationToken.None,
+            ["-p", "deepseek"]);
+
+        await WaitUntilAsync(() => run.HasExited);
+
+        Assert.Equal(
+            ["--model", "provider/exact-model", "--variant", "high", "--attach", "http://127.0.0.1:4096",
+                "--dir", fixture.Workspace, "-p", "deepseek"],
+            await File.ReadAllLinesAsync(fixture.PathOf("arguments")));
+
+        await host.StopAndCleanupAsync(run, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task CleanupInterruptsDirectProcessAndIsIdempotent()
     {
         if (OperatingSystem.IsWindows())

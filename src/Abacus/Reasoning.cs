@@ -2,7 +2,13 @@ using System.Text.Json;
 
 namespace Abacus;
 
-public sealed record ModelResolution(string Model, string Effort, string? Label, bool UsedDefaultModel, bool UsedDefaultEffort)
+public sealed record ModelResolution(
+    string Model,
+    string Effort,
+    string? Label,
+    bool UsedDefaultModel,
+    bool UsedDefaultEffort,
+    IReadOnlyList<string>? ExtraArguments = null)
 {
     public bool UsedDefault => UsedDefaultModel;
 }
@@ -72,8 +78,11 @@ public sealed class ReasoningPolicy(bool enforceLabels = false)
         IReadOnlyDictionary<string, string> mappings,
         string defaultModel,
         IReadOnlyDictionary<string, string>? effortMappings = null,
-        string defaultEffort = "high")
+        string defaultEffort = "high",
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? argumentMappings = null,
+        IReadOnlyList<string>? defaultArguments = null)
     {
+        var defaultExtra = defaultArguments ?? AgentArguments.Empty;
         var present = (issue.Labels ?? [])
             .Where(Labels.Contains)
             .Distinct(StringComparer.Ordinal)
@@ -87,7 +96,7 @@ public sealed class ReasoningPolicy(bool enforceLabels = false)
                 throw new ReasoningLabelException(
                     $"ticket requires exactly one reasoning label: {string.Join(", ", Labels)}");
             return new ModelResolution(defaultModel, defaultEffort, Label: null,
-                UsedDefaultModel: true, UsedDefaultEffort: true);
+                UsedDefaultModel: true, UsedDefaultEffort: true, defaultExtra);
         }
 
         var label = present[0];
@@ -98,8 +107,12 @@ public sealed class ReasoningPolicy(bool enforceLabels = false)
             ? configuredEffort
             : null;
         var usedDefaultEffort = mappedEffort is null;
+        var extraArguments = argumentMappings is not null
+            && argumentMappings.TryGetValue(label, out var mappedArguments)
+                ? mappedArguments
+                : defaultExtra;
         return new ModelResolution(model ?? defaultModel, mappedEffort ?? defaultEffort, label,
-            usedDefaultModel, usedDefaultEffort);
+            usedDefaultModel, usedDefaultEffort, extraArguments);
     }
 
     public static string LabelForTier(string tier) => tier switch

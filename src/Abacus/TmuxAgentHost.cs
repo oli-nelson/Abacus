@@ -68,7 +68,8 @@ public sealed class TmuxAgentHost(
         string model,
         string effort,
         string? serverUrl,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? extraArguments = null)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -100,7 +101,7 @@ public sealed class TmuxAgentHost(
                 cancellationToken);
             await File.WriteAllTextAsync(
                 wrapperPath,
-                RenderWrapper(agent, issue, model, effort, serverUrl, promptPath, markerPath),
+                RenderWrapper(agent, issue, model, effort, serverUrl, promptPath, markerPath, extraArguments),
                 cancellationToken);
             File.SetUnixFileMode(
                 wrapperPath,
@@ -224,8 +225,9 @@ public sealed class TmuxAgentHost(
         string model,
         string effort,
         string? serverUrl,
-        CancellationToken cancellationToken) =>
-        await StartAgentAsync(agent, issue, model, effort, serverUrl, cancellationToken);
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? extraArguments) =>
+        await StartAgentAsync(agent, issue, model, effort, serverUrl, cancellationToken, extraArguments);
 
     Task<bool> IAgentHost.IsRunningAsync(
         IAgentRun run,
@@ -419,7 +421,8 @@ public sealed class TmuxAgentHost(
         string effort,
         string? serverUrl,
         string promptPath,
-        string markerPath)
+        string markerPath,
+        IReadOnlyList<string>? extraArguments)
     {
         var command = AgentCommandFactory.Create(
             agentMode,
@@ -430,7 +433,8 @@ public sealed class TmuxAgentHost(
             $"{agent.Name} • {issue.Id}",
             effort,
             remote,
-            RemoteSessionName(issue));
+            RemoteSessionName(issue),
+            extraArguments);
         var arguments = new List<string>
         {
             ShellQuote(command.Executable),

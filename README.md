@@ -274,6 +274,26 @@ instructions. Append `#<effort>` to a model to select its effort. A reasoning
 model without a suffix inherits the fallback model's effort; all other omitted
 suffixes default to `high`.
 
+### Extra harness arguments
+
+Some harnesses need arguments that Abacus does not generate, such as a Codex
+provider profile. `--extra-args` appends one argument string to every launch, and
+`--reasoning-args <tier>` replaces it for a single reasoning tier, so one run can
+mix providers per reasoning level:
+
+```sh
+abacus run --mode codex --model gpt-5.6-terra \
+  --extra-args "-p openai" \
+  --reasoning-args high "-p deepseek" \
+  -a alice /work/repo-a
+```
+
+The string is split on whitespace with single/double quoting and backslash
+escapes, then passed without shell expansion. Codex and Claude receive the extra
+arguments before their trailing prompt; the OpenCode modes receive them after
+the generated flags. A tier without `--reasoning-args` keeps `--extra-args`.
+Saved configs use the equivalent `extraArgs` and `reasoningArgs` fields.
+
 ### Interrupted workspaces
 
 > [!IMPORTANT]

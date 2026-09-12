@@ -44,10 +44,21 @@ already exist. Editing existing JSON directly in your preferred editor also work
     { "name": "agent-0", "workspace": "worktrees/0" },
     { "name": "agent-1", "workspace": "worktrees/1" }
   ],
+  "extraArgs": "-p deepseek",
   "reasoningModels": { "high": "gpt-6-astra#xhigh", "low": "gpt-5.6-luna#low" },
+  "reasoningArgs": { "high": "--profile deep" },
   "notify": "attention"
 }
 ```
+
+`extraArgs` is a command-line string appended to every launched harness CLI;
+`reasoningArgs` maps the `high`, `medium`, and `low` reasoning tiers to argument
+strings that replace `extraArgs` for tickets carrying that label. Use them to
+select a provider per reasoning level, for example
+`"extraArgs": "-p openai"` with `"reasoningArgs": { "high": "-p deepseek" }`.
+Each string is split on whitespace with single/double quoting and backslash
+escapes, and no shell expansion is performed. A tier without an entry keeps
+`extraArgs`.
 
 `repo`, each agent's `workspace`, and `eventLog` are relative to the **config file's
 directory**, not the invocation directory. Absolute paths stay absolute. Save As
@@ -88,6 +99,9 @@ Apply the deepest base first, then each derived file, then explicit CLI options.
   supply replacements.
 - `reasoningModels` merges per tier. A null tier clears that route;
   `"reasoningModels": null` clears all routes. An empty object adds no overrides.
+- `reasoningArgs` merges per tier exactly like `reasoningModels`. A null tier
+  clears that tier back to `extraArgs`; `"reasoningArgs": null` clears all
+  per-tier arguments. `extraArgs` is replaced as a whole string.
 - A file specifying `once` or `drain` replaces the prior execution choice.
   Both true in one file is still an error; false/null can reset to continuous.
 - Each file must have `version: 1` and valid JSON field types. Missing required
@@ -154,8 +168,10 @@ fields remain required to run. Semantics/defaults match the [CLI reference](cli-
 | `repo` | string path | `--repo` |
 | `mode` | string | `--mode` |
 | `model` | `model` or `model#effort` string | `--model` |
+| `extraArgs` | string of extra harness CLI arguments | `--extra-args` |
 | `agents` | array of `{ "name": "...", "workspace": "..." }` | `--agent` |
 | `reasoningModels` | object with optional `high`, `medium`, `low` model or `model#effort` strings | `--reasoning-model` |
+| `reasoningArgs` | object with optional `high`, `medium`, `low` argument strings | `--reasoning-args` |
 | `tmuxSession` | string | `--tmux-session` |
 | `tmuxWindow` | string | `--tmux-window` |
 | `tmuxLayout` | string | `--tmux-layout` |

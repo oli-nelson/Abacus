@@ -78,6 +78,46 @@ public sealed partial class EndToEndTests
     }
 
     [Fact]
+    public async Task ReasoningTierArgumentsReplaceDefaultArgumentsForTheAgentCli()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-arguments-");
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+            var startInfo = DirectStartInfo(root.FullName, bin, workspace, "--once");
+            startInfo.ArgumentList.Add("--extra-args");
+            startInfo.ArgumentList.Add("-p openai");
+            startInfo.ArgumentList.Add("--reasoning-args");
+            startInfo.ArgumentList.Add("high");
+            startInfo.ArgumentList.Add("-p deepseek");
+            startInfo.Environment["ABACUS_TEST_REASONING_LABEL"] = ReasoningPolicy.HighLabel;
+            using var process = Process.Start(startInfo)!;
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await process.WaitForExitAsync(timeout.Token);
+
+            Assert.Equal(0, process.ExitCode);
+            Assert.Equal(
+                [
+                    "--model", "provider/exact-model",
+                    "--variant", "high",
+                    "--attach", "http://127.0.0.1:4096",
+                    "--dir", workspace,
+                    "-p", "deepseek",
+                ],
+                await File.ReadAllLinesAsync(Path.Combine(root.FullName, "opencode-arguments")));
+            Assert.Contains("closed 1", await stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task FiniteRunExitsNonzeroWhenAllPushAttemptsFail()
     {
         if (OperatingSystem.IsWindows())

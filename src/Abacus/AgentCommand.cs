@@ -26,14 +26,15 @@ public static class AgentCommandFactory
         string sessionName,
         string effort = "high",
         bool remote = false,
-        string? remoteSessionName = null)
+        string? remoteSessionName = null,
+        IReadOnlyList<string>? extraArguments = null)
     {
         if (remote && mode is not AgentMode.Claude)
         {
             throw new ArgumentException("remote control is supported only for Claude Code", nameof(mode));
         }
 
-        return mode switch
+        var command = mode switch
         {
             // The interactive OpenCode TUI has no variant option. A #suffix is parsed as part of the model ID.
             AgentMode.OpenCode => new AgentCommand(
@@ -59,6 +60,19 @@ public static class AgentCommandFactory
                 ]),
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "unknown agent mode"),
         };
+        // Codex and Claude take the prompt as a trailing positional argument, so extra
+        // arguments must precede it. OpenCode modes consume the prompt as a flag value.
+        return mode is AgentMode.Codex or AgentMode.Claude
+            ? Append(command, extraArguments, beforePrompt: true)
+            : Append(command, extraArguments, beforePrompt: false);
+    }
+
+    private static AgentCommand Append(AgentCommand command, IReadOnlyList<string>? extra, bool beforePrompt)
+    {
+        if (extra is null || extra.Count == 0) return command;
+        return beforePrompt
+            ? command with { ArgumentsBeforePrompt = [.. command.ArgumentsBeforePrompt, .. extra] }
+            : command with { ArgumentsAfterPrompt = [.. command.ArgumentsAfterPrompt, .. extra] };
     }
 
     private static AgentCommand CreateCodex(

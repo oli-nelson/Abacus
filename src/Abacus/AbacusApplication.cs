@@ -108,7 +108,9 @@ public sealed class AbacusApplication(
                     reasoningModels: preflight.Options.EffectiveReasoningModels,
                     defaultModel: preflight.Options.Model,
                     reasoningEfforts: preflight.Options.EffectiveReasoningEfforts,
-                    defaultEffort: preflight.Options.Effort);
+                    defaultEffort: preflight.Options.Effort,
+                    reasoningArguments: preflight.Options.EffectiveReasoningArguments,
+                    defaultArguments: preflight.Options.EffectiveExtraArguments);
                 var supervisor = new TicketSupervisor(
                     beads,
                     agentHost,
@@ -134,7 +136,8 @@ public sealed class AbacusApplication(
                     log,
                     git,
                     agentControls[agent.Name],
-                    notifier).RunAsync(linkedCancellation.Token);
+                    notifier,
+                    preflight.Options.EffectiveExtraArguments).RunAsync(linkedCancellation.Token);
             }).ToArray();
 
             if (log is ConsoleOutput consoleOutput)

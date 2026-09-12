@@ -152,6 +152,58 @@ public sealed class OptionsTests
         Assert.Equal("low", result.Value.EffectiveReasoningEfforts[ReasoningPolicy.LowLabel]);
     }
 
+    [Fact]
+    public void ParsesDefaultAndPerTierExtraAgentArguments()
+    {
+        var result = Options.Parse([
+            "run",
+            "--mode", "codex",
+            "--model", "default-model",
+            "--extra-args", "-p deepseek --sandbox read-only",
+            "--reasoning-args", "high", "-p openai",
+            "--reasoning-args", "low", "--profile \"tiny model\"",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Equal(["-p", "deepseek", "--sandbox", "read-only"], result.Value!.EffectiveExtraArguments);
+        Assert.Equal(["-p", "openai"], result.Value.EffectiveReasoningArguments[ReasoningPolicy.HighLabel]);
+        Assert.Equal(["--profile", "tiny model"], result.Value.EffectiveReasoningArguments[ReasoningPolicy.LowLabel]);
+    }
+
+    [Fact]
+    public void ExtraAgentArgumentsRequireNoReasoningModelMapping()
+    {
+        var result = Options.Parse([
+            "run",
+            "--mode", "codex",
+            "--model", "default-model",
+            "--reasoning-args", "high", "-p deepseek",
+            "-a", "alice", "/tmp/a",
+        ]);
+
+        Assert.Empty(result.Value!.EffectiveReasoningModels);
+        Assert.Equal(["-p", "deepseek"], result.Value.EffectiveReasoningArguments[ReasoningPolicy.HighLabel]);
+    }
+
+    [Fact]
+    public void RejectsMalformedExtraAgentArguments()
+    {
+        string[] Arguments(params string[] extra) =>
+            ["run", "--mode", "codex", "--model", "default-model", .. extra, "-a", "alice", "/tmp/a"];
+
+        // The value is literal text: a leading '-' is an argument, not a missing value.
+        Assert.Throws<OptionsException>(() => Options.Parse(Arguments("--extra-args", "")));
+        Assert.Throws<OptionsException>(() => Options.Parse(Arguments("--extra-args", "   ")));
+        Assert.Throws<OptionsException>(() => Options.Parse(Arguments("--extra-args", "'unterminated")));
+        Assert.Throws<OptionsException>(() => Options.Parse(Arguments("--extra-args", "trailing\\")));
+        Assert.Throws<OptionsException>(() => Options.Parse(
+            Arguments("--extra-args", "one", "--extra-args", "two")));
+        Assert.Throws<OptionsException>(() => Options.Parse(Arguments("--reasoning-args", "highest", "-p deepseek")));
+        Assert.Throws<OptionsException>(() => Options.Parse(Arguments("--reasoning-args", "high", "")));
+        Assert.Throws<OptionsException>(() => Options.Parse(
+            Arguments("--reasoning-args", "high", "-p one", "--reasoning-args", "high", "-p two")));
+    }
+
     [Theory]
     [InlineData("highest")]
     [InlineData("HIGH")]

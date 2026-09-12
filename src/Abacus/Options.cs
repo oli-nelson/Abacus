@@ -65,7 +65,9 @@ public sealed record Options(
     bool StartPaused = false,
     bool DisownTmuxSession = false,
     IReadOnlyDictionary<string, string>? ReasoningModels = null,
-    IReadOnlyDictionary<string, string>? ReasoningEfforts = null)
+    IReadOnlyDictionary<string, string>? ReasoningEfforts = null,
+    IReadOnlyList<string>? ExtraArguments = null,
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? ReasoningArguments = null)
 {
     public const string DefaultTmuxLayout = "tiled";
 
@@ -84,6 +86,13 @@ public sealed record Options(
 
     public IReadOnlyDictionary<string, string> EffectiveReasoningEfforts =>
         ReasoningEfforts ?? new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>Extra agent CLI arguments used when no reasoning tier overrides them.</summary>
+    public IReadOnlyList<string> EffectiveExtraArguments => ExtraArguments ?? AgentArguments.Empty;
+
+    /// <summary>Extra agent CLI arguments keyed by Beads reasoning label, overriding the default set.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> EffectiveReasoningArguments =>
+        ReasoningArguments ?? new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
 
     private static readonly HashSet<string> TmuxLayouts = new(StringComparer.Ordinal)
     {
@@ -136,7 +145,7 @@ public sealed record Options(
         string? configPath = null;
         var stdioRequested = false;
         var verboseRequested = false;
-        var overriddenModelTiers = new HashSet<string>(StringComparer.Ordinal);
+        var overriddenTiers = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
         var optionValues = new List<string>();
         var positionals = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -157,7 +166,7 @@ public sealed record Options(
             var canonical = option switch { "-a" => "--agent", "-v" => "--verbose", _ => option };
             var arity = OptionArity(command, canonical);
             if (arity < 0) throw new OptionsException($"unknown option '{option}' for {command}");
-            if (!seen.Add(canonical) && canonical is not ("--agent" or "--label" or "--exclude-label" or "--target-filter" or "--reasoning-model"))
+            if (!seen.Add(canonical) && canonical is not ("--agent" or "--label" or "--exclude-label" or "--target-filter" or "--reasoning-model" or "--reasoning-args"))
                 throw new OptionsException($"{option} can only be specified once");
             if (equals >= 0 && arity == 0 && run)
             {
@@ -173,7 +182,9 @@ public sealed record Options(
             for (var n = 0; n < arity; n++)
             {
                 if (equals >= 0) values.Add(argument[(equals + 1)..]);
-                else if (canonical is "--message" or "--append-prompt")
+                // These values are literal text and may legitimately begin with '-'.
+                else if (canonical is "--message" or "--append-prompt" or "--extra-args"
+                    || (canonical == "--reasoning-args" && n == 1))
                 {
                     if (++index >= arguments.Count) throw new OptionsException($"{option} requires a value");
                     values.Add(arguments[index]);
@@ -182,7 +193,7 @@ public sealed record Options(
             }
             if (canonical == "--stdio") stdioRequested = true;
             if (canonical == "--verbose") verboseRequested = true;
-            if (canonical == "--reasoning-model") overriddenModelTiers.Add(values[0]);
+            if (canonical is "--reasoning-model" or "--reasoning-args") RecordTierOverride(canonical, values[0]);
             if (canonical == "--config") configPath = CanonicalizePath(values[0]);
             else if (canonical == "--repo") SetRepository(values[0]);
             else { optionValues.Add(canonical); optionValues.AddRange(values); }
@@ -194,7 +205,7 @@ public sealed record Options(
         {
             if (repositoryPath is not null) seen.Add("--repo");
             var configured = RunConfiguration.Load(path).ResolveInheritance().Arguments(
-                command, seen, overriddenModelTiers);
+                command, seen, overriddenTiers);
             if (repositoryPath is not null) configured.AddRange(["--repo", repositoryPath]);
             // No callback here: a selected/explicit config gets exactly one validation attempt.
             return Parse([command, .. configured, .. optionValues]);
@@ -288,6 +299,15 @@ public sealed record Options(
             if (repositoryPath is not null) throw new OptionsException("--repo can only be specified once");
             repositoryPath = CanonicalizePath(value);
         }
+
+        void RecordTierOverride(string optionName, string tier)
+        {
+            var tiers = overriddenTiers.TryGetValue(optionName, out var recorded)
+                ? (HashSet<string>)recorded
+                : new HashSet<string>(StringComparer.Ordinal);
+            tiers.Add(tier);
+            overriddenTiers[optionName] = tiers;
+        }
     }
 
     internal static int OptionArity(string command, string option)
@@ -296,10 +316,11 @@ public sealed record Options(
         if (command is "run" or "preflight")
             return option switch
             {
-                "--agent" or "--reasoning-model" => 2,
+                "--agent" or "--reasoning-model" or "--reasoning-args" => 2,
                 "--config" or "--mode" or "--model" or "--tmux-session" or "--tmux-window" or "--tmux-layout"
                     or "--opencode-server" or "--target-filter" or "--append-prompt" or "--label" or "--exclude-label"
-                    or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify" => 1,
+                    or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify"
+                    or "--extra-args" => 1,
                 "--remote-control" or "--notify-sound" or "--verbose" => 0,
                 "--once" or "--drain" or "--stdio" or "--no-intro" or "--tui-audio" or "--start-paused"
                     or "--disown-tmux-session" when command == "run" => 0,
@@ -349,6 +370,9 @@ public sealed record Options(
         var agents = new List<AgentOptions>();
         var reasoningModels = new Dictionary<string, string>(StringComparer.Ordinal);
         var reasoningEfforts = new Dictionary<string, string>(StringComparer.Ordinal);
+        IReadOnlyList<string>? extraArguments = null;
+        var extraArgumentsSpecified = false;
+        var reasoningArguments = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
 
         for (var index = 0; index < arguments.Count; index++)
         {
@@ -395,6 +419,29 @@ public sealed record Options(
                     var reasoningModel = ReadValue(arguments, ref index, argument);
                     if (!reasoningModels.TryAdd(label, reasoningModel))
                         throw new OptionsException($"--reasoning-model {tier} can only be specified once");
+                    break;
+                case "--extra-args":
+                    if (extraArgumentsSpecified)
+                    {
+                        throw new OptionsException("--extra-args can only be specified once");
+                    }
+
+                    extraArguments = AgentArguments.Split(arguments[++index], argument);
+                    extraArgumentsSpecified = true;
+                    break;
+                case "--reasoning-args":
+                    var argumentTier = ReadValue(arguments, ref index, argument);
+                    string argumentLabel;
+                    try { argumentLabel = ReasoningPolicy.LabelForTier(argumentTier); }
+                    catch (ArgumentException)
+                    {
+                        throw new OptionsException("--reasoning-args tier must be high, medium, or low");
+                    }
+
+                    var mappedArguments = AgentArguments.Split(
+                        arguments[++index], $"--reasoning-args {argumentTier}");
+                    if (!reasoningArguments.TryAdd(argumentLabel, mappedArguments))
+                        throw new OptionsException($"--reasoning-args {argumentTier} can only be specified once");
                     break;
                 case "--opencode-server":
                     server = ReadValue(arguments, ref index, argument);
@@ -626,7 +673,9 @@ public sealed record Options(
                 stdio, eventLogPath, noIntro, tuiAudio, startPaused,
                 DisownTmuxSession: disownTmuxSession,
                 ReasoningModels: reasoningModels,
-                ReasoningEfforts: reasoningEfforts),
+                ReasoningEfforts: reasoningEfforts,
+                ExtraArguments: extraArguments,
+                ReasoningArguments: reasoningArguments),
             ShowHelp: false);
     }
 

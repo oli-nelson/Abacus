@@ -1,6 +1,11 @@
 namespace Abacus;
 
-public sealed record PreparedClaim(BeadsIssue Issue, string Branch, string? Model = null, string? Effort = null);
+public sealed record PreparedClaim(
+    BeadsIssue Issue,
+    string Branch,
+    string? Model = null,
+    string? Effort = null,
+    IReadOnlyList<string>? ExtraArguments = null);
 
 public sealed partial class ClaimCoordinator(
     Beads beads,
@@ -16,7 +21,9 @@ public sealed partial class ClaimCoordinator(
     IReadOnlyDictionary<string, string>? reasoningModels = null,
     string? defaultModel = null,
     IReadOnlyDictionary<string, string>? reasoningEfforts = null,
-    string? defaultEffort = null)
+    string? defaultEffort = null,
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? reasoningArguments = null,
+    IReadOnlyList<string>? defaultArguments = null)
 {
     private readonly DispatchFilters filters = dispatchFilters ?? DispatchFilters.Empty;
     private readonly ClaimGate claimsAllowed = claimGate ?? new ClaimGate();
@@ -25,6 +32,9 @@ public sealed partial class ClaimCoordinator(
         ?? new Dictionary<string, string>(StringComparer.Ordinal);
     private readonly IReadOnlyDictionary<string, string> effortMappings = reasoningEfforts
         ?? new Dictionary<string, string>(StringComparer.Ordinal);
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> argumentMappings = reasoningArguments
+        ?? new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+    private readonly IReadOnlyList<string> defaultArguments = defaultArguments ?? AgentArguments.Empty;
     private bool initialRecoveryPending = true;
     public TimeSpan PollingInterval { get; } = pollingInterval ?? TimeSpan.FromSeconds(5);
 
@@ -215,7 +225,8 @@ public sealed partial class ClaimCoordinator(
                         issue.Binding!.StartCommit, branch, cancellationToken);
                     issue = verified;
                 }
-                return new PreparedClaim(issue, branch, modelResolution?.Model, modelResolution?.Effort);
+                return new PreparedClaim(issue, branch, modelResolution?.Model, modelResolution?.Effort,
+                    modelResolution?.ExtraArguments);
             }
             catch (AgentHaltedException) { throw; }
             catch (ReasoningLabelException exception)
@@ -368,7 +379,8 @@ public sealed partial class ClaimCoordinator(
             resumed with { Title = resumed.Title ?? reservedIssue.Title },
             expectedBranch,
             modelResolution?.Model,
-            modelResolution?.Effort);
+            modelResolution?.Effort,
+            modelResolution?.ExtraArguments);
     }
 
     private async Task<ModelResolution> ResolveReasoningAsync(
@@ -385,7 +397,9 @@ public sealed partial class ClaimCoordinator(
             modelMappings,
             defaultModel ?? throw new ReasoningPolicyException("the default model is unavailable"),
             effortMappings,
-            defaultEffort ?? throw new ReasoningPolicyException("the default effort is unavailable"));
+            defaultEffort ?? throw new ReasoningPolicyException("the default effort is unavailable"),
+            argumentMappings,
+            defaultArguments);
     }
 
     private async Task RejectReasoningAsync(
@@ -521,10 +535,12 @@ public sealed class AgentLoop(
     TextWriter log,
     Git git,
     AgentControl agentControl,
-    DesktopNotifier? notifier = null)
+    DesktopNotifier? notifier = null,
+    IReadOnlyList<string>? defaultArguments = null)
 {
     private readonly AgentControl control = agentControl;
     private readonly Git workspaceGit = git;
+    private readonly IReadOnlyList<string> extraArguments = defaultArguments ?? AgentArguments.Empty;
     private BeadsIssue? suspendedIssue;
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -636,6 +652,7 @@ public sealed class AgentLoop(
                 IAgentRun run;
                 var resolvedModel = claim.Model ?? model;
                 var resolvedEffort = claim.Effort ?? effort;
+                var resolvedArguments = claim.ExtraArguments ?? extraArguments;
                 await log.SetModelAsync(agent.Name, resolvedModel, resolvedEffort);
                 try
                 {
@@ -649,7 +666,8 @@ public sealed class AgentLoop(
                         resolvedModel,
                         resolvedEffort,
                         serverUrl,
-                        cancellationToken);
+                        cancellationToken,
+                        resolvedArguments);
                 }
                 catch (OperationCanceledException)
                 {

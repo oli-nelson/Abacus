@@ -15,7 +15,8 @@ public interface IAgentHost
         string model,
         string effort,
         string? serverUrl,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? extraArguments = null);
 
     Task<bool> IsRunningAsync(IAgentRun run, CancellationToken cancellationToken);
     Task StopAndCleanupAsync(IAgentRun run, CancellationToken cancellationToken);

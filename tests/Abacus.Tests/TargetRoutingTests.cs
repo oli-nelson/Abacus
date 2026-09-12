@@ -478,6 +478,38 @@ public sealed class TargetRoutingTests
     }
 
     [Fact]
+    public async Task ReasoningRoutingCarriesPerTierExtraArgumentsIntoPreparedClaim()
+    {
+        using var f = await RoutingFixture.CreateAsync();
+        await f.AddIssueAsync("abc-1", "main", labels: [ReasoningPolicy.LowLabel]);
+        var claim = await f.ClaimAsync(
+            reasoning: new ReasoningPolicy(),
+            argumentMappings: new Dictionary<string, IReadOnlyList<string>>
+            {
+                [ReasoningPolicy.HighLabel] = ["-p", "deepseek"],
+            },
+            defaultArguments: ["-p", "openai"]);
+
+        Assert.Equal(new[] { "-p", "openai" }, claim!.ExtraArguments);
+    }
+
+    [Fact]
+    public async Task ReasoningRoutingSendsTheMappedTierArgumentsForALabelledTicket()
+    {
+        using var f = await RoutingFixture.CreateAsync();
+        await f.AddIssueAsync("abc-1", "main", labels: [ReasoningPolicy.HighLabel]);
+        var claim = await f.ClaimAsync(
+            reasoning: new ReasoningPolicy(),
+            argumentMappings: new Dictionary<string, IReadOnlyList<string>>
+            {
+                [ReasoningPolicy.HighLabel] = ["-p", "deepseek"],
+            },
+            defaultArguments: ["-p", "openai"]);
+
+        Assert.Equal(new[] { "-p", "deepseek" }, claim!.ExtraArguments);
+    }
+
+    [Fact]
     public async Task EnforcedReasoningLabelIsRequired()
     {
         using var f = await RoutingFixture.CreateAsync();
@@ -608,7 +640,9 @@ public sealed class TargetRoutingTests
             IReadOnlyDictionary<string, string>? mappings = null,
             string defaultModel = "default-model",
             IReadOnlyDictionary<string, string>? effortMappings = null,
-            string defaultEffort = "high")
+            string defaultEffort = "high",
+            IReadOnlyDictionary<string, IReadOnlyList<string>>? argumentMappings = null,
+            IReadOnlyList<string>? defaultArguments = null)
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             return await new ClaimCoordinator(
@@ -619,7 +653,9 @@ public sealed class TargetRoutingTests
                     reasoningModels: mappings,
                     defaultModel: defaultModel,
                     reasoningEfforts: effortMappings,
-                    defaultEffort: defaultEffort)
+                    defaultEffort: defaultEffort,
+                    reasoningArguments: argumentMappings,
+                    defaultArguments: defaultArguments)
                 .WaitForPreparedClaimAsync(Agent(filters, reasoning), true, mode, timeout.Token);
         }
         public async Task<string> RunGitAsync(params string[] args)

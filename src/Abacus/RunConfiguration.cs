@@ -17,8 +17,10 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         new("repo", "--repo", "path", "Main checkout path (relative to this config)"),
         new("mode", "--mode", "string", "opencode, codex, claude, opencode-server; default opencode"),
         new("model", "--model", "string", "Required fallback model; OpenCode uses provider/model"),
+        new("extraArgs", "--extra-args", "string", "Extra agent CLI arguments for every launch, e.g. -p deepseek"),
         new("agents", "--agent", "agents", "Named agent workspaces"),
         new("reasoningModels", "--reasoning-model", "models", "Optional high / medium / low model#effort routes"),
+        new("reasoningArgs", "--reasoning-args", "args", "Optional high / medium / low extra argument strings"),
         new("tmuxSession", "--tmux-session", "string", "Optional session name"),
         new("tmuxWindow", "--tmux-window", "string", "Optional window name"),
         new("tmuxLayout", "--tmux-layout", "string", "tiled, even-horizontal, even-vertical, main-horizontal, main-vertical"),
@@ -98,7 +100,7 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
             foreach (var (name, value) in document)
             {
                 if (name == "baseConfig") continue;
-                if (name == "reasoningModels" && value is JsonObject models
+                if (MergesPerTier(name) && value is JsonObject models
                     && merged.Document[name] is JsonObject previous)
                 {
                     foreach (var (tier, model) in models) previous[tier] = model?.DeepClone();
@@ -108,6 +110,9 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         }
         return merged;
     }
+
+    private static bool MergesPerTier(string name) =>
+        Fields.FirstOrDefault(field => field.Name == name)?.Kind is "models" or "args";
 
     private static void CheckDuplicateKeys(JsonElement element)
     {
@@ -144,6 +149,8 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
                     && obj.All(p => (p.Key is "name" or "workspace") && (p.Value is null || IsString(p.Value)))),
                 "models" => value is JsonObject models && models.All(p => (p.Key is "high" or "medium" or "low")
                     && (p.Value is null || IsString(p.Value))),
+                "args" => value is JsonObject arguments && arguments.All(p => (p.Key is "high" or "medium" or "low")
+                    && (p.Value is null || IsString(p.Value))),
                 _ => IsString(value),
             };
             if (!valid) throw new OptionsException($"run config '{name}' must have type {field.Kind}");
@@ -151,14 +158,14 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
     }
 
     internal List<string> Arguments(string command, IReadOnlySet<string>? overridden = null,
-        IReadOnlySet<string>? overriddenModelTiers = null)
+        IReadOnlyDictionary<string, IReadOnlySet<string>>? overriddenTiers = null)
     {
         ValidateShape();
         var args = new List<string>();
         foreach (var field in Fields)
         {
             if (field.Name == "baseConfig") continue;
-            if (overridden?.Contains(field.Option) == true && field.Kind != "models") continue;
+            if (overridden?.Contains(field.Option) == true && field.Kind is not ("models" or "args")) continue;
             if (field.Option is "--once" or "--drain" &&
                 (overridden?.Contains("--once") == true || overridden?.Contains("--drain") == true)) continue;
             // Preflight can inspect a saved run without inheriting its output/lifecycle controls.
@@ -179,9 +186,15 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
                     }
                     break;
                 case "models":
+                case "args":
                     foreach (var (tier, model) in (JsonObject)value)
-                        if (model is not null && overriddenModelTiers?.Contains(tier) != true)
-                            args.AddRange([field.Option, tier, Text(model)]);
+                    {
+                        if (model is null) continue;
+                        if (overriddenTiers is not null
+                            && overriddenTiers.TryGetValue(field.Option, out var tiers)
+                            && tiers.Contains(tier)) continue;
+                        args.AddRange([field.Option, tier, Text(model)]);
+                    }
                     break;
                 case "list":
                     foreach (var item in (JsonArray)value) args.AddRange([field.Option, Text(item!)]);

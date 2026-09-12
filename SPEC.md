@@ -150,8 +150,8 @@ have their own bases, up to 64 files. Reject missing/malformed bases, cycles,
 and excessive depth. Apply deepest base first, then each derived config, then
 explicit CLI overrides. Omitted fields inherit; null clears an inherited value
 back to unset/default. Agent/filter arrays replace their entire list (including
-empty arrays); reasoning model specifications merge per tier, with null clearing
-a tier or the whole mapping. A layer specifying once/drain replaces the previous execution
+empty arrays); reasoning model specifications and per-tier argument strings merge
+per tier, with null clearing a tier or the whole mapping. A layer specifying once/drain replaces the previous execution
 choice; both true within one layer remain invalid. Validate each file's structure,
 but only the final composition must meet runtime requirements. Relative paths
 retain the directory of the file that supplied each value. The editor edits only
@@ -178,7 +178,7 @@ readiness remain normal preflight checks, not config-selection prerequisites.
 
 All run settings are supported. Explicit CLI scalars and boolean flags override
 saved values, CLI agent/filter lists replace their saved list, and reasoning model
-specifications override per tier. Boolean CLI flags accept `=true` or `=false`. An explicit
+specifications and argument strings override per tier. Boolean CLI flags accept `=true` or `=false`. An explicit
 once/drain option replaces the configured execution choice; conflicting explicit
 options remain errors. Duplicate non-repeatable CLI options remain errors.
 Preflight ignores saved
@@ -253,6 +253,8 @@ abacus run [--tmux-session <session_name>] \
   [--disown-tmux-session] \
   --model <model[#effort]> \
   [--reasoning-model <high|medium|low> <model[#effort]>] \
+  [--extra-args <arguments>] \
+  [--reasoning-args <high|medium|low> <arguments>] \
   [--remote-control] \
   [--repo <main-checkout>] [--target-filter <branch>] \
   [--label <label>] [--exclude-label <label>] \
@@ -274,6 +276,17 @@ effort availability remain the selected CLI's responsibility. Interactive
 OpenCode is the exception: OpenCode 1.18.20's TUI entry point does not expose
 variant selection, so Abacus strips the suffix from the model passed to OpenCode
 and OpenCode uses its configured or session-selected variant.
+
+`--extra-args <arguments>` appends a command-line argument string to every
+launched harness CLI, and repeatable `--reasoning-args <tier> <arguments>`
+replaces it for tickets carrying the matching reasoning label, so one run can
+select a different provider or profile per reasoning tier. Each string is split
+on whitespace with single/double quote grouping and backslash escapes and is
+passed through the process argument list, never a shell. An empty or malformed
+string is rejected. A tier without a mapped string keeps the default arguments.
+Arguments are placed before the trailing prompt for Codex and Claude and after
+the generated flags for the OpenCode modes. Every mode accepts extra arguments;
+they typically select providers, profiles, or other harness options.
 
 `--reasoning-model <tier> <model[#effort]>` is repeatable for the exact tiers
 `high`, `medium`, and `low`. It maps the Beads labels `abacus:high_reasoning`,
@@ -618,7 +631,7 @@ Each Abacus agent follows this loop:
 
 4. Validate the ticket target and durable execution binding, then create or check out `abacus/<issue_id>` using the safe preparation contract above.
 5. Make sure a normal newly selected workspace has no local changes before starting the agent CLI. An interrupted issue workspace intentionally retains its existing changes.
-6. Start the selected local agent CLI interactively in tmux, or start an attached OpenCode Server client either directly or in tmux. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the requested model and a prompt describing the issue and its ticket-state responsibilities. Use the controller-snapshotted target merge instructions when present; file presence overrides the default even when the file is empty. Pass the requested effort where the selected CLI exposes it; interactive OpenCode uses its configured or session-selected variant because its TUI has no variant CLI option.
+6. Start the selected local agent CLI interactively in tmux, or start an attached OpenCode Server client either directly or in tmux. In every mode, set `BEADS_ACTOR=<agent_name>` and pass the requested model, the resolved default or per-tier extra arguments, and a prompt describing the issue and its ticket-state responsibilities. Use the controller-snapshotted target merge instructions when present; file presence overrides the default even when the file is empty. Pass the requested effort where the selected CLI exposes it; interactive OpenCode uses its configured or session-selected variant because its TUI has no variant CLI option.
 7. While the agent CLI is running, Abacus monitors the ticket status through Beads and enforces the optional ticket runtime limit.
 8. The coding agent does the work and changes the ticket status when it is finished:
 

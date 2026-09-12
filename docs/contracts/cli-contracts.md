@@ -4,6 +4,11 @@ This is the developer-facing record of subprocess behavior that Abacus relies
 on. It complements the [product specification](../../SPEC.md); users looking for
 commands and options should start with the [CLI reference](../cli-reference.md).
 
+Each harness command below may additionally carry user-supplied extra arguments
+from `--extra-args` or the winning `--reasoning-args` tier. They are appended
+without shell interpretation, before the trailing prompt for Codex and Claude
+and after the generated flags for the OpenCode modes.
+
 Captured through 2026-09-03 with the minimum versions listed in the
 [repository README](../../README.md). Tests use the sanitized JSON in
 `tests/Abacus.Tests/Fixtures/Beads`; timestamps, generated IDs, repository paths,

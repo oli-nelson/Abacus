@@ -87,4 +87,49 @@ public sealed class ReasoningPolicyTests
         Assert.Equal("max", resolution.Effort);
         Assert.True(resolution.UsedDefaultEffort);
     }
+
+    [Fact]
+    public void PerTierArgumentsOverrideTheDefaultSetAndFallBackWhenUnmapped()
+    {
+        var policy = new ReasoningPolicy();
+        var mappings = new Dictionary<string, string>
+        {
+            [ReasoningPolicy.HighLabel] = "large-model",
+            [ReasoningPolicy.LowLabel] = "small-model",
+        };
+        var argumentMappings = new Dictionary<string, IReadOnlyList<string>>
+        {
+            [ReasoningPolicy.HighLabel] = ["-p", "deepseek"],
+        };
+
+        var high = policy.ResolveModel(
+            new BeadsIssue("abc-4", IssueStatus.Open, Labels: [ReasoningPolicy.HighLabel]),
+            mappings,
+            "default-model",
+            argumentMappings: argumentMappings,
+            defaultArguments: ["-p", "openai"]);
+        Assert.Equal(new[] { "-p", "deepseek" }, high.ExtraArguments);
+
+        var low = policy.ResolveModel(
+            new BeadsIssue("abc-5", IssueStatus.Open, Labels: [ReasoningPolicy.LowLabel]),
+            mappings,
+            "default-model",
+            argumentMappings: argumentMappings,
+            defaultArguments: ["-p", "openai"]);
+        Assert.Equal(new[] { "-p", "openai" }, low.ExtraArguments);
+
+        var unlabelled = policy.ResolveModel(
+            new BeadsIssue("abc-6", IssueStatus.Open),
+            mappings,
+            "default-model",
+            argumentMappings: argumentMappings,
+            defaultArguments: ["-p", "openai"]);
+        Assert.Equal(new[] { "-p", "openai" }, unlabelled.ExtraArguments);
+
+        var unmapped = policy.ResolveModel(
+            new BeadsIssue("abc-7", IssueStatus.Open, Labels: [ReasoningPolicy.HighLabel]),
+            mappings,
+            "default-model");
+        Assert.Empty(unmapped.ExtraArguments!);
+    }
 }
