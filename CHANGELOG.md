@@ -6,6 +6,8 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-12
+
 ### Added
 
 - Show Beads merge-slot ownership on the live dashboard's agent rows: the holder
