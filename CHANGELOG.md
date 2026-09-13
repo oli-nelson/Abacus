@@ -6,8 +6,6 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-09-12
-
 ### Added
 
 - Add an optional maintenance supervisor enabled by `--supervisor-model` or
@@ -44,6 +42,43 @@ Unreleased section. Released versions are listed newest first.
   only: running tickets finish, and pausing or resuming claims by hand never
   bypasses it. `schedule` is config-only, replaces wholesale when inherited, and
   is editable in `abacus config edit`.
+
+### Changed
+
+- Support `j`/`k` as down/up navigation in the `abacus config edit` menu.
+- Polish the main dashboard with highlighted tabs and selections, quieter metadata,
+  roomier agent rows on taller terminals, a compact run overview, and fixed-position
+  status and keyboard hints. Compact and no-color layouts remain supported.
+- Split the live dashboard into Agents, Attention Center, Latest Comments, and
+  read-only Settings. Switch with 1–4, Tab, or Left/Right; unread `!n` tab badges
+  flag new or changed content without relying on color. Each screen scrolls
+  independently within the terminal height, keeping navigation and claim controls
+  visible. Shift-Tab still toggles claims; arrow/j/k selection stays on its screen.
+  The run's default model/effort now appears in Settings instead of the header.
+- **Breaking:** Treat the current run's configured agents as the authoritative
+  merge-slot participants. Automatically release unknown holders and remove
+  unknown waiters, alongside configured agents without a running harness;
+  preserve configured live agents and remaining waiter order. Claims from
+  external agents or other runs are no longer protected: use a single
+  controller per shared merge slot.
+- Drop the blank ticket line from dashboard rows for agents that hold no ticket,
+  so the name, state, and progress share one row and idle agents stop consuming
+  vertical space.
+
+### Fixed
+
+- Keep the dashboard alert block compact and current. Alert text now wraps
+  instead of being clipped, each agent or Abacus source keeps a single notice
+  row, a notice that repeats or restates that source's persistent alert no
+  longer adds a duplicate row, clearing an alert also clears its source's
+  notices, and an unrepeated notice expires after about a minute. Attention Center
+  scrolls wrapped alerts within its own viewport instead of competing for space
+  with agents and comments.
+
+## [0.3.0] - 2026-09-12
+
+### Added
+
 - Show Beads merge-slot ownership on the live dashboard's agent rows: the holder
   is marked and every waiting agent shows its position in the queue.
 - Add `abacus info` for a concise read-only overview of Git state and worktrees,
@@ -57,30 +92,10 @@ Unreleased section. Released versions are listed newest first.
 
 ### Changed
 
-- Support `j`/`k` as down/up navigation in the `abacus config edit` menu.
-- Polish the main dashboard with highlighted tabs and selections, quieter metadata,
-  roomier agent rows on taller terminals, a compact run overview, and fixed-position
-  status and keyboard hints. Compact and no-color layouts remain supported.
-
-- Split the live dashboard into Agents, Attention Center, Latest Comments, and
-  read-only Settings. Switch with 1–4, Tab, or Left/Right; unread `!n` tab badges
-  flag new or changed content without relying on color. Each screen scrolls
-  independently within the terminal height, keeping navigation and claim controls
-  visible. Shift-Tab still toggles claims; arrow/j/k selection stays on its screen.
-
-- **Breaking:** Treat the current run's configured agents as the authoritative
-  merge-slot participants. Automatically release unknown holders and remove
-  unknown waiters, alongside configured agents without a running harness;
-  preserve configured live agents and remaining waiter order. Claims from
-  external agents or other runs are no longer protected: use a single
-  controller per shared merge slot.
-- Drop the blank ticket line from dashboard rows for agents that hold no ticket,
-  so the name, state, and progress share one row and idle agents stop consuming
-  vertical space.
 - Report each agent's branch, model, and reasoning effort on one dashboard
   metadata line, in that order. Every row shows the settings it is using or
-  would use instead of hiding them between tickets; Settings reports the run's
-  default model/effort.
+  would use instead of hiding them between tickets; the compact header still
+  reports the run's default model/effort.
 - **Breaking:** Configure reasoning effort by appending `#effort` to `--model`
   and `--reasoning-model` values. The separate `--effort`, `reasoningEfforts`,
   and saved `effort` settings are removed; combine them into model strings such
@@ -92,13 +107,10 @@ Unreleased section. Released versions are listed newest first.
 
 ### Fixed
 
-- Keep the dashboard alert block compact and current. Alert text now wraps
-  instead of being clipped, each agent or Abacus source keeps a single notice
-  row, a notice that repeats or restates that source's persistent alert no
-  longer adds a duplicate row, clearing an alert also clears its source's
-  notices, and an unrepeated notice expires after about a minute. Attention Center
-  scrolls wrapped alerts within its own viewport instead of competing for space
-  with agents and comments.
+- Reclaim merge slots and waiter entries that name one of the run's agents while
+  that agent has no running harness. A crashed, stopped, or exited agent can no
+  longer leave the merge slot claimed forever and block every other agent;
+  ownership belonging to other agents is left untouched.
 - Stop telling agents to wait for the Beads merge slot with a shell retry loop.
   The agent prompt now requires harness-native waiting and forbids shell retry
   loops and background or detached processes, which could otherwise keep
