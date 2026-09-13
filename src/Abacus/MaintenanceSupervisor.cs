@@ -23,7 +23,11 @@ public sealed class MaintenanceSupervisor(
     private bool busy;
     private int generation;
     private bool enabled = true;
-    internal Action<SoundClip> StartSound { get; init; } = clip => SoundPlayer.TryStart(clip)?.ContinueInBackground();
+    internal Func<SoundClip, Task> StartSound { get; init; } = clip =>
+    {
+        SoundPlayer.TryStart(clip)?.ContinueInBackground();
+        return Task.CompletedTask;
+    };
 
     private sealed class Failure
     {
@@ -211,14 +215,14 @@ public sealed class MaintenanceSupervisor(
             await log.SetAgentAsync(Name, failed ? AgentActivity.Stopped : AgentActivity.Idle, detail);
             if (failed) await log.SetPersistentAlertAsync(Name, detail);
             else await log.ClearPersistentAlertAsync(Name);
-            if (failed) Play(SoundClip.SupervisorFailed);
+            if (failed) await PlayAsync(SoundClip.SupervisorFailed);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             var detail = $"Last run failed during cleanup or recovery verification: {ex.Message}";
             await log.SetPersistentAlertAsync(Name, detail);
             await log.SetAgentAsync(Name, AgentActivity.Stopped, detail);
-            Play(SoundClip.SupervisorFailed);
+            await PlayAsync(SoundClip.SupervisorFailed);
             throw;
         }
         finally
@@ -276,7 +280,7 @@ public sealed class MaintenanceSupervisor(
                 };
                 await log.SetModelAsync(Name, preflight.Options.SupervisorModel!, preflight.Options.SupervisorEffort);
                 await log.SetAgentAsync(Name, AgentActivity.Starting, $"Starting maintenance run {runId}; timeout {preflight.Options.EffectiveSupervisorTimeout}");
-                Play(SoundClip.Supervisor);
+                await PlayAsync(SoundClip.Supervisor);
                 run = await host.StartAgentAsync(agent, new BeadsIssue(runId, IssueStatus.Open, "Maintenance supervisor"),
                     preflight.Options.SupervisorModel!, preflight.Options.SupervisorEffort,
                     preflight.OpenCodeServerUrl, timeout.Token, preflight.Options.SupervisorExtraArguments ?? AgentArguments.Empty);
@@ -401,10 +405,10 @@ public sealed class MaintenanceSupervisor(
         Abacus independently verifies labels and agent retries; this summary is not proof of success.
         """;
 
-    private void Play(SoundClip clip)
+    private async Task PlayAsync(SoundClip clip)
     {
         if (!preflight.Options.TuiAudio || log is not ConsoleOutput { IsInteractiveDashboard: true }) return;
-        try { StartSound(clip); }
+        try { await StartSound(clip); }
         catch { /* Audio is best effort, never an orchestration failure. */ }
     }
 }

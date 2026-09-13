@@ -124,7 +124,8 @@ public sealed class AbacusApplication(
                     projectId: tmuxSessionLease.ProjectId);
 
             var maintenance = preflight.Options.SupervisorModel is null ? null
-                : new MaintenanceSupervisor(preflight, beads, agentHost, log, temporaryRoot);
+                : new MaintenanceSupervisor(preflight, beads, agentHost, log, temporaryRoot)
+                { StartSound = attentionSound.PlaySupervisorAsync };
             var coordinators = new Dictionary<string, ClaimCoordinator>(StringComparer.Ordinal);
             var loops = preflight.Agents.Select(agent =>
             {

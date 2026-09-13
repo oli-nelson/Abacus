@@ -314,7 +314,7 @@ public sealed class MaintenanceSupervisorTests
                 output = new ConsoleOutput(Log, ["alice"], "p/worker", false, interactive: interactive.Value,
                     terminalSize: () => (120, 40), color: false);
             Supervisor = new(preflight, new Beads(new CommandRunner(Log), bd), Host, (TextWriter?)output ?? Log, Root, TimeSpan.FromMilliseconds(5))
-            { StartSound = clip => Clips.Add(clip) };
+            { StartSound = clip => { Clips.Add(clip); return Task.CompletedTask; } };
         }
         public void Attention(bool present = true, bool cannotResolve = false) => File.WriteAllText(Path.Combine(Root, "issues.json"),
             present ? JsonSerializer.Serialize(new[] { new { id = "issue-1", title = "needs maintenance", status = "closed",

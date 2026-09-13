@@ -197,6 +197,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private const string Reset = "\u001b[0m";
     private const string Bold = "\u001b[1m";
     private const string Dim = "\u001b[2m";
+    private const string Reverse = "\u001b[7m";
     private const string Cyan = "\u001b[36m";
     private const string Green = "\u001b[32m";
     private const string Yellow = "\u001b[33m";
@@ -854,8 +855,17 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         // Settings are known at startup; only later changes need a badge.
         if (!rendered) seenScreenContent[3] = snapshots[3];
         if (panel == DashboardPanel.Closed) seenScreenContent[(int)screen] = snapshots[(int)screen];
-        builder.Append(Color(Bold + Cyan, " ABACUS • "));
-        builder.Append(Color(claimingEnabled && !scheduleBlocked ? Green : Yellow, claimLabel)).Append("\u001b[K\n");
+        const string brand = " ABACUS  ";
+        var claims = $" {claimLabel} ";
+        builder.Append(Color(Bold + Cyan, brand));
+        builder.Append(Color(Bold + (claimingEnabled && !scheduleBlocked ? Green : Yellow), claims));
+        var agentCount = agents.Keys.Count(name => !IsSupervisor(name));
+        var workingCount = agents.Values.Count(row => !IsSupervisor(row.Name) && row.Activity == AgentActivity.Working);
+        var overview = $"{agentCount} agents • {workingCount} working • {userAttentionIssues.Count} attention ";
+        var overviewGap = width - brand.Length - claims.Length - overview.Length;
+        if (overviewGap >= 2)
+            builder.Append(' ', overviewGap).Append(Color(Dim, overview));
+        builder.Append("\u001b[K\n");
         var unreadCounts = Enumerable.Range(0, 4)
             .Select(index => snapshots[index].Except(seenScreenContent[index]).Count()).ToArray();
         string[] Labels(string[] names) => Enumerable.Range(0, 4).Select(index =>
@@ -875,8 +885,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         for (var index = 0; index < labels.Length; index++)
         {
             if (index > 0) builder.Append(' ');
-            builder.Append(Color(index == (int)screen ? Bold + Cyan : unreadCounts[index] > 0 ? Bold + Yellow : Dim, labels[index]));
+            builder.Append(Color(index == (int)screen ? Bold + Reverse + Cyan : unreadCounts[index] > 0 ? Bold + Yellow : Dim, labels[index]));
         }
+        var tabRemainder = width - string.Join(" ", labels).Length - 1;
+        if (tabRemainder > 2)
+            builder.Append(Color(Dim, "  " + new string('─', tabRemainder - 2)));
         builder.Append("\u001b[K\n");
         var screenHeader = builder.ToString();
         builder.Clear();
@@ -907,7 +920,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 };
                 var icon = row.Activity == AgentActivity.Working ? "●" : "○";
                 var elapsed = OutputExtensions.FormatDuration(DateTimeOffset.UtcNow - row.ChangedAt).PadLeft(7);
-                var selector = rowIndex == selectedAgentIndex ? "›" : " ";
+                var isSelected = rowIndex == selectedAgentIndex;
+                var selector = isSelected ? "›" : " ";
+                var prefixStyle = isSelected ? Bold + Reverse + stateColor : stateColor;
+                if (rowIndex > 0 && GetHeight() >= 20) builder.Append("\u001b[K\n");
                 var prefix = $"{selector}{icon} {Truncate(row.Name, nameWidth).PadRight(nameWidth)}  ";
                 var status = state.PadRight(10);
                 var ticket = row.IssueId is null ? string.Empty
@@ -922,7 +938,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                     : WrapCommentText(ticket, headerWidth);
                 if (headerLines.Count > 0)
                 {
-                    builder.Append(Color(stateColor, prefix));
+                    builder.Append(Color(prefixStyle, prefix));
                     builder.Append(Color(Bold, headerLines[0]));
                     if (badge is not null)
                     {
@@ -950,7 +966,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 }
                 builder.Append(headerLines.Count > 0
                     ? new string(' ', prefix.Length)
-                    : Color(stateColor, prefix));
+                    : Color(prefixStyle, prefix));
                 builder.Append(Color(stateColor, status));
                 builder.Append(Color(Dim, elapsed)).Append(' ').Append(Truncate(detail, available));
                 builder.Append("\u001b[K\n");
@@ -958,7 +974,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 foreach (var metadata in FormatMetadataLines(row))
                 {
                     builder.Append(Color(Dim, $"   {new string(' ', nameWidth)}  ↳ "));
-                    builder.Append(Truncate(metadata, Math.Max(0, width - nameWidth - 7)));
+                    builder.Append(Color(metadata.StartsWith("DIRTY", StringComparison.Ordinal) ? Yellow : Dim,
+                        Truncate(metadata, Math.Max(0, width - nameWidth - 7))));
                     builder.Append("\u001b[K\n");
                 }
 
@@ -1022,7 +1039,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 }
             }
 
-            else builder.Append(" No alerts — all clear\u001b[K\n");
+            else builder.Append(Color(Green, " ✓ No alerts — all clear")).Append("\u001b[K\n");
         }
 
         if (screen == DashboardScreen.Comments)
@@ -1044,7 +1061,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                     var header = commentIndex == selectedCommentIndex
                         ? "›" + lines.Header[1..]
                         : lines.Header;
-                    builder.Append(Color(commentColor, header));
+                    builder.Append(Color(commentIndex == selectedCommentIndex ? Bold + Reverse + commentColor : commentColor, header));
                     builder.Append("\u001b[K\n");
                     foreach (var commentLine in lines.Comments)
                     {
@@ -1069,7 +1086,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             };
             foreach (var setting in settings)
                 foreach (var wrapped in WrapCommentText(setting, width))
-                    builder.Append(TerminalUi.Sanitize(wrapped)).Append("\u001b[K\n");
+                    builder.Append(Color(setting == settings[0] ? Bold + Cyan : setting == settings[^1] ? Dim : "",
+                        TerminalUi.Sanitize(wrapped))).Append("\u001b[K\n");
         }
         WriteScreenFrame(screenHeader, builder, width);
     }
@@ -1097,17 +1115,26 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         followSelection = false;
         if (panel == DashboardPanel.Closed) screenOffsets[(int)screen] = offset;
         var frame = new StringBuilder(header);
-        foreach (var row in rows.Skip(offset).Take(screenViewportHeight)) frame.Append(row).Append('\n');
+        var visibleRows = rows.Skip(offset).Take(screenViewportHeight).ToArray();
+        foreach (var row in visibleRows) frame.Append(row).Append('\n');
+        // Keep status and controls anchored as screens grow, shrink, or change.
+        for (var index = visibleRows.Length; index < screenViewportHeight; index++)
+            frame.Append("\u001b[K\n");
         var range = !detail && screenMaximumOffset > 0 ? $" [{offset + 1}-{Math.Min(rows.Length, offset + screenViewportHeight)}/{rows.Length}]" : "";
         frame.Append(Color(Dim, Truncate(" " + systemStatus, Math.Max(0, width - range.Length)) + range)).Append("\u001b[K\n");
-        frame.Append(Color(Dim, Truncate(width < 100
+        var navigation = Truncate(width < 100
             ? "1-4/Tab !new ↑↓/jk Enter PgUp/Dn Shift-Tab Ctrl-C"
-            : "1-4/Tab screens • !n unread • ↑↓/jk move • Enter open • PgUp/Dn scroll • Shift-Tab pause • Ctrl-C stop", width)));
+            : "1-4/Tab screens • !n unread • ↑↓/jk move • Enter • PgUp/Dn scroll • Shift-Tab claims • Ctrl-C stop", width);
+        frame.Append(StyleNavigation(navigation));
         frame.Append("\u001b[K\u001b[J");
         writer.Write(frame.ToString());
         writer.Flush();
         rendered = true;
     }
+
+    private string StyleNavigation(string navigation) => string.Join(' ', navigation.Split(' ').Select(token =>
+        Color(token is "1-4/Tab" or "↑↓/jk" or "Enter" or "PgUp/Dn" or "Shift-Tab" or "Ctrl-C"
+            ? Bold + Cyan : Dim, token)));
 
     private string Color(string ansi, string value) => color ? ansi + value + Reset : value;
 

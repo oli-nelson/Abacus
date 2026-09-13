@@ -142,6 +142,8 @@ remain visible. State transitions also appear in verbose logs and `agent.state`
 events, under `supervisor`; worker outcome totals remain separate.
 
 With interactive TUI audio enabled, startup plays `media/abacus_supervisor.mp3`.
+Supervisor clips stop any playing attention clip and suppress new attention sounds
+until they finish; suppressed attention sounds are not queued for later.
 After recovery verification, unresolved labels/attention, failed retries, or a
 failed harness run play `media/abacus_supervisor_failed.mp3` once. No supervisor
 audio plays when TUI audio is off or output is noninteractive. Playback is best

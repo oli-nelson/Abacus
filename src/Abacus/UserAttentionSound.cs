@@ -2,8 +2,9 @@ namespace Abacus;
 
 /// <summary>
 /// Plays the bundled attention clip once whenever an issue newly starts needing
-/// the operator's attention. Playback is best effort, requires TUI audio, and
-/// never changes an orchestration outcome or desktop notification behavior.
+/// the operator's attention, yielding to supervisor clips. Playback is best effort,
+/// requires TUI audio, and never changes an orchestration outcome or desktop
+/// notification behavior.
 /// </summary>
 internal sealed class UserAttentionSound : IAsyncDisposable
 {
@@ -12,6 +13,10 @@ internal sealed class UserAttentionSound : IAsyncDisposable
     private readonly HashSet<string> knownIssueIds = new(StringComparer.Ordinal);
     private readonly object gate = new();
     private ISoundPlayback? playback;
+    private ISoundPlayback? supervisorPlayback;
+    private bool supervisorStarting;
+    private bool disposed;
+    internal Func<SoundClip, ISoundPlayback?> StartSupervisorClip { get; init; } = SoundPlayer.TryStart;
 
     internal UserAttentionSound(bool enabled)
         : this(enabled, StartClip)
@@ -34,7 +39,6 @@ internal sealed class UserAttentionSound : IAsyncDisposable
     /// </summary>
     internal void Changed(IReadOnlyList<BeadsIssue> issues)
     {
-        ISoundPlayback? started = null;
         lock (gate)
         {
             var currentIds = issues
@@ -43,24 +47,60 @@ internal sealed class UserAttentionSound : IAsyncDisposable
             var appeared = currentIds.Any(id => !knownIssueIds.Contains(id));
             knownIssueIds.Clear();
             knownIssueIds.UnionWith(currentIds);
-            if (!enabled || !appeared || playback is { IsPlaying: true }) return;
+            if (disposed || !enabled || !appeared || supervisorStarting
+                || supervisorPlayback is { IsPlaying: true } || playback is { IsPlaying: true }) return;
 
-            started = start();
-            playback = started;
+            playback = start();
+            playback?.ContinueInBackground();
         }
+    }
 
-        started?.ContinueInBackground();
+    // The supervisor has one sequential loop. Reserve priority before awaiting
+    // cleanup so dashboard refreshes cannot start attention audio in the gap.
+    internal async Task PlaySupervisorAsync(SoundClip clip)
+    {
+        ISoundPlayback? attention;
+        ISoundPlayback? previousSupervisor;
+        lock (gate)
+        {
+            if (disposed || !enabled) return;
+            supervisorStarting = true;
+            attention = playback;
+            playback = null;
+            previousSupervisor = supervisorPlayback;
+            supervisorPlayback = null;
+        }
+        try
+        {
+            if (attention is not null) await attention.DisposeAsync();
+            if (previousSupervisor is not null) await previousSupervisor.DisposeAsync();
+            lock (gate)
+            {
+                if (disposed) return;
+                supervisorPlayback = StartSupervisorClip(clip);
+                supervisorPlayback?.ContinueInBackground();
+            }
+        }
+        finally
+        {
+            lock (gate) supervisorStarting = false;
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
         ISoundPlayback? current;
+        ISoundPlayback? supervisor;
         lock (gate)
         {
+            disposed = true;
+            supervisor = supervisorPlayback;
+            supervisorPlayback = null;
             current = playback;
             playback = null;
         }
 
         if (current is not null) await current.DisposeAsync();
+        if (supervisor is not null) await supervisor.DisposeAsync();
     }
 }

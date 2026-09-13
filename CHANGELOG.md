@@ -29,7 +29,9 @@ Unreleased section. Released versions are listed newest first.
   attention while TUI audio is enabled, including issues already labelled when
   the run starts. It plays once per newly observed issue, never restarts while
   the clip is still playing, and follows `tuiAudio`/`--tui-audio` in every run
-  mode, so `--no-intro` still disables only the interactive entrance.
+  mode, so `--no-intro` still disables only the interactive entrance. Supervisor
+  startup/failure clips take priority: they stop attention playback and suppress
+  new attention sounds until the supervisor clip finishes.
 - Add optional scheduled claim windows to run configurations. A `schedule` object
   names a timezone, recurring `"<days> <from>-<to>"` windows that block new
   tickets, and an optional `minWindowRemaining` duration a claim must fit inside
@@ -52,6 +54,11 @@ Unreleased section. Released versions are listed newest first.
   shell interpretation.
 
 ### Changed
+
+- Support `j`/`k` as down/up navigation in the `abacus config edit` menu.
+- Polish the main dashboard with highlighted tabs and selections, quieter metadata,
+  roomier agent rows on taller terminals, a compact run overview, and fixed-position
+  status and keyboard hints. Compact and no-color layouts remain supported.
 
 - Split the live dashboard into Agents, Attention Center, Latest Comments, and
   read-only Settings. Switch with 1–4, Tab, or Left/Right; unread `!n` tab badges

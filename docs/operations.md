@@ -60,6 +60,10 @@ rather than the intro's `--no-intro` gate. Playback is best effort, so a missing
 player only means silence.
 
 
+Wide terminals show agent, working, and attention counts in the header. The active
+tab and selected row are highlighted; status and keyboard hints stay at the bottom
+as you switch screens. Taller terminals add spacing between agent rows.
+
 The dashboard has four screens: **1 Agents**, **2 Attention Center**,
 **3 Latest Comments**, and **4 Settings**. Use **1–4** to jump directly,
 **Tab** or **Right** to cycle forward, and **Left** to cycle backward.

@@ -32,7 +32,7 @@ internal static class RunConfigurationEditor
                 Line($"Abacus run config editor{(dirty ? " *" : "")} — {destination ?? "unsaved"}", ui,
                     TerminalUi.Bold, TerminalUi.Cyan);
                 Line("────────────────────────────────────────────────────────────────────────", ui, TerminalUi.Dim);
-                Line("↑/↓ select  Enter edit/toggle  Delete unset  S save  A save as  Q quit", ui, TerminalUi.Dim);
+                Line("↑/↓ or j/k select  Enter edit/toggle  Delete unset  S save  A save as  Q quit", ui, TerminalUi.Dim);
                 Line(status, ui, StatusStyle(status));
                 Line(string.Empty, ui);
                 var rows = Math.Max(1, Console.WindowHeight - 9);
@@ -63,8 +63,7 @@ internal static class RunConfigurationEditor
                 var key = Console.ReadKey(true);
                 try
                 {
-                    var action = key.Key == ConsoleKey.C && key.Modifiers.HasFlag(ConsoleModifiers.Control)
-                        ? ConsoleKey.Q : key.Key;
+                    var action = MenuAction(key);
                     switch (action)
                     {
                         case ConsoleKey.UpArrow: selected = Math.Max(0, selected - 1); break;
@@ -117,6 +116,18 @@ internal static class RunConfigurationEditor
             Console.Write("\u001b[0m\u001b[?25h\u001b[?1049l");
             Console.TreatControlCAsInput = controlCAsInput;
         }
+    }
+
+    internal static ConsoleKey MenuAction(ConsoleKeyInfo key)
+    {
+        if (key.Key == ConsoleKey.C && key.Modifiers.HasFlag(ConsoleModifiers.Control))
+            return ConsoleKey.Q;
+        if ((key.Modifiers & (ConsoleModifiers.Control | ConsoleModifiers.Alt)) == 0)
+        {
+            if (key.KeyChar == 'j') return ConsoleKey.DownArrow;
+            if (key.KeyChar == 'k') return ConsoleKey.UpArrow;
+        }
+        return key.Key;
     }
 
     private static void Edit(RunConfiguration config, RunConfiguration.Field field, TerminalUi ui)

@@ -1124,6 +1124,38 @@ public sealed class OutputTests
         Assert.False(output.HandleDashboardKey(Key(ConsoleKey.Enter), gate));
     }
 
+    [Theory]
+    [InlineData(52, 12, false)]
+    [InlineData(80, 24, false)]
+    [InlineData(120, 40, true)]
+    public async Task DashboardPolishKeepsFooterAnchoredAndFitsTheTerminal(int width, int height, bool color)
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice", "bob"], "p/model", false,
+            interactive: true, terminalSize: () => (width, height), color: color);
+        await output.SetAgentAsync("alice", AgentActivity.Working, "Implementing changes");
+        await output.SetUserAttentionIssuesAsync([new BeadsIssue("abc-1", IssueStatus.Blocked, "Review needed")]);
+        var gate = new ClaimGate();
+        output.HandleDashboardKey(Key(ConsoleKey.DownArrow), gate);
+        if (color)
+        {
+            Assert.Contains("\u001b[7m", LastFrame(writer)); // Active tab and selected row.
+            Assert.Contains("\u001b[1m\u001b[36mEnter", LastFrame(writer));
+        }
+        else Assert.DoesNotContain("\u001b[7m", LastFrame(writer));
+        foreach (var key in new[] { ConsoleKey.D1, ConsoleKey.D2, ConsoleKey.D3, ConsoleKey.D4 })
+        {
+            output.HandleDashboardKey(Key(key), gate);
+            var frame = System.Text.RegularExpressions.Regex.Replace(LastFrame(writer), @"\x1b\[[0-9;]*[A-Za-z]", "");
+            var lines = frame.Split('\n');
+            Assert.Equal(height - 1, lines.Length);
+            Assert.All(lines, line => Assert.True(line.Length <= width, line));
+            Assert.Contains("Shift-Tab", lines[^1]);
+            if (width >= 80) Assert.Contains("2 agents • 1 working • 1 attention", lines[0]);
+            else Assert.DoesNotContain("2 agents", lines[0]);
+        }
+    }
+
     private static Task SetActiveMergeSlotAsync(
         ConsoleOutput output,
         string holder,

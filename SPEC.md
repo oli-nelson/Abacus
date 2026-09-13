@@ -137,7 +137,8 @@ never scanned for operation keywords or help flags. Attention messages require
 
 `abacus config edit [file] [--output <file>]` opens a standalone terminal editor,
 without Git, Beads, model, or workspace prerequisites. Omit the input to create a
-new draft; an explicit input must exist. Support Save and Save As, confirm before
+new draft; an explicit input must exist. Support Up/Down and `k`/`j` menu
+navigation without affecting text entry. Support Save and Save As, confirm before
 replacing a different existing file, and warn before discarding unsaved changes.
 Incomplete and semantically invalid drafts can be saved, with visible warnings
 about missing/invalid settings. Malformed JSON, unknown fields, wrong field types,
@@ -867,7 +868,9 @@ last outcome, active model/location, and persistent unresolved alerts. Reserve
 `supervisor` as an agent name only while enabled. Offer Stop (cancel/disable) and
 Restart (enable/recheck), never destructive workspace cleanup. Keep supervisor
 runs out of worker capacity and ticket outcome counts. Play the bundled supervisor
-startup/failure clips only with interactive TUI audio enabled; failure audio waits
+startup/failure clips only with interactive TUI audio enabled. Supervisor clips
+stop attention playback and suppress new attention sounds until they finish,
+without queuing suppressed sounds for later. Failure audio waits
 for recovery verification and plays once per failed/unresolved run.
 
 `abacus attention retry-supervisor <id> [<id> ...] [--repo <path>]` removes only

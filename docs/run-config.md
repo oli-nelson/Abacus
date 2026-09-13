@@ -13,7 +13,7 @@ abacus run                                         # picker if required args are
 ```
 
 The editor requires an interactive terminal, but no Git repository, Beads, or
-agent tools. Use **Up/Down** to select a field, **Enter** to edit (or toggle a
+agent tools. Use **Up/Down** or **k/j** to select a field, **Enter** to edit (or toggle a
 boolean), **Delete** to unset, **S** to save, **A** for Save As, and **Q** to exit.
 Home/End jump to the first/last field. Text prompts keep their current value on
 blank input; `-` clears it. Agent editing supports add, edit, and remove; reasoning
