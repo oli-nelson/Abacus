@@ -6,6 +6,11 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+### Changed
+
+- Add a linked README feature overview and move supervisor guidance alongside
+  ticket recovery so capabilities and maintenance help are easier to find.
+
 ## [0.4.0] - 2026-09-13
 
 ### Added
@@ -47,8 +52,6 @@ Unreleased section. Released versions are listed newest first.
 
 ### Changed
 
-- Add a linked README feature overview and move supervisor guidance alongside
-  ticket recovery so capabilities and maintenance help are easier to find.
 - Support `j`/`k` as down/up navigation in the `abacus config edit` menu.
 - Polish the main dashboard with highlighted tabs and selections, quieter metadata,
   roomier agent rows on taller terminals, a compact run overview, and fixed-position
