@@ -60,7 +60,24 @@ rather than the intro's `--no-intro` gate. Playback is best effort, so a missing
 player only means silence.
 
 
-An interactive terminal shows one row per configured agent. Rows move through:
+The dashboard has four screens: **1 Agents**, **2 Attention Center**,
+**3 Latest Comments**, and **4 Settings**. Use **1–4** to jump directly,
+**Tab** or **Right** to cycle forward, and **Left** to cycle backward.
+The active tab is bracketed. An inactive tab's **!n** badge counts new or changed
+current entries since you last viewed that screen, even with `NO_COLOR=1`.
+Repeated polls and elapsed-time ticks do not count as new information. Opening a
+screen acknowledges its snapshot; it does **not** resolve attention issues.
+Updates received behind an open action panel or comment detail remain unread
+until you close the panel. Badges are run-local and disappear when entries are
+removed or notices expire. Settings starts without a badge.
+
+Only the selected screen uses the content area. **Page Up/Down** scroll it;
+**Up/Down** or **j/k** select rows on Agents and Latest Comments, and scroll
+Attention Center and Settings. Each screen retains its own position. Navigation
+and claim status stay visible on short terminals; overflow no longer pushes
+other sections off-screen. Close a panel with **Escape** before switching screens.
+
+Agents is the initial screen and shows one row per configured agent. Rows move through:
 
 | State | Meaning |
 | --- | --- |
@@ -81,32 +98,27 @@ one line instead of leaving a blank row.
 Active rows also include time in the current state, pane or
 process location, retry count, and most recently observed exit code.
 
-Below the agent rows, one alert block lists the work that needs you and the
-current notices. Red attention rows carry issues labelled
+Attention Center lists the work that needs you and the current notices. Red attention rows carry issues labelled
 `abacus:needs-user-attention` and persistent recovery alerts; yellow notice rows
 carry one live message per agent or Abacus source. Notice text wraps to the
 terminal width instead of being clipped. A notice that repeats, or that restates
 that source's persistent alert, refreshes the existing row instead of adding a
 duplicate, resolving an alert clears its source's notice, and an unrepeated
 notice expires after about a minute so resolved conditions stop consuming rows.
-The block uses only the space the agent rows leave behind: on short terminals it
-keeps the newest rows that fit, never fewer than three, and ends with a counted
-`… n more alerts not shown` row rather than clipping text or pushing the status
-and comments off screen. Idle polling stays visually distinct from failure
-retries.
+Scroll to see additional alerts instead of losing them to a hidden-count row.
+Idle polling stays visually distinct from failure retries.
 
-The compact header places run status and default model/effort side by side when
-space permits. Keyboard hints share one row, or share the tmux row on wider
-terminals. Narrow layouts use bounded fallback rows and ellipsize long names
-rather than wrapping them across several lines.
+The compact header keeps claims and screen tabs visible. Settings shows the
+current run's default model/effort, agent count, tmux session/window, and claim
+schedule. These are read-only; use `abacus config edit` before a later run to
+change saved configuration. **Shift-Tab** still toggles claims from every screen.
 Each agent reports three ordered facts on one metadata line: its actual
 checked-out branch (or `detached@<commit>`), the model it is using or would use,
 and that model's reasoning effort — `branch: … • model: … • effort …`. Every
 row reports them, including idle, waiting, paused, and stopped rows, so a
 ticket-resolved model stays visible while the agent merges and falls back to the
-run's default once the ticket ends. The compact header always reports the run's
-default model/effort. Read-only Git snapshots refresh roughly
-every five seconds, including paused and stopped agents. `DIRTY` appears beside
+run's default once the ticket ends. Settings reports the run's default
+model/effort. Read-only Git snapshots refresh roughly every five seconds, including paused and stopped agents. `DIRTY` appears beside
 the branch outside preparation, active work, and finalization; it includes tracked
 and untracked changes. An unavailable snapshot shows `branch: unknown`, not stale
 clean information. OpenCode TUI effort is marked **requested** because that harness
@@ -146,7 +158,7 @@ untracked files and directories permanently; ignored files are unaffected
 because Abacus uses `git clean -fd` exactly. A cleanup failure remains visible
 as a persistent alert.
 
-The same selection continues through the latest-comments rows. Press **Enter**
+Switch to **3 Latest Comments** to select comment rows. Press **Enter**
 on a comment to open its complete text with the issue title, author, and
 timestamp. The detail view wraps without truncating the message. Use **Up**,
 **Down**, **Page Up**, or **Page Down** to scroll a long comment, then press
@@ -154,7 +166,7 @@ timestamp. The detail view wraps without truncating the message. Use **Up**,
 
 ### Latest comments
 
-The dashboard ends with the latest eight Beads comments by default. Each entry
+Latest Comments shows the latest eight Beads comments by default. Each entry
 shows an issue ID, truncated title, author, and up to two wrapped message lines.
 Header colors provide quick attribution:
 

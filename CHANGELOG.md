@@ -53,6 +53,12 @@ Unreleased section. Released versions are listed newest first.
 
 ### Changed
 
+- Split the live dashboard into Agents, Attention Center, Latest Comments, and
+  read-only Settings. Switch with 1–4, Tab, or Left/Right; unread `!n` tab badges
+  flag new or changed content without relying on color. Each screen scrolls
+  independently within the terminal height, keeping navigation and claim controls
+  visible. Shift-Tab still toggles claims; arrow/j/k selection stays on its screen.
+
 - **Breaking:** Treat the current run's configured agents as the authoritative
   merge-slot participants. Automatically release unknown holders and remove
   unknown waiters, alongside configured agents without a running harness;
@@ -64,8 +70,8 @@ Unreleased section. Released versions are listed newest first.
   vertical space.
 - Report each agent's branch, model, and reasoning effort on one dashboard
   metadata line, in that order. Every row shows the settings it is using or
-  would use instead of hiding them between tickets; the compact header still
-  reports the run's default model/effort.
+  would use instead of hiding them between tickets; Settings reports the run's
+  default model/effort.
 - **Breaking:** Configure reasoning effort by appending `#effort` to `--model`
   and `--reasoning-model` values. The separate `--effort`, `reasoningEfforts`,
   and saved `effort` settings are removed; combine them into model strings such
@@ -81,11 +87,9 @@ Unreleased section. Released versions are listed newest first.
   instead of being clipped, each agent or Abacus source keeps a single notice
   row, a notice that repeats or restates that source's persistent alert no
   longer adds a duplicate row, clearing an alert also clears its source's
-  notices, and an unrepeated notice expires after about a minute. The block
-  keeps the newest rows that the observed terminal height leaves room for,
-  never fewer than three, and ends with a counted `… n more alerts not shown`
-  row, so resolved and superseded alerts stop occupying vertical space without
-  clipping text or crowding out the status and comments when they fit.
+  notices, and an unrepeated notice expires after about a minute. Attention Center
+  scrolls wrapped alerts within its own viewport instead of competing for space
+  with agents and comments.
 - Stop telling agents to wait for the Beads merge slot with a shell retry loop.
   The agent prompt now requires harness-native waiting and forbids shell retry
   loops and background or detached processes, which could otherwise keep

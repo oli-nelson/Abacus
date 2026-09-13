@@ -194,8 +194,6 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     /// <summary>A notice is only useful while its condition is current; stale rows are noise.</summary>
     private static readonly TimeSpan DefaultAlertLifetime = TimeSpan.FromMinutes(1);
     private const int MaximumTransientAlerts = 3;
-    private const int MinimumAlertLines = 3;
-    private const int MaximumAlertLines = 8;
     private const string Reset = "\u001b[0m";
     private const string Bold = "\u001b[1m";
     private const string Dim = "\u001b[2m";
@@ -235,6 +233,15 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private int commentScrollOffset;
     private BeadsComment? openComment;
     private DashboardPanel panel;
+    private enum DashboardScreen { Agents, Attention, Comments, Settings }
+    private DashboardScreen screen;
+    private readonly HashSet<string>[] seenScreenContent = [[], [], [], []];
+    private readonly int[] screenOffsets = new int[4];
+    private bool followSelection;
+    private int screenMaximumOffset;
+    private int screenViewportHeight;
+    private static readonly string[] ScreenNames = ["Agents", "Attention Center", "Latest Comments", "Settings"];
+
     private bool disposed;
 
     public ConsoleOutput(
@@ -536,7 +543,13 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 return Task.CompletedTask;
             }
 
+            var selected = selectedCommentIndex >= 0 ? latestComments[selectedCommentIndex] : null;
             latestComments = snapshot;
+            if (selected is not null)
+            {
+                var retained = Array.FindIndex(snapshot, comment => comment.Id == selected.Id && comment.IssueId == selected.IssueId);
+                if (retained >= 0) selectedCommentIndex = retained;
+            }
             Events?.Emit("comments.changed", new { comments = snapshot });
             if (selectedCommentIndex >= latestComments.Count)
             {
@@ -830,197 +843,268 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         builder.Append(rendered ? "\u001b[H" : "\u001b[2J\u001b[H");
         var scheduleBlocked = ScheduleBlocksClaims();
         var claimLabel = !claimingEnabled ? "CLAIMS PAUSED" : scheduleBlocked ? "CLAIMS BLOCKED" : "CLAIMS ON";
-        foreach (var headerLine in FormatHeaderLines(width, agents.Count - (supervisorEnabled ? 1 : 0), model, effort,
-                     effortIsRequested, claimingEnabled, tmuxSessionName, tmuxWindowName, scheduleBlocked))
+        PruneAlerts();
+        var snapshots = new HashSet<string>[]
         {
-            var claimIndex = headerLine.IndexOf(claimLabel, StringComparison.Ordinal);
-            if (headerLine.StartsWith(" ABACUS", StringComparison.Ordinal) && claimIndex >= 0)
-            {
-                builder.Append(Color(Bold + Cyan, headerLine[..claimIndex]));
-                builder.Append(Color(claimingEnabled && !scheduleBlocked ? Green : Yellow, claimLabel));
-                builder.Append(Color(Dim, headerLine[(claimIndex + claimLabel.Length)..]));
-            }
-            else builder.Append(Color(Dim, headerLine));
-            builder.Append("\u001b[K\n");
+            agents.Values.Select(row => (row with { ChangedAt = default }).ToString()).Append(DescribeMergeSlot(mergeSlot)).ToHashSet(),
+            CollectAlerts().Select(alert => $"{alert.NeedsAttention}|{AlertText(alert)}").ToHashSet(),
+            latestComments.Select(comment => comment.ToString()).ToHashSet(),
+            new[] { $"{model}|{effort}|{tmuxSessionName}|{tmuxWindowName}|{claimingEnabled}|{scheduleBlocked}" }.ToHashSet(),
+        };
+        // Settings are known at startup; only later changes need a badge.
+        if (!rendered) seenScreenContent[3] = snapshots[3];
+        if (panel == DashboardPanel.Closed) seenScreenContent[(int)screen] = snapshots[(int)screen];
+        builder.Append(Color(Bold + Cyan, " ABACUS • "));
+        builder.Append(Color(claimingEnabled && !scheduleBlocked ? Green : Yellow, claimLabel)).Append("\u001b[K\n");
+        var unreadCounts = Enumerable.Range(0, 4)
+            .Select(index => snapshots[index].Except(seenScreenContent[index]).Count()).ToArray();
+        string[] Labels(string[] names) => Enumerable.Range(0, 4).Select(index =>
+        {
+            var unread = unreadCounts[index];
+            var label = $"{index + 1}:{names[index]}{(unread > 0 ? "!" + (unread > 99 ? "99+" : unread.ToString()) : "")}";
+            return index == (int)screen ? $"[{label}]" : label;
+        }).ToArray();
+        var labels = Labels(ScreenNames);
+        if (string.Join(" ", labels).Length + 1 > width)
+            labels = Labels(["Agents", "Attention", "Comments", "Settings"]);
+        if (string.Join(" ", labels).Length + 1 > width)
+            labels = Labels(["Agt", "Attn", "Cmts", "Set"]);
+        if (string.Join(" ", labels).Length + 1 > width)
+            labels = Labels(["", "", "", ""]);
+        builder.Append(' ');
+        for (var index = 0; index < labels.Length; index++)
+        {
+            if (index > 0) builder.Append(' ');
+            builder.Append(Color(index == (int)screen ? Bold + Cyan : unreadCounts[index] > 0 ? Bold + Yellow : Dim, labels[index]));
         }
-        builder.Append(Color(Dim, line)).Append("\u001b[K\n");
+        builder.Append("\u001b[K\n");
+        var screenHeader = builder.ToString();
+        builder.Clear();
 
         if (panel is DashboardPanel.CommentDetail && openComment is not null)
         {
             RenderCommentDetail(builder, openComment, width, line);
-            builder.Append("\u001b[J");
-            writer.Write(builder.ToString());
-            writer.Flush();
-            rendered = true;
+            WriteScreenFrame(screenHeader, builder, width, detail: true);
             return;
         }
 
-        var nameWidth = Math.Clamp(agents.Keys.DefaultIfEmpty(string.Empty).Max(static name => name.Length), 8, 20);
-        var mergePositions = MergeQueuePositions(mergeSlot);
-        var rowIndex = 0;
-        foreach (var row in agents.Values)
+        if (screen == DashboardScreen.Agents)
         {
-            var state = OutputExtensions.ActivityName(row.Activity);
-            var stateColor = row.Activity switch
+            var nameWidth = Math.Clamp(agents.Keys.DefaultIfEmpty(string.Empty).Max(static name => name.Length), 8, 20);
+            var mergePositions = MergeQueuePositions(mergeSlot);
+            var rowIndex = 0;
+            foreach (var row in panel == DashboardPanel.Closed ? agents.Values.AsEnumerable() : [])
             {
-                AgentActivity.Working => Green,
-                AgentActivity.Recovering or AgentActivity.Retrying => Red,
-                AgentActivity.Preparing or AgentActivity.Syncing or AgentActivity.Finalizing => Yellow,
-                AgentActivity.Starting => Magenta,
-                AgentActivity.Paused => Yellow,
-                _ => Cyan,
-            };
-            var icon = row.Activity == AgentActivity.Working ? "●" : "○";
-            var elapsed = OutputExtensions.FormatDuration(DateTimeOffset.UtcNow - row.ChangedAt).PadLeft(7);
-            var selector = rowIndex == selectedAgentIndex ? "›" : " ";
-            var prefix = $"{selector}{icon} {Truncate(row.Name, nameWidth).PadRight(nameWidth)}  ";
-            var status = state.PadRight(10);
-            var ticket = row.IssueId is null ? string.Empty
-                : string.IsNullOrEmpty(row.TicketTitle) ? row.IssueId : $"{row.IssueId} — {row.TicketTitle}";
-            var badge = MergeSlotAgentBadge(mergeSlot, mergePositions, row.Name);
-            var badgeSuffix = badge is null ? string.Empty : "  " + badge;
-            // Reserve badge room in the ticket line so the merge marker never truncates away.
-            var headerWidth = Math.Max(1, width - prefix.Length - badgeSuffix.Length);
-            // An agent without a ticket needs no header line; its selector moves to the status row.
-            var headerLines = ticket.Length == 0 && badge is null
-                ? []
-                : WrapCommentText(ticket, headerWidth);
-            if (headerLines.Count > 0)
-            {
-                builder.Append(Color(stateColor, prefix));
-                builder.Append(Color(Bold, headerLines[0]));
-                if (badge is not null)
+                var state = OutputExtensions.ActivityName(row.Activity);
+                var stateColor = row.Activity switch
                 {
-                    builder.Append(new string(' ', Math.Max(1, headerWidth - headerLines[0].Length)));
-                    var holder = mergeSlot.IsHeld
-                        && string.Equals(mergeSlot.Holder, row.Name, StringComparison.Ordinal);
-                    builder.Append(Color(holder ? Bold + Magenta : Yellow, badge));
+                    AgentActivity.Working => Green,
+                    AgentActivity.Recovering or AgentActivity.Retrying => Red,
+                    AgentActivity.Preparing or AgentActivity.Syncing or AgentActivity.Finalizing => Yellow,
+                    AgentActivity.Starting => Magenta,
+                    AgentActivity.Paused => Yellow,
+                    _ => Cyan,
+                };
+                var icon = row.Activity == AgentActivity.Working ? "●" : "○";
+                var elapsed = OutputExtensions.FormatDuration(DateTimeOffset.UtcNow - row.ChangedAt).PadLeft(7);
+                var selector = rowIndex == selectedAgentIndex ? "›" : " ";
+                var prefix = $"{selector}{icon} {Truncate(row.Name, nameWidth).PadRight(nameWidth)}  ";
+                var status = state.PadRight(10);
+                var ticket = row.IssueId is null ? string.Empty
+                    : string.IsNullOrEmpty(row.TicketTitle) ? row.IssueId : $"{row.IssueId} — {row.TicketTitle}";
+                var badge = MergeSlotAgentBadge(mergeSlot, mergePositions, row.Name);
+                var badgeSuffix = badge is null ? string.Empty : "  " + badge;
+                // Reserve badge room in the ticket line so the merge marker never truncates away.
+                var headerWidth = Math.Max(1, width - prefix.Length - badgeSuffix.Length);
+                // An agent without a ticket needs no header line; its selector moves to the status row.
+                var headerLines = ticket.Length == 0 && badge is null
+                    ? []
+                    : WrapCommentText(ticket, headerWidth);
+                if (headerLines.Count > 0)
+                {
+                    builder.Append(Color(stateColor, prefix));
+                    builder.Append(Color(Bold, headerLines[0]));
+                    if (badge is not null)
+                    {
+                        builder.Append(new string(' ', Math.Max(1, headerWidth - headerLines[0].Length)));
+                        var holder = mergeSlot.IsHeld
+                            && string.Equals(mergeSlot.Holder, row.Name, StringComparison.Ordinal);
+                        builder.Append(Color(holder ? Bold + Magenta : Yellow, badge));
+                    }
+
+                    builder.Append("\u001b[K\n");
+                    foreach (var continuation in headerLines.Skip(1))
+                        builder.Append(new string(' ', prefix.Length)).Append(continuation).Append("\u001b[K\n");
                 }
 
-                builder.Append("\u001b[K\n");
-                foreach (var continuation in headerLines.Skip(1))
-                    builder.Append(new string(' ', prefix.Length)).Append(continuation).Append("\u001b[K\n");
-            }
-
-            var detail = row.Detail;
-            // Keep structured/plain logs unchanged; the TUI header already identifies this ticket.
-            if (row.IssueId is not null && detail.StartsWith($"{row.IssueId} • ", StringComparison.Ordinal))
-                detail = detail[(row.IssueId.Length + 3)..];
-            var available = Math.Max(0, width - prefix.Length - status.Length - elapsed.Length - 1);
-            if (row.Activity == AgentActivity.Working && row.RunLocation is not null)
-            {
-                var location = $" • {row.RunLocation}";
-                // Reserve room for the location when the progress text needs truncation.
-                detail = Truncate(detail, Math.Max(0, available - location.Length)) + location;
-            }
-            builder.Append(headerLines.Count > 0
-                ? new string(' ', prefix.Length)
-                : Color(stateColor, prefix));
-            builder.Append(Color(stateColor, status));
-            builder.Append(Color(Dim, elapsed)).Append(' ').Append(Truncate(detail, available));
-            builder.Append("\u001b[K\n");
-
-            foreach (var metadata in FormatMetadataLines(row))
-            {
-                builder.Append(Color(Dim, $"   {new string(' ', nameWidth)}  ↳ "));
-                builder.Append(Truncate(metadata, Math.Max(0, width - nameWidth - 7)));
-                builder.Append("\u001b[K\n");
-            }
-
-            rowIndex++;
-        }
-
-        if (panel is DashboardPanel.AgentMenu or DashboardPanel.ConfirmClean
-            && SelectedAgent() is { } selected)
-        {
-            builder.Append(Color(Bold + Cyan, Truncate($" AGENT ACTIONS — {selected.Name}", width)));
-            builder.Append("\u001b[K\n");
-            builder.Append(Truncate(
-                $"   {OutputExtensions.ActivityName(selected.Activity)} • {selected.Detail}",
-                width));
-            builder.Append("\u001b[K\n");
-            if (selected.WorkspacePath is not null)
-            {
-                builder.Append(Color(Dim, Truncate($"   {selected.WorkspacePath}", width)));
-                builder.Append("\u001b[K\n");
-            }
-
-            if (panel is DashboardPanel.ConfirmClean)
-            {
-                builder.Append(Color(Red, Truncate(
-                    "   Permanently discard tracked and untracked workspace changes?",
-                    width)));
-                builder.Append("\u001b[K\n");
-                builder.Append(Truncate("   [Y] Clean workspace   [N/Esc] Cancel", width));
-                builder.Append("\u001b[K\n");
-            }
-            else
-            {
-                foreach (var option in IsSupervisor(selected.Name)
-                    ? new[] { "   [S] Cancel / disable supervisor", "   [R] Enable / retry supervisor", "   [Esc] Close" }
-                    : new[] { "   [S] Stop agent", "   [R] Restart agent", "   [C] Clean workspace", "   [Esc] Close" })
+                var detail = row.Detail;
+                // Keep structured/plain logs unchanged; the TUI header already identifies this ticket.
+                if (row.IssueId is not null && detail.StartsWith($"{row.IssueId} • ", StringComparison.Ordinal))
+                    detail = detail[(row.IssueId.Length + 3)..];
+                var available = Math.Max(0, width - prefix.Length - status.Length - elapsed.Length - 1);
+                if (row.Activity == AgentActivity.Working && row.RunLocation is not null)
                 {
-                    builder.Append(Truncate(option, width)).Append("\u001b[K\n");
+                    var location = $" • {row.RunLocation}";
+                    // Reserve room for the location when the progress text needs truncation.
+                    detail = Truncate(detail, Math.Max(0, available - location.Length)) + location;
+                }
+                builder.Append(headerLines.Count > 0
+                    ? new string(' ', prefix.Length)
+                    : Color(stateColor, prefix));
+                builder.Append(Color(stateColor, status));
+                builder.Append(Color(Dim, elapsed)).Append(' ').Append(Truncate(detail, available));
+                builder.Append("\u001b[K\n");
+
+                foreach (var metadata in FormatMetadataLines(row))
+                {
+                    builder.Append(Color(Dim, $"   {new string(' ', nameWidth)}  ↳ "));
+                    builder.Append(Truncate(metadata, Math.Max(0, width - nameWidth - 7)));
+                    builder.Append("\u001b[K\n");
+                }
+
+                rowIndex++;
+            }
+
+            if (panel is DashboardPanel.AgentMenu or DashboardPanel.ConfirmClean
+                && SelectedAgent() is { } selected)
+            {
+                builder.Append(Color(Bold + Cyan, Truncate($" AGENT ACTIONS — {selected.Name}", width)));
+                builder.Append("\u001b[K\n");
+                builder.Append(Truncate(
+                    $"   {OutputExtensions.ActivityName(selected.Activity)} • {selected.Detail}",
+                    width));
+                builder.Append("\u001b[K\n");
+                if (selected.WorkspacePath is not null)
+                {
+                    builder.Append(Color(Dim, Truncate($"   {selected.WorkspacePath}", width)));
+                    builder.Append("\u001b[K\n");
+                }
+
+                if (panel is DashboardPanel.ConfirmClean)
+                {
+                    builder.Append(Color(Red, Truncate(
+                        "   Permanently discard tracked and untracked workspace changes?",
+                        width)));
+                    builder.Append("\u001b[K\n");
+                    builder.Append(Truncate("   [Y] Clean workspace   [N/Esc] Cancel", width));
+                    builder.Append("\u001b[K\n");
+                }
+                else
+                {
+                    foreach (var option in IsSupervisor(selected.Name)
+                        ? new[] { "   [S] Cancel / disable supervisor", "   [R] Enable / retry supervisor", "   [Esc] Close" }
+                        : new[] { "   [S] Stop agent", "   [R] Restart agent", "   [C] Clean workspace", "   [Esc] Close" })
+                    {
+                        builder.Append(Truncate(option, width)).Append("\u001b[K\n");
+                    }
                 }
             }
+
         }
 
-        PruneAlerts();
-        var alerts = CollectAlerts();
-        if (alerts.Count > 0)
+        if (screen == DashboardScreen.Attention)
         {
-            var attentionCount = alerts.Count(static alert => alert.NeedsAttention);
-            var heading = attentionCount > 0
-                ? $" ! USER ATTENTION ({attentionCount})"
-                : $" ! ALERTS ({alerts.Count})";
-            builder.Append(Color(
-                Bold + (attentionCount > 0 ? Red : Yellow),
-                Truncate(heading, width)));
-            builder.Append("\u001b[K\n");
-            // Reserve the dividers, status row, and comments header below the alerts, but
-            // never shrink the block so far that it only reports a hidden count.
-            var usedRows = builder.ToString().Count(static character => character == '\n');
-            var budget = Math.Clamp(GetHeight() - usedRows - 4, MinimumAlertLines, MaximumAlertLines);
-            foreach (var alertLine in FormatAlertLines(alerts, width, budget))
+            var alerts = CollectAlerts();
+            if (alerts.Count > 0)
             {
-                builder.Append(Color(alertLine.NeedsAttention ? Red : Yellow, alertLine.Text));
+                var attentionCount = alerts.Count(static alert => alert.NeedsAttention);
+                var heading = attentionCount > 0
+                    ? $" ! USER ATTENTION ({attentionCount})"
+                    : $" ! ALERTS ({alerts.Count})";
+                builder.Append(Color(
+                    Bold + (attentionCount > 0 ? Red : Yellow),
+                    Truncate(heading, width)));
                 builder.Append("\u001b[K\n");
-            }
-        }
-
-        builder.Append(Color(Dim, line)).Append("\u001b[K\n");
-        builder.Append(Color(Dim, " " + Truncate(systemStatus, Math.Max(0, width - 1)))).Append("\u001b[K\n");
-
-        builder.Append(Color(Dim, line)).Append("\u001b[K\n");
-        builder.Append(Color(Bold, $" LATEST COMMENTS ({latestComments.Count})")).Append("\u001b[K\n");
-        if (latestComments.Count == 0)
-        {
-            builder.Append(Color(Dim, "   No comments yet")).Append("\u001b[K\n");
-        }
-        else
-        {
-            for (var commentIndex = 0; commentIndex < latestComments.Count; commentIndex++)
-            {
-                var comment = latestComments[commentIndex];
-                var commentColor = comment.NeedsUserAttention
-                    ? Red
-                    : agents.ContainsKey(comment.Author) ? Green : Cyan;
-                var lines = FormatLatestCommentLines(comment, width);
-                var header = commentIndex == selectedCommentIndex
-                    ? "›" + lines.Header[1..]
-                    : lines.Header;
-                builder.Append(Color(commentColor, header));
-                builder.Append("\u001b[K\n");
-                foreach (var commentLine in lines.Comments)
+                foreach (var alertLine in FormatAlertLines(alerts, width, int.MaxValue))
                 {
-                    builder.Append(commentLine);
+                    builder.Append(Color(alertLine.NeedsAttention ? Red : Yellow, alertLine.Text));
                     builder.Append("\u001b[K\n");
                 }
             }
+
+            else builder.Append(" No alerts — all clear\u001b[K\n");
         }
 
-        builder.Append("\u001b[J");
-        writer.Write(builder.ToString());
+        if (screen == DashboardScreen.Comments)
+        {
+            builder.Append(Color(Bold, $" LATEST COMMENTS ({latestComments.Count})")).Append("\u001b[K\n");
+            if (latestComments.Count == 0)
+            {
+                builder.Append(Color(Dim, "   No comments yet")).Append("\u001b[K\n");
+            }
+            else
+            {
+                for (var commentIndex = 0; commentIndex < latestComments.Count; commentIndex++)
+                {
+                    var comment = latestComments[commentIndex];
+                    var commentColor = comment.NeedsUserAttention
+                        ? Red
+                        : agents.ContainsKey(comment.Author) ? Green : Cyan;
+                    var lines = FormatLatestCommentLines(comment, width);
+                    var header = commentIndex == selectedCommentIndex
+                        ? "›" + lines.Header[1..]
+                        : lines.Header;
+                    builder.Append(Color(commentColor, header));
+                    builder.Append("\u001b[K\n");
+                    foreach (var commentLine in lines.Comments)
+                    {
+                        builder.Append(commentLine);
+                        builder.Append("\u001b[K\n");
+                    }
+                }
+            }
+
+        }
+        if (screen == DashboardScreen.Settings)
+        {
+            var settings = new[]
+            {
+                " SETTINGS — current run (read-only)",
+                $" Default model: {model} • effort {effort}{(effortIsRequested ? " (requested)" : "")}",
+                $" Agents: {agents.Count - (supervisorEnabled ? 1 : 0)}",
+                $" tmux session: {tmuxSessionName ?? "none"} • window: {tmuxWindowName ?? "none"}",
+                $" {claimLabel} • Shift-Tab toggles new claims; active tickets continue",
+                schedule?.DescribeAt(TimeProvider.System.GetUtcNow()) ?? " Schedule: not configured",
+                " Edit saved configuration with abacus config edit before the next run.",
+            };
+            foreach (var setting in settings)
+                foreach (var wrapped in WrapCommentText(setting, width))
+                    builder.Append(TerminalUi.Sanitize(wrapped)).Append("\u001b[K\n");
+        }
+        WriteScreenFrame(screenHeader, builder, width);
+    }
+
+    private void WriteScreenFrame(string header, StringBuilder body, int width, bool detail = false)
+    {
+        var rows = body.ToString().Split('\n').SkipLast(1).ToArray();
+        // Two header lines, status, navigation, and one spare row to avoid terminal scrolling.
+        screenViewportHeight = Math.Max(1, GetHeight() - 5);
+        screenMaximumOffset = Math.Max(0, rows.Length - screenViewportHeight);
+        var offset = Math.Clamp(screenOffsets[(int)screen], 0, screenMaximumOffset);
+        if (detail) offset = 0;
+        else if (followSelection)
+        {
+            var selectedLine = Array.FindIndex(rows, row => row.Contains('›'));
+            if (panel != DashboardPanel.Closed)
+                selectedLine = Array.FindIndex(rows, row => row.Contains("AGENT ACTIONS", StringComparison.Ordinal));
+            if (selectedLine >= 0)
+            {
+                if (selectedLine < offset) offset = selectedLine;
+                else if (selectedLine >= offset + screenViewportHeight) offset = selectedLine - screenViewportHeight + 1;
+                if (panel != DashboardPanel.Closed) offset = Math.Min(selectedLine, screenMaximumOffset);
+            }
+        }
+        followSelection = false;
+        if (panel == DashboardPanel.Closed) screenOffsets[(int)screen] = offset;
+        var frame = new StringBuilder(header);
+        foreach (var row in rows.Skip(offset).Take(screenViewportHeight)) frame.Append(row).Append('\n');
+        var range = !detail && screenMaximumOffset > 0 ? $" [{offset + 1}-{Math.Min(rows.Length, offset + screenViewportHeight)}/{rows.Length}]" : "";
+        frame.Append(Color(Dim, Truncate(" " + systemStatus, Math.Max(0, width - range.Length)) + range)).Append("\u001b[K\n");
+        frame.Append(Color(Dim, Truncate(width < 100
+            ? "1-4/Tab !new ↑↓/jk Enter PgUp/Dn Shift-Tab Ctrl-C"
+            : "1-4/Tab screens • !n unread • ↑↓/jk move • Enter open • PgUp/Dn scroll • Shift-Tab pause • Ctrl-C stop", width)));
+        frame.Append("\u001b[K\u001b[J");
+        writer.Write(frame.ToString());
         writer.Flush();
         rendered = true;
     }
@@ -1039,9 +1123,33 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 false, false, false);
         selectedAgent = null;
         requestedAction = null;
-        if (agents.Count + latestComments.Count == 0)
+        if (panel == DashboardPanel.Closed && key.Modifiers == 0)
         {
-            return false;
+            var target = key.Key switch
+            {
+                ConsoleKey.D1 or ConsoleKey.NumPad1 => 0,
+                ConsoleKey.D2 or ConsoleKey.NumPad2 => 1,
+                ConsoleKey.D3 or ConsoleKey.NumPad3 => 2,
+                ConsoleKey.D4 or ConsoleKey.NumPad4 => 3,
+                ConsoleKey.Tab or ConsoleKey.RightArrow => ((int)screen + 1) % 4,
+                ConsoleKey.LeftArrow => ((int)screen + 3) % 4,
+                _ => -1,
+            };
+            if (target >= 0)
+            {
+                screen = (DashboardScreen)target;
+                return true;
+            }
+            if (key.Key is ConsoleKey.PageUp or ConsoleKey.PageDown
+                || (screen is DashboardScreen.Attention or DashboardScreen.Settings
+                    && key.Key is ConsoleKey.UpArrow or ConsoleKey.DownArrow))
+            {
+                var amount = key.Key is ConsoleKey.PageUp or ConsoleKey.PageDown ? screenViewportHeight : 1;
+                var direction = key.Key is ConsoleKey.PageUp or ConsoleKey.UpArrow ? -1 : 1;
+                screenOffsets[(int)screen] = Math.Clamp(screenOffsets[(int)screen] + direction * amount, 0, screenMaximumOffset);
+                return true;
+            }
+            if (screen is DashboardScreen.Attention or DashboardScreen.Settings) return false;
         }
 
         if (panel is DashboardPanel.CommentDetail)
@@ -1085,6 +1193,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             if (key.Key is ConsoleKey.N or ConsoleKey.Escape)
             {
                 panel = DashboardPanel.AgentMenu;
+                followSelection = true;
                 return true;
             }
 
@@ -1125,34 +1234,30 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             return false;
         }
 
+        if (screen is DashboardScreen.Attention or DashboardScreen.Settings) return false;
+
         if (key.Key is ConsoleKey.UpArrow or ConsoleKey.DownArrow)
         {
             var direction = key.Key is ConsoleKey.UpArrow ? -1 : 1;
-            var selectableCount = agents.Count + latestComments.Count;
-            var current = selectedAgentIndex >= 0
-                ? selectedAgentIndex
-                : selectedCommentIndex >= 0 ? agents.Count + selectedCommentIndex : -1;
+            var selectableCount = screen == DashboardScreen.Agents ? agents.Count : latestComments.Count;
+            if (selectableCount == 0) return false;
+            var current = screen == DashboardScreen.Agents ? selectedAgentIndex : selectedCommentIndex;
             var next = current < 0
                 ? direction < 0 ? selectableCount - 1 : 0
                 : (current + direction + selectableCount) % selectableCount;
-            if (next < agents.Count)
-            {
-                selectedAgentIndex = next;
-                selectedCommentIndex = -1;
-            }
-            else
-            {
-                selectedAgentIndex = -1;
-                selectedCommentIndex = next - agents.Count;
-            }
+            if (screen == DashboardScreen.Agents) selectedAgentIndex = next;
+            else selectedCommentIndex = next;
+            followSelection = true;
 
             return true;
         }
 
         if (key.Key is ConsoleKey.Enter)
         {
-            if (selectedCommentIndex >= 0)
+            if (screen == DashboardScreen.Comments)
             {
+                if (latestComments.Count == 0) return false;
+                selectedCommentIndex = Math.Max(0, selectedCommentIndex);
                 openComment = latestComments[selectedCommentIndex];
                 commentScrollOffset = 0;
                 panel = DashboardPanel.CommentDetail;
@@ -1167,6 +1272,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             if (selectedAgentIndex >= 0)
             {
                 panel = DashboardPanel.AgentMenu;
+                followSelection = true;
                 return true;
             }
 
@@ -1188,7 +1294,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         ? agents.Values.ElementAt(selectedAgentIndex)
         : null;
 
-    private int CommentViewportHeight() => Math.Max(3, GetHeight() - 11);
+    private int CommentViewportHeight() => Math.Max(1, GetHeight() - 11);
 
     private int CommentMaximumScrollOffset()
     {
@@ -1230,7 +1336,6 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             builder.Append("   ").Append(messageLine).Append("\u001b[K\n");
         }
 
-        builder.Append(Color(Dim, line)).Append("\u001b[K\n");
         var visibleEnd = Math.Min(wrapped.Count, commentScrollOffset + viewportHeight);
         builder.Append(Color(
             Dim,
@@ -1319,45 +1424,6 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         return positions.TryGetValue(agentName, out var position)
             ? $"⇄ merge queue #{position}"
             : null;
-    }
-
-    internal static IReadOnlyList<string> FormatHeaderLines(int width, int agentCount,
-        string model, string effort, bool effortIsRequested, bool claimingEnabled,
-        string? session, string? window, bool scheduleBlocked = false)
-    {
-        var lines = new List<string>();
-        var claimState = !claimingEnabled ? "CLAIMS PAUSED" : scheduleBlocked ? "CLAIMS BLOCKED" : "CLAIMS ON";
-        var summary = $" ABACUS • {agentCount} agent{(agentCount == 1 ? string.Empty : "s")} • {claimState}";
-        var effortText = $" • effort {effort}{(effortIsRequested ? " (requested)" : "")}";
-        const string modelLabel = "Default model: ";
-        var settings = modelLabel + model + effortText;
-        if (summary.Length + settings.Length + 3 <= width)
-            lines.Add(summary.PadRight(width - settings.Length) + settings);
-        else
-        {
-            lines.Add(Truncate(summary, width));
-            // Reserve the effort label instead of wrapping a long model over several rows.
-            lines.Add(Truncate(modelLabel + Truncate(model,
-                Math.Max(1, width - modelLabel.Length - effortText.Length)) + effortText, width));
-        }
-        const string controls = "↑↓/jk move  Enter open  Shift-Tab pause  Ctrl-C stop";
-        if (session is not null)
-        {
-            var location = $" tmux session: {session} • window: {window}";
-            if (location.Length + controls.Length + 3 <= width)
-            {
-                lines.Add(location.PadRight(width - controls.Length) + controls);
-                return lines;
-            }
-            const string sessionLabel = " tmux session: ";
-            const string windowLabel = " • window: ";
-            var space = Math.Max(2, width - sessionLabel.Length - windowLabel.Length);
-            var windowWidth = Math.Min(window?.Length ?? 0, space / 2);
-            lines.Add(Truncate(sessionLabel + Truncate(session, space - windowWidth)
-                + windowLabel + Truncate(window ?? string.Empty, windowWidth), width));
-        }
-        lines.Add(Truncate(controls, width));
-        return lines;
     }
 
     private IEnumerable<string> FormatMetadataLines(AgentRow row)
@@ -1634,7 +1700,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         {
             // Headless consoles may report zero rather than throwing IOException.
             var width = terminalSize?.Invoke().Width ?? Console.WindowWidth;
-            return width > 0 ? Math.Clamp(width, 52, 140) : 80;
+            return width > 0 ? Math.Min(width, 140) : 80;
         }
         catch (IOException)
         {
@@ -1647,7 +1713,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         try
         {
             var height = terminalSize?.Invoke().Height ?? Console.WindowHeight;
-            return height > 0 ? Math.Clamp(height, 12, 80) : 24;
+            return height > 0 ? height : 24;
         }
         catch (IOException)
         {

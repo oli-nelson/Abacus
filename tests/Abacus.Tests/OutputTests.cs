@@ -47,7 +47,10 @@ public sealed class OutputTests
         Assert.Contains("›○ bob", Frame());
         Assert.True(output.HandleDashboardKey(Key(up, upChar), gate));
         Assert.Contains("›○ alice", Frame());
-        Assert.True(output.HandleDashboardKey(Key(up, upChar), gate)); // Wrap to comment.
+        Assert.True(output.HandleDashboardKey(Key(up, upChar), gate)); // Wrap within Agents.
+        Assert.Contains("›○ bob", Frame());
+        output.HandleDashboardKey(Key(ConsoleKey.D3), gate);
+        output.HandleDashboardKey(Key(down, downChar), gate);
         Assert.Contains("›• abc-1", Frame());
         output.HandleDashboardKey(Key(ConsoleKey.Enter), gate);
         Assert.True(output.HandleDashboardKey(Key(down, downChar), gate));
@@ -55,51 +58,23 @@ public sealed class OutputTests
         Assert.True(output.HandleDashboardKey(Key(up, upChar), gate));
         Assert.Contains("line 1\u001b[K", Frame());
         output.HandleDashboardKey(Key(ConsoleKey.Escape), gate);
-        output.HandleDashboardKey(Key(down, downChar), gate); // Wrap back to agent.
+        output.HandleDashboardKey(Key(ConsoleKey.D1), gate);
+        output.HandleDashboardKey(Key(down, downChar), gate); // Wrap back to first agent.
         Assert.Contains("›○ alice", Frame());
-    }
-
-    [Theory]
-    [InlineData(80, false, 2)]
-    [InlineData(80, true, 3)]
-    [InlineData(140, true, 2)]
-    public void HeaderPacksSettingsAndControlsIntoAvailableWidth(int width, bool tmux, int expectedLines)
-    {
-        var lines = ConsoleOutput.FormatHeaderLines(width, 4, "p/model", "high", false, true,
-            tmux ? "demo" : null, tmux ? "Agents" : null);
-        Assert.Equal(expectedLines, lines.Count);
-        Assert.All(lines, line => Assert.True(line.Length <= width));
-        var text = string.Join('\n', lines);
-        foreach (var field in new[] { "ABACUS", "4 agents", "CLAIMS ON", "p/model", "effort high", "↑↓", "Enter", "Shift-Tab", "Ctrl-C" })
-            Assert.Contains(field, text);
-        if (tmux) { Assert.Contains("demo", text); Assert.Contains("Agents", text); }
     }
 
     [Fact]
     public void HeaderDistinguishesScheduleBlockedClaimsFromAManualPause()
     {
-        var scheduled = string.Join('\n',
-            ConsoleOutput.FormatHeaderLines(80, 1, "p/model", "high", false, true, null, null, scheduleBlocked: true));
-        Assert.Contains("CLAIMS BLOCKED", scheduled, StringComparison.Ordinal);
-        Assert.DoesNotContain("CLAIMS ON", scheduled, StringComparison.Ordinal);
-
-        var paused = string.Join('\n',
-            ConsoleOutput.FormatHeaderLines(80, 1, "p/model", "high", false, false, null, null, scheduleBlocked: true));
-        Assert.Contains("CLAIMS PAUSED", paused, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void NarrowHeaderBoundsLongNamesWithoutHidingEffortOrControls()
-    {
-        var lines = ConsoleOutput.FormatHeaderLines(52, 4, new string('m', 100), "high", true, false,
-            new string('s', 100), new string('w', 100));
-        Assert.Equal(4, lines.Count);
-        Assert.All(lines, line => Assert.True(line.Length <= 52));
-        var text = string.Join('\n', lines);
-        Assert.Contains("CLAIMS PAUSED", text);
-        Assert.Contains("effort high (requested)", text);
-        Assert.Contains("window:", text);
-        Assert.Contains("Ctrl-C stop", text);
+        var schedule = ClaimSchedule.FromDocument(System.Text.Json.Nodes.JsonNode.Parse(
+            """{"timezone":"UTC","block":["daily 00:00-12:00","daily 12:00-00:00"]}"""));
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (80, 24), color: false, schedule: schedule);
+        Assert.Contains("CLAIMS BLOCKED", LastFrame(writer));
+        Assert.DoesNotContain("CLAIMS ON", LastFrame(writer));
+        output.HandleDashboardKey(new ConsoleKeyInfo('\t', ConsoleKey.Tab, true, false, false), new ClaimGate());
+        Assert.Contains("CLAIMS PAUSED", LastFrame(writer));
     }
 
     [Theory]
@@ -162,7 +137,8 @@ public sealed class OutputTests
         await output.SetAgentAsync("alice", activity, "status");
         // Only inspect the newest frame, not dirty markers from prior states.
         var frame = writer.ToString().Split("\u001b[H")[^1];
-        Assert.Contains("Default model: default-model • effort high", frame);
+        Assert.DoesNotContain("Default model:", frame);
+        Assert.Contains("model: routed-model", frame);
         Assert.Contains("branch: abacus/abc-1", frame);
         Assert.Equal(showDirty, frame.Contains("DIRTY", StringComparison.Ordinal));
         await output.SetWorkspaceAsync("alice", null, null);
@@ -315,6 +291,9 @@ public sealed class OutputTests
                 Comment("comment-2", "abc-2", "Implement parser", "alice", "Managed agent update"),
                 Comment("comment-3", "abc-3", "Review output", "reviewer", "Unknown author update"),
             ]);
+            output.HandleDashboardKey(Key(ConsoleKey.D2), new ClaimGate());
+            output.HandleDashboardKey(Key(ConsoleKey.D3), new ClaimGate());
+            output.HandleDashboardKey(Key(ConsoleKey.D4), new ClaimGate());
         }
 
         var text = writer.ToString();
@@ -381,7 +360,7 @@ public sealed class OutputTests
         var claimGate = new ClaimGate();
 
         Assert.True(claimGate.IsEnabled);
-        Assert.False(output.HandleDashboardKey(
+        Assert.True(output.HandleDashboardKey(
             new ConsoleKeyInfo('\t', ConsoleKey.Tab, shift: false, alt: false, control: false),
             claimGate));
         Assert.True(claimGate.IsEnabled);
@@ -485,6 +464,7 @@ public sealed class OutputTests
             verbose: false,
             interactive: true, terminalSize: () => (100, 24),
             color: true);
+        output.HandleDashboardKey(Key(ConsoleKey.D3), new ClaimGate());
 
         await output.SetLatestCommentsAsync([
             Comment("comment-1", "abc-1", "Attention", "alice", "red", attention: true),
@@ -653,7 +633,7 @@ public sealed class OutputTests
         ]);
         var claimGate = new ClaimGate();
 
-        output.HandleDashboardKey(Key(ConsoleKey.DownArrow), claimGate);
+        output.HandleDashboardKey(Key(ConsoleKey.D3), claimGate);
         output.HandleDashboardKey(Key(ConsoleKey.DownArrow), claimGate);
         Assert.Contains("›• abc-1", writer.ToString(), StringComparison.Ordinal);
 
@@ -669,7 +649,7 @@ public sealed class OutputTests
     }
 
     [Theory]
-    [InlineData(52, 12, 3)]
+    [InlineData(52, 12, 1)]
     [InlineData(80, 24, 13)]
     [InlineData(140, 80, 69)]
     [InlineData(0, 0, 13)]
@@ -688,6 +668,7 @@ public sealed class OutputTests
             Comment("comment-1", "abc-1", "Long comment", "reviewer", message),
         ]);
         var claimGate = new ClaimGate();
+        output.HandleDashboardKey(Key(ConsoleKey.D3), claimGate);
         output.HandleDashboardKey(Key(ConsoleKey.UpArrow), claimGate);
         output.HandleDashboardKey(Key(ConsoleKey.Enter), claimGate);
 
@@ -832,6 +813,7 @@ public sealed class OutputTests
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
             interactive: true, terminalSize: () => (100, 24), color: false);
+        output.HandleDashboardKey(Key(ConsoleKey.D2), new ClaimGate());
 
         await output.WarningAsync("alice", "review the workspace");
         await output.WarningAsync("alice", "[alice] review the workspace");
@@ -850,6 +832,7 @@ public sealed class OutputTests
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
             interactive: true, terminalSize: () => (100, 24), color: false);
+        output.HandleDashboardKey(Key(ConsoleKey.D2), new ClaimGate());
 
         await output.WarningAsync("alice", "Could not reopen abc-9; no more work will be claimed");
         await output.SetPersistentAlertAsync("alice", "Could not reopen abc-9; no more work will be claimed");
@@ -869,6 +852,7 @@ public sealed class OutputTests
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
             interactive: true, terminalSize: () => (100, 24), color: false);
+        output.HandleDashboardKey(Key(ConsoleKey.D2), new ClaimGate());
 
         await output.SetPersistentAlertAsync("alice", "Recovery could not be verified");
         await output.WarningAsync("alice", "could not poll abc-9 (1/3)");
@@ -887,6 +871,7 @@ public sealed class OutputTests
         using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
             interactive: true, terminalSize: () => (100, 24), color: false,
             alertLifetime: TimeSpan.FromMilliseconds(30));
+        output.HandleDashboardKey(Key(ConsoleKey.D2), new ClaimGate());
 
         await output.WarningAsync("alice", "could not poll abc-9 (1/3)");
         Assert.Contains("could not poll abc-9", LastFrame(writer), StringComparison.Ordinal);
@@ -905,6 +890,7 @@ public sealed class OutputTests
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
             interactive: true, terminalSize: () => (80, 24), color: false);
+        output.HandleDashboardKey(Key(ConsoleKey.D2), new ClaimGate());
 
         await output.WarningAsync(
             "alice",
@@ -976,6 +962,7 @@ public sealed class OutputTests
         var writer = new StringWriter();
         using var output = new ConsoleOutput(writer, ["a0", "a1", "a2", "a3"], "p/model", false,
             interactive: true, terminalSize: () => (80, 20), color: false);
+        output.HandleDashboardKey(Key(ConsoleKey.D2), new ClaimGate());
 
         await output.SetUserAttentionIssuesAsync(
             [new BeadsIssue("abc-1", IssueStatus.Blocked, "Choose a save format")]);
@@ -999,6 +986,142 @@ public sealed class OutputTests
         var row = RowContaining(LastFrame(writer), "alice");
         Assert.Contains("IDLE", row, StringComparison.Ordinal);
         Assert.Contains("No ready tickets", row, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ScreensKeepContentSeparateAndAcknowledgeUnreadUpdates()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (120, 24), color: false);
+        var gate = new ClaimGate();
+        var comment = Comment("c1", "abc-1", "Review", "reviewer", "comment body");
+        await output.SetLatestCommentsAsync([comment]);
+        await output.WarningAsync("alice", "check workspace");
+        Assert.Contains("Attention Center!1", LastFrame(writer));
+        Assert.Contains("Latest Comments!1", LastFrame(writer));
+        Assert.DoesNotContain("comment body", LastFrame(writer));
+        Assert.DoesNotContain("check workspace", LastFrame(writer));
+        output.HandleDashboardKey(Key(ConsoleKey.D2), gate);
+        Assert.Contains("[2:Attention Center]", LastFrame(writer));
+        Assert.Contains("check workspace", LastFrame(writer));
+        Assert.DoesNotContain("branch:", LastFrame(writer));
+        output.HandleDashboardKey(Key(ConsoleKey.D3), gate);
+        Assert.Contains("comment body", LastFrame(writer));
+        Assert.DoesNotContain("Latest Comments!", LastFrame(writer));
+        output.HandleDashboardKey(Key(ConsoleKey.D1), gate);
+        await output.SetLatestCommentsAsync([comment]);
+        await output.WarningAsync("alice", "check workspace");
+        Assert.DoesNotContain("Center!", LastFrame(writer));
+        Assert.DoesNotContain("Comments!", LastFrame(writer));
+        await output.SetLatestCommentsAsync([comment with { Text = "edited" }]);
+        await output.WarningAsync("alice", "new warning");
+        Assert.Contains("Comments!1", LastFrame(writer));
+        Assert.Contains("Center!1", LastFrame(writer));
+        await output.ClearPersistentAlertAsync("alice");
+        await output.SetLatestCommentsAsync([]);
+        Assert.DoesNotContain("Center!", LastFrame(writer));
+        Assert.DoesNotContain("Comments!", LastFrame(writer));
+    }
+
+    [Fact]
+    public async Task AgentAndSettingsBadgesIgnoreIdenticalRefreshes()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (120, 24), color: false);
+        var gate = new ClaimGate();
+        output.HandleDashboardKey(Key(ConsoleKey.D2), gate);
+        await output.SetAgentAsync("alice", AgentActivity.Working, "working");
+        await output.SetAgentAsync("alice", AgentActivity.Working, "working");
+        await output.SetTmuxTargetAsync("session", "window");
+        Assert.Contains("Agents!1", LastFrame(writer));
+        Assert.Contains("Settings!1", LastFrame(writer));
+        output.HandleDashboardKey(Key(ConsoleKey.D4), gate);
+        Assert.Contains("Default model: p/model", LastFrame(writer));
+        Assert.Contains("tmux session: session", LastFrame(writer));
+        Assert.DoesNotContain("Settings!", LastFrame(writer));
+        output.HandleDashboardKey(Key(ConsoleKey.D1), gate);
+        output.HandleDashboardKey(Key(ConsoleKey.D2), gate);
+        await output.SetAgentAsync("alice", AgentActivity.Working, "working");
+        Assert.DoesNotContain("Agents!", LastFrame(writer));
+    }
+
+    [Fact]
+    public async Task CommentDetailDoesNotAcknowledgeBackgroundCommentsOrLoseSelection()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (120, 24), color: false);
+        var gate = new ClaimGate();
+        var original = Comment("c1", "abc-1", "Original", "reviewer", "original body");
+        await output.SetLatestCommentsAsync([original]);
+        output.HandleDashboardKey(Key(ConsoleKey.D3), gate);
+        output.HandleDashboardKey(Key(ConsoleKey.Enter), gate);
+        await output.SetLatestCommentsAsync([Comment("c2", "abc-2", "New", "reviewer", "new body"), original]);
+        Assert.Contains("Comments!1", LastFrame(writer));
+        Assert.Contains("original body", LastFrame(writer));
+        Assert.DoesNotContain("new body", LastFrame(writer));
+        Assert.False(output.HandleDashboardKey(Key(ConsoleKey.D1), gate));
+        output.HandleDashboardKey(Key(ConsoleKey.Escape), gate);
+        Assert.DoesNotContain("Comments!", LastFrame(writer));
+        output.HandleDashboardKey(Key(ConsoleKey.Enter), gate);
+        Assert.Contains("COMMENT — abc-1", LastFrame(writer));
+    }
+
+    [Theory]
+    [InlineData(52, 12)]
+    [InlineData(80, 24)]
+    [InlineData(120, 40)]
+    public async Task ScreensStayWithinTerminalHeightAndKeepAllTabsVisible(int width, int height)
+    {
+        var size = (Width: width, Height: height);
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, Enumerable.Range(0, 30).Select(i => $"agent{i}"), "p/model", false,
+            interactive: true, terminalSize: () => size, color: false);
+        var gate = new ClaimGate();
+        await output.SetLatestCommentsAsync(Enumerable.Range(0, 100)
+            .Select(i => Comment($"c{i}", $"abc-{i}", "Title", "reviewer", "comment body")).ToArray());
+        await output.SetUserAttentionIssuesAsync(Enumerable.Range(0, 100)
+            .Select(i => new BeadsIssue($"abc-{i:D3}", IssueStatus.Blocked, "Needs review")).ToArray());
+        await output.SetTmuxTargetAsync("session", "window");
+        foreach (var key in new[] { ConsoleKey.D1, ConsoleKey.D2, ConsoleKey.D3, ConsoleKey.D4 })
+        {
+            output.HandleDashboardKey(Key(key), gate);
+            var frame = LastFrame(writer);
+            Assert.True(frame.Split('\n').Length < height);
+            var tabs = frame.Split('\n')[1];
+            foreach (var number in Enumerable.Range(1, 4)) Assert.Contains($"{number}:", tabs);
+            Assert.True(tabs.Replace("\u001b[K", "").Length <= width);
+            for (var page = 0; page < 110; page++) output.HandleDashboardKey(Key(ConsoleKey.PageDown), gate);
+            Assert.True(LastFrame(writer).Split('\n').Length < height);
+            if (key == ConsoleKey.D2) Assert.Contains("abc-099", LastFrame(writer));
+            if (key == ConsoleKey.D3) Assert.Contains("abc-99", LastFrame(writer));
+        }
+        size = (52, 12);
+        output.HandleDashboardKey(Key(ConsoleKey.D1), gate);
+        output.HandleDashboardKey(Key(ConsoleKey.UpArrow), gate);
+        Assert.Contains("agent29", LastFrame(writer));
+        output.HandleDashboardKey(Key(ConsoleKey.Enter), gate);
+        Assert.Contains("AGENT ACTIONS — agent29", LastFrame(writer));
+        Assert.Contains("[C] Clean workspace", LastFrame(writer));
+    }
+
+    [Fact]
+    public void EmptyScreensStillSwitchAndShiftTabAlwaysControlsClaims()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, [], "p/model", false,
+            interactive: true, terminalSize: () => (120, 24), color: false);
+        var gate = new ClaimGate();
+        foreach (var name in new[] { "Attention Center", "Latest Comments", "Settings", "Agents" })
+        {
+            Assert.True(output.HandleDashboardKey(Key(ConsoleKey.Tab), gate));
+            Assert.Contains(name + "]", LastFrame(writer));
+            output.HandleDashboardKey(new ConsoleKeyInfo('\t', ConsoleKey.Tab, true, false, false), gate);
+        }
+        Assert.True(gate.IsEnabled);
+        Assert.False(output.HandleDashboardKey(Key(ConsoleKey.Enter), gate));
     }
 
     private static Task SetActiveMergeSlotAsync(
