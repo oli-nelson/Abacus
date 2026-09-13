@@ -8,6 +8,11 @@ Unreleased section. Released versions are listed newest first.
 
 ### Added
 
+- Play a newly bundled attention clip whenever an issue starts needing user
+  attention while TUI audio is enabled, including issues already labelled when
+  the run starts. It plays once per newly observed issue, never restarts while
+  the clip is still playing, and follows `tuiAudio`/`--tui-audio` in every run
+  mode, so `--no-intro` still disables only the interactive entrance.
 - Add optional scheduled claim windows to run configurations. A `schedule` object
   names a timezone, recurring `"<days> <from>-<to>"` windows that block new
   tickets, and an optional `minWindowRemaining` duration a claim must fit inside

@@ -52,6 +52,13 @@ TUI is shown for redirected stdin/stdout/stderr, `TERM=dumb`, verbose, preflight
 or stdio modes. When the animation finishes naturally, the mix finishes in the
 background instead of being cut off; skipping stops it immediately.
 
+`--tui-audio` also plays a bundled attention clip once whenever an issue newly
+needs your attention, including issues that already carried the label when the
+run started. The clip does not replay for an issue that still carries the label,
+never restarts while it is still playing, and follows the flag in every run mode
+rather than the intro's `--no-intro` gate. Playback is best effort, so a missing
+player only means silence.
+
 
 An interactive terminal shows one row per configured agent. Rows move through:
 

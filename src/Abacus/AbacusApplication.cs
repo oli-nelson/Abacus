@@ -29,6 +29,9 @@ public sealed class AbacusApplication(
             return RunOutcome.Deferred;
         }
 
+        // New user-attention issues play the bundled attention clip, but only when
+        // TUI audio is enabled; the monitor records the snapshot either way.
+        await using var attentionSound = new UserAttentionSound(preflight.Options.TuiAudio);
         using var ownership = await WorkspaceOwnership.AcquireAsync(
             new Git(runner, preflight.Tools.Git), preflight.Agents, cancellationToken);
         var beads = new Beads(runner, preflight.Tools.Bd);
@@ -99,6 +102,7 @@ public sealed class AbacusApplication(
                 beads,
                 git,
                 mergeSlotReclaimer,
+                attentionSound,
                 agentRuns,
                 preflight.Agents,
                 preflight.Options.LatestCommentCount,
@@ -274,6 +278,7 @@ public sealed class AbacusApplication(
         Beads beads,
         Git git,
         MergeSlotReclaimer mergeSlotReclaimer,
+        UserAttentionSound attentionSound,
         AgentRunRegistry agentRuns,
         IReadOnlyList<ValidatedAgent> agents,
         int latestCommentCount,
@@ -297,6 +302,7 @@ public sealed class AbacusApplication(
                     agent.Name,
                     cancellationToken);
                 notifier.UserAttentionChanged(issues);
+                attentionSound.Changed(issues);
                 await log.SetUserAttentionIssuesAsync(issues);
                 lastAttentionFailure = null;
             }

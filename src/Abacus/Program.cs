@@ -282,7 +282,7 @@ public static class Program
             if (AsciiIntro.ShouldPlay(options, Console.IsInputRedirected, Console.IsOutputRedirected,
                 Console.IsErrorRedirected, Environment.GetEnvironmentVariable("TERM")))
             {
-                var introSound = options.TuiAudio ? IntroSound.TryStart() : null;
+                var introSound = options.TuiAudio ? SoundPlayer.TryStart(SoundClip.Intro) : null;
                 try
                 {
                     if (await AsciiIntro.PlayAsync(Console.Error, cancellation.Token))

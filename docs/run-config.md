@@ -271,7 +271,7 @@ abacus run
 
 Select a harness config, not `abacus_base.json` (which deliberately has no model).
 Generated runs start paused; press **Shift-Tab** to allow ticket claims. Desktop
-notifications, notification sounds, and TUI intro audio are enabled. Override with
+notifications, notification sounds, and TUI audio are enabled. Override with
 `--start-paused=false`, `--tui-audio=false`, or
 `--notify off --notify-sound=false` to disable notifications.
 For `--stdio`, disable notifications; for `--verbose`, also disable start-paused.

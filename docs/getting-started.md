@@ -129,7 +129,7 @@ Edit shared settings with `abacus config edit abacus_base.json`, and the Codex
 harness/model with `abacus config edit abacus_codex.json`. The base is incomplete
 on its own: select a harness config in the picker. Generated runs start paused;
 press **Shift-Tab** to resume claims. Desktop notifications, notification sounds,
-and TUI intro audio are enabled.
+and TUI audio are enabled.
 
 For automation, redirected I/O, or running from elsewhere, explicitly select a
 config; the non-interactive routes never open the picker:

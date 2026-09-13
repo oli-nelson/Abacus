@@ -164,7 +164,7 @@ abacus run # select abacus_codex.json (or another harness config)
 ```
 
 Generated runs start paused; press **Shift-Tab** to resume claims. Desktop
-notifications, notification sounds, and TUI intro audio are enabled in the base
+notifications, notification sounds, and TUI audio are enabled in the base
 config.
 
 The initializer is the **only** Abacus operation that creates repositories,

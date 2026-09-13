@@ -407,7 +407,7 @@ The exact built-in prompt is normative in
 | `--event-log <path>` | none | Run only: append and flush structured JSONL activity to a file, with or without the TUI. |
 | `--start-paused` | off | Run only: pause claims initially; resume with Shift-Tab in the TUI or the stdio resume command. Rejects verbose or non-interactive output without stdio. |
 | `--no-intro` | off | Run only: skip the interactive ASCII entrance. |
-| `--tui-audio` | off | Run only: play the bundled audio that accompanies the interactive entrance. |
+| `--tui-audio` | off | Run only: play the bundled audio that accompanies the interactive entrance and the clip for issues that newly need attention. |
 | `--verbose`, `-v` | off | Replaces the dashboard with timestamped transitions and subprocess diagnostics. |
 
 `attention` reports newly observed attention labels, blocked tickets, and

@@ -158,3 +158,9 @@ lets the mix finish in the background. Intro audio is off by default;
 never plays for stdio, verbose, preflight, standalone commands, redirected
 stdin/stdout/stderr, or `TERM=dumb`. `NO_COLOR` disables its colors. Narrow
 terminals receive a compact version.
+
+The same flag plays a bundled attention clip once whenever an issue newly needs
+the operator's attention, including issues that already carry the label when the
+run starts. The clip never replays for an issue that keeps the label and never
+restarts while it is still playing. Attention audio follows `--tui-audio` in
+every run mode, so `--no-intro` and stdio runs that enable TUI audio keep it.

@@ -43,7 +43,7 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         new("stdio", "--stdio", "bool", "JSONL control instead of dashboard"),
         new("eventLog", "--event-log", "path", "JSONL event log path (relative to config)"),
         new("noIntro", "--no-intro", "bool", "Skip startup animation"),
-        new("tuiAudio", "--tui-audio", "bool", "Play startup animation audio"),
+        new("tuiAudio", "--tui-audio", "bool", "Play startup animation and attention audio"),
         new("startPaused", "--start-paused", "bool", "Start with claims paused"),
         new("schedule", "", "schedule", "Optional claim windows to block, e.g. provider peak hours"),
     ];

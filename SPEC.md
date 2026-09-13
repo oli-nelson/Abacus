@@ -487,6 +487,11 @@ the mix so the voice remains prominent. Audio playback is best effort and uses
 a native macOS player or an available Linux command-line player. Let the mix
 finish when the animation completes naturally instead of cutting it off. TUI
 audio is off by default; `--tui-audio` enables it, while `--no-intro` skips both.
+While it is enabled, also play the bundled attention clip once whenever an issue
+newly carries `abacus:needs-user-attention`, including issues that already carry
+it when the run starts: an issue that keeps needing attention never replays it,
+and a clip that is still playing is not restarted. Attention audio follows
+`--tui-audio` in every run mode, and `--no-intro` leaves it enabled.
 Never play the intro or its audio in stdio, verbose, preflight, standalone
 operations, redirected stdin/stdout/stderr, or dumb terminals. Honor `NO_COLOR`
 and terminal dimensions, stop its audio on skip or cancellation, and restore
