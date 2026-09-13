@@ -435,6 +435,12 @@ reclamation as a warning.
 Finite modes fail instead of retrying orchestration errors forever, making them
 suitable for scripts and CI.
 
+A run config can also declare `schedule` claim windows that hold new claims during
+recurring hours such as a provider's peak-price windows. Continuous runs wait for
+the window to open; finite runs exit `3` without claiming, so `0` always means the
+queue was drained. In-flight tickets are never interrupted. See
+[scheduled claim windows](run-config.md#scheduled-claim-windows).
+
 Examples:
 
 ```sh
@@ -494,6 +500,11 @@ prompt for Codex and Claude, and after the generated flags for the OpenCode mode
 
 Operational failures in finite modes produce a nonzero exit. For the detailed
 recovery contract, see [Operations](operations.md#failure-and-recovery).
+
+Exit codes: `0` success (for finite runs, the ready queue was drained), `1`
+orchestration or output failure, `2` invalid arguments or configuration, `3` a
+finite run was deferred by a scheduled claim window without claiming, and `130`
+interrupted by Ctrl-C.
 
 ## Version
 

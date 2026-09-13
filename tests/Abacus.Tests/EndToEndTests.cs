@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using Abacus;
 
 namespace Abacus.Tests;
@@ -44,6 +45,106 @@ public sealed partial class EndToEndTests
         {
             root.Delete(recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task ScheduledWindowDefersFiniteRunsWithoutStartingAgents()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-schedule-");
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+            var config = await WriteAlwaysBlockedConfigAsync(root.FullName, workspace);
+            var startInfo = new ProcessStartInfo(FindOnPath("dotnet"))
+            {
+                WorkingDirectory = root.FullName,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+            startInfo.ArgumentList.Add("run");
+            startInfo.ArgumentList.Add("--config");
+            startInfo.ArgumentList.Add(config);
+            startInfo.Environment["PATH"] = bin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+            using var process = Process.Start(startInfo)!;
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await process.WaitForExitAsync(timeout.Token);
+
+            Assert.Equal(3, process.ExitCode);
+            var errorText = await stderr;
+            Assert.Contains("Schedule:", errorText, StringComparison.Ordinal);
+            Assert.Contains("deferred without claiming", errorText, StringComparison.Ordinal);
+            Assert.DoesNotContain("ABACUS RUN SUMMARY", errorText, StringComparison.Ordinal);
+            // The fake bd only records this file when it is asked for ready work.
+            Assert.False(File.Exists(Path.Combine(root.FullName, "ready-count")));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PreflightReportsAConfiguredScheduleAndStaysReadOnly()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var root = Directory.CreateTempSubdirectory("abacus-e2e-schedule-preflight-");
+        try
+        {
+            var bin = Directory.CreateDirectory(Path.Combine(root.FullName, "bin")).FullName;
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            await WriteFakeToolsAsync(root.FullName, bin);
+            var config = await WriteAlwaysBlockedConfigAsync(root.FullName, workspace);
+            var startInfo = new ProcessStartInfo(FindOnPath("dotnet"))
+            {
+                WorkingDirectory = root.FullName,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+            startInfo.ArgumentList.Add("preflight");
+            startInfo.ArgumentList.Add("--config");
+            startInfo.ArgumentList.Add(config);
+            startInfo.Environment["PATH"] = bin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+            using var process = Process.Start(startInfo)!;
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await process.WaitForExitAsync(timeout.Token);
+
+            // Preflight accepts the config-only schedule and reports it without failing.
+            Assert.Equal(0, process.ExitCode);
+            var errorText = await stderr;
+            Assert.Contains("Preflight checks passed", errorText, StringComparison.Ordinal);
+            Assert.Contains("Schedule:", errorText, StringComparison.Ordinal);
+            Assert.DoesNotContain("deferred", errorText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Two windows whose union covers every minute, so the schedule is blocked
+    /// whatever time the suite runs.
+    /// </summary>
+    private static async Task<string> WriteAlwaysBlockedConfigAsync(string root, string workspace)
+    {
+        var config = Path.Combine(root, "abacus_deepseek.json");
+        await File.WriteAllTextAsync(config, $$"""
+            {"version":1,"mode":"opencode-server","model":"provider/exact-model",
+             "opencodeServer":"127.0.0.1:4096",
+             "agents":[{"name":"alice","workspace":{{JsonSerializer.Serialize(workspace)}}}],
+             "schedule":{"timezone":"UTC","block":["daily 00:00-23:59","daily 23:59-00:00"]},
+             "once":true}
+            """);
+        return config;
     }
 
     [Fact]

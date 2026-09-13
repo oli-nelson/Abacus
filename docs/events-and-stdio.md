@@ -49,6 +49,11 @@ works in the interactive TUI, where **Shift-Tab** resumes claims.
 It cannot be used with verbose output or redirected/dumb terminals unless
 `--stdio` supplies the resume control.
 
+A configured claim schedule blocks fresh claims in the same way, and `pause` or
+`resume` never overrides it. `status` reports the schedule under `schedule` with
+its timezone, blocked windows, `claimsAllowed`, and a human-readable `detail`;
+the field is null when no schedule is configured.
+
 Send one JSON object per line and flush each line. Commands are case-sensitive;
 `id` is a required nonempty string chosen by the caller. Use distinct IDs to
 correlate results. IDs are echoed, not persisted or deduplicated.
@@ -97,7 +102,10 @@ EOF is equivalent to graceful shutdown, not permission to leave agents running.
 A final command without a newline is processed before EOF. Keep stdin open while
 controlling a continuous run. With `--once` or `--drain`, Abacus also exits when
 its finite work finishes, even if stdin remains open. Ctrl-C retains exit 130;
-successful shutdown/EOF exits 0, and orchestration or event-output failure exits 1.
+successful shutdown/EOF exits 0, orchestration or event-output failure exits 1,
+and invalid arguments or configuration exit 2. A finite run stopped by a scheduled
+claim window ([run configurations](run-config.md#scheduled-claim-windows)) exits 3
+without claiming, so `0` always means the ready queue was drained.
 
 ## Event contract (version 1)
 
@@ -114,7 +122,7 @@ inside strings are JSON-escaped. Consumers should ignore unknown types/fields.
 
 | Type | `data` |
 | --- | --- |
-| `run.starting` | Parsed default model/effort, reasoning model/effort mappings, default and per-tier extra harness arguments, harness mode, execution mode, configured agents |
+| `run.starting` | Parsed default model/effort, reasoning model/effort mappings, default and per-tier extra harness arguments, harness mode, execution mode, configured agents, and `schedule` (timezone, blocked windows, minimum remaining window) when configured |
 | `system`, `warning` | Message; warnings also include source. A `warning` is a dashboard notice that supersedes the same source's earlier notice, clears when that source's persistent alert clears, and expires about a minute after its last repeat. |
 | `command` | Source and subprocess command diagnostic (including exit diagnostics); independent of `--verbose` |
 | `agent.state` | Full row: name, activity, detail, changedAt, issueId, ticketTitle, runLocation, workspacePath, lastExitCode, hasExitObservation, retryCount, branch, isDirty, model, effort, runActive |

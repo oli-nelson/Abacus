@@ -45,6 +45,7 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         new("noIntro", "--no-intro", "bool", "Skip startup animation"),
         new("tuiAudio", "--tui-audio", "bool", "Play startup animation audio"),
         new("startPaused", "--start-paused", "bool", "Start with claims paused"),
+        new("schedule", "", "schedule", "Optional claim windows to block, e.g. provider peak hours"),
     ];
 
     public static RunConfiguration Create(string directory) => new(new JsonObject { ["version"] = 1 }, directory);
@@ -151,9 +152,22 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
                     && (p.Value is null || IsString(p.Value))),
                 "args" => value is JsonObject arguments && arguments.All(p => (p.Key is "high" or "medium" or "low")
                     && (p.Value is null || IsString(p.Value))),
+                "schedule" => value is JsonObject schedule && schedule.All(p => p.Key switch
+                {
+                    "timezone" => p.Value is null || IsString(p.Value),
+                    "minWindowRemaining" => p.Value is null || IsString(p.Value),
+                    "block" => p.Value is null
+                        || (p.Value is JsonArray window && window.All(w => w is JsonValue text && text.TryGetValue<string>(out _))),
+                    _ => false,
+                }),
                 _ => IsString(value),
             };
-            if (!valid) throw new OptionsException($"run config '{name}' must have type {field.Kind}");
+            if (!valid)
+            {
+                throw new OptionsException(field.Kind == "schedule"
+                    ? $"run config '{name}' must be an object with timezone and block"
+                    : $"run config '{name}' must have type {field.Kind}");
+            }
         }
     }
 
@@ -164,7 +178,8 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         var args = new List<string>();
         foreach (var field in Fields)
         {
-            if (field.Name == "baseConfig") continue;
+            // Config-only settings have no CLI option to round-trip through.
+            if (field.Name == "baseConfig" || field.Option.Length == 0) continue;
             if (overridden?.Contains(field.Option) == true && field.Kind is not ("models" or "args")) continue;
             if (field.Option is "--once" or "--drain" &&
                 (overridden?.Contains("--once") == true || overridden?.Contains("--drain") == true)) continue;
@@ -214,10 +229,32 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         try
         {
             var effective = ResolveInheritance();
-            Options.Parse(["run", .. effective.Arguments("run")]);
-            return [];
+            var warnings = new List<string>();
+            try
+            {
+                ClaimSchedule.FromDocument(effective.Document[ClaimSchedule.ConfigurationName]);
+            }
+            catch (OptionsException exception)
+            {
+                warnings.Add(exception.Message);
+            }
+
+            try
+            {
+                Options.Parse(["run", .. effective.Arguments("run")]);
+            }
+            catch (OptionsException exception)
+            {
+                if (exception.Missing is not null) warnings.AddRange(exception.Missing);
+                else warnings.Add(exception.Message);
+            }
+            catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
+            {
+                warnings.Add(exception.Message);
+            }
+
+            return warnings;
         }
-        catch (OptionsException ex) when (ex.Missing is not null) { return ex.Missing; }
         catch (Exception ex) when (ex is OptionsException or ArgumentException or NotSupportedException)
         { return [ex.Message]; }
     }

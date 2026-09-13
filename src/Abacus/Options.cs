@@ -67,7 +67,8 @@ public sealed record Options(
     IReadOnlyDictionary<string, string>? ReasoningModels = null,
     IReadOnlyDictionary<string, string>? ReasoningEfforts = null,
     IReadOnlyList<string>? ExtraArguments = null,
-    IReadOnlyDictionary<string, IReadOnlyList<string>>? ReasoningArguments = null)
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? ReasoningArguments = null,
+    ClaimSchedule? Schedule = null)
 {
     public const string DefaultTmuxLayout = "tiled";
 
@@ -204,11 +205,17 @@ public sealed record Options(
         OptionsParseResult ParseConfigured(string path)
         {
             if (repositoryPath is not null) seen.Add("--repo");
-            var configured = RunConfiguration.Load(path).ResolveInheritance().Arguments(
-                command, seen, overriddenTiers);
+            var configuration = RunConfiguration.Load(path).ResolveInheritance();
+            var configured = configuration.Arguments(command, seen, overriddenTiers);
             if (repositoryPath is not null) configured.AddRange(["--repo", repositoryPath]);
             // No callback here: a selected/explicit config gets exactly one validation attempt.
-            return Parse([command, .. configured, .. optionValues]);
+            var result = Parse([command, .. configured, .. optionValues]);
+            // The schedule is config-only: it has no CLI option to round-trip through,
+            // so it is resolved from the same composed document that produced the arguments.
+            var schedule = ClaimSchedule.FromDocument(configuration.Document[ClaimSchedule.ConfigurationName]);
+            return schedule is null || result.Value is null
+                ? result
+                : result with { Value = result.Value with { Schedule = schedule } };
         }
         if (run && configPath is not null) return ParseConfigured(configPath);
         if (run)

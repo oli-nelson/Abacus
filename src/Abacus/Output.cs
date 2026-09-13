@@ -224,6 +224,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private string? tmuxSessionName;
     private string? tmuxWindowName;
     private bool claimingEnabled = true;
+    private readonly ClaimSchedule? schedule;
     private bool rendered;
     private bool dashboardFrozen;
     private int selectedAgentIndex = -1;
@@ -246,11 +247,13 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         string effort = "high",
         bool effortIsRequested = false,
         Func<(int Width, int Height)>? terminalSize = null,
-        TimeSpan? alertLifetime = null)
+        TimeSpan? alertLifetime = null,
+        ClaimSchedule? schedule = null)
     {
         this.writer = writer;
         this.terminalSize = terminalSize;
         this.alertLifetime = alertLifetime ?? DefaultAlertLifetime;
+        this.schedule = schedule;
         Events = events;
         claimingEnabled = !startPaused;
         this.verbose = verbose;
@@ -764,6 +767,14 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             {
                 id, command = "status", ok = true,
                 status = new { claimsEnabled, systemStatus, agents = agents.Values.ToArray(),
+                    schedule = schedule is null ? null : new
+                    {
+                        timezone = schedule.Zone.Id,
+                        block = schedule.BlockedWindows.Select(static window => window.Spec).ToArray(),
+                        minWindowRemainingSeconds = schedule.MinWindowRemaining.TotalSeconds,
+                        claimsAllowed = schedule.CanClaimAt(TimeProvider.System.GetUtcNow(), out _),
+                        detail = schedule.DescribeAt(TimeProvider.System.GetUtcNow()),
+                    },
                     tmux = tmuxSessionName is null ? null : new { session = tmuxSessionName, window = tmuxWindowName },
                     attention = userAttentionIssues, alerts = new Dictionary<string, string>(persistentAlerts),
                     comments = latestComments, mergeSlot,
@@ -799,19 +810,24 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             return;
         }
 
+        // A configured schedule blocks claims independently of the manual pause toggle.
+        bool ScheduleBlocksClaims() =>
+            schedule is not null && !schedule.CanClaimAt(TimeProvider.System.GetUtcNow(), out _);
+
         var width = GetWidth();
         var line = new string('─', width);
         var builder = new StringBuilder();
         builder.Append(rendered ? "\u001b[H" : "\u001b[2J\u001b[H");
-        var claimLabel = claimingEnabled ? "CLAIMS ON" : "CLAIMS PAUSED";
+        var scheduleBlocked = ScheduleBlocksClaims();
+        var claimLabel = !claimingEnabled ? "CLAIMS PAUSED" : scheduleBlocked ? "CLAIMS BLOCKED" : "CLAIMS ON";
         foreach (var headerLine in FormatHeaderLines(width, agents.Count, model, effort,
-                     effortIsRequested, claimingEnabled, tmuxSessionName, tmuxWindowName))
+                     effortIsRequested, claimingEnabled, tmuxSessionName, tmuxWindowName, scheduleBlocked))
         {
             var claimIndex = headerLine.IndexOf(claimLabel, StringComparison.Ordinal);
             if (headerLine.StartsWith(" ABACUS", StringComparison.Ordinal) && claimIndex >= 0)
             {
                 builder.Append(Color(Bold + Cyan, headerLine[..claimIndex]));
-                builder.Append(Color(claimingEnabled ? Green : Yellow, claimLabel));
+                builder.Append(Color(claimingEnabled && !scheduleBlocked ? Green : Yellow, claimLabel));
                 builder.Append(Color(Dim, headerLine[(claimIndex + claimLabel.Length)..]));
             }
             else builder.Append(Color(Dim, headerLine));
@@ -1301,10 +1317,11 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
     internal static IReadOnlyList<string> FormatHeaderLines(int width, int agentCount,
         string model, string effort, bool effortIsRequested, bool claimingEnabled,
-        string? session, string? window)
+        string? session, string? window, bool scheduleBlocked = false)
     {
         var lines = new List<string>();
-        var summary = $" ABACUS • {agentCount} agent{(agentCount == 1 ? string.Empty : "s")} • {(claimingEnabled ? "CLAIMS ON" : "CLAIMS PAUSED")}";
+        var claimState = !claimingEnabled ? "CLAIMS PAUSED" : scheduleBlocked ? "CLAIMS BLOCKED" : "CLAIMS ON";
+        var summary = $" ABACUS • {agentCount} agent{(agentCount == 1 ? string.Empty : "s")} • {claimState}";
         var effortText = $" • effort {effort}{(effortIsRequested ? " (requested)" : "")}";
         const string modelLabel = "Default model: ";
         var settings = modelLabel + model + effortText;

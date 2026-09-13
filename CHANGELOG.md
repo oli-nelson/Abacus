@@ -8,6 +8,16 @@ Unreleased section. Released versions are listed newest first.
 
 ### Added
 
+- Add optional scheduled claim windows to run configurations. A `schedule` object
+  names a timezone, recurring `"<days> <from>-<to>"` windows that block new
+  tickets, and an optional `minWindowRemaining` duration a claim must fit inside
+  the open hours, so a fleet can avoid a provider's published peak-price hours.
+  Continuous runs wait for the next window and show the reason and next claimable
+  time on the dashboard; `--once` and `--drain` exit `3` without claiming, so exit
+  `0` keeps meaning the ready queue was drained. The schedule gates new claims
+  only: running tickets finish, and pausing or resuming claims by hand never
+  bypasses it. `schedule` is config-only, replaces wholesale when inherited, and
+  is editable in `abacus config edit`.
 - Show Beads merge-slot ownership on the live dashboard's agent rows: the holder
   is marked and every waiting agent shows its position in the queue.
 - Add `abacus info` for a concise read-only overview of Git state and worktrees,

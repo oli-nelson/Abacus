@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Abacus;
 
 namespace Abacus.Tests;
@@ -311,6 +312,175 @@ public sealed class ClaimCoordinatorTests
         Assert.Equal("2", await fixture.ReadAsync("ready-count"));
     }
 
+    [Fact]
+    public async Task ScheduledWindowHoldsClaimsUntilItOpens()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // Monday 02:00 UTC is inside the configured peak window.
+        var clock = new FakeClock(new DateTimeOffset(2026, 9, 14, 2, 0, 0, TimeSpan.Zero));
+        using var fixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            schedule: PeakSchedule(),
+            clock: clock);
+        var pendingClaim = fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            singleAgentMode: true,
+            CancellationToken.None);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        Assert.False(pendingClaim.IsCompleted);
+        Assert.Equal("0", await fixture.ReadAsync("ready-count"));
+        Assert.Contains("Schedule:", fixture.Log.ToString(), StringComparison.Ordinal);
+        Assert.Null(fixture.Coordinator.DeferredReason);
+
+        // 04:30 is outside the window, so the pending claim completes.
+        clock.Now = new DateTimeOffset(2026, 9, 14, 4, 30, 0, TimeSpan.Zero);
+        var claim = await pendingClaim;
+
+        Assert.Equal("abc-good", claim.Issue.Id);
+        Assert.Equal("2", await fixture.ReadAsync("ready-count"));
+    }
+
+    [Fact]
+    public async Task ResumingClaimsByHandDoesNotBypassTheSchedule()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var clock = new FakeClock(new DateTimeOffset(2026, 9, 14, 2, 0, 0, TimeSpan.Zero));
+        using var fixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            schedule: PeakSchedule(),
+            clock: clock);
+        var pendingClaim = fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            singleAgentMode: true,
+            CancellationToken.None);
+
+        fixture.ClaimGate.SetEnabled(false);
+        await Task.Delay(TimeSpan.FromMilliseconds(25));
+        fixture.ClaimGate.SetEnabled(true);
+        await Task.Delay(TimeSpan.FromMilliseconds(25));
+
+        Assert.False(pendingClaim.IsCompleted);
+        Assert.Equal("0", await fixture.ReadAsync("ready-count"));
+
+        clock.Now = new DateTimeOffset(2026, 9, 14, 4, 30, 0, TimeSpan.Zero);
+        Assert.Equal("abc-good", (await pendingClaim).Issue.Id);
+    }
+
+    [Fact]
+    public async Task FiniteRunsDeferInsteadOfWaitingForTheNextWindow()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var clock = new FakeClock(new DateTimeOffset(2026, 9, 14, 2, 0, 0, TimeSpan.Zero));
+        using var fixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            schedule: PeakSchedule(),
+            clock: clock);
+        var claim = await fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            singleAgentMode: true,
+            ExecutionMode.Drain,
+            CancellationToken.None);
+
+        Assert.Null(claim);
+        var reason = Assert.IsType<string>(fixture.Coordinator.DeferredReason);
+        Assert.Contains("claims resume", reason, StringComparison.Ordinal);
+        Assert.Contains("deferred without claiming", reason, StringComparison.Ordinal);
+        // A deferred run never asks Beads for ready work.
+        Assert.Equal("0", await fixture.ReadAsync("ready-count"));
+    }
+
+    [Fact]
+    public async Task ClaimsProceedOutsideScheduledWindows()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var clock = new FakeClock(new DateTimeOffset(2026, 9, 14, 12, 0, 0, TimeSpan.Zero));
+        using var fixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            schedule: PeakSchedule(),
+            clock: clock);
+        var claim = await fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            singleAgentMode: true,
+            CancellationToken.None);
+
+        Assert.Equal("abc-good", claim.Issue.Id);
+        Assert.Null(fixture.Coordinator.DeferredReason);
+    }
+
+    [Fact]
+    public async Task DrainDefersWhenTheWindowClosesBetweenTickets()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var clock = new FakeClock(new DateTimeOffset(2026, 9, 14, 4, 30, 0, TimeSpan.Zero));
+        using var fixture = await CoordinatorFixture.CreateAsync(
+            recoverFirstClaim: false,
+            schedule: ClaimSchedule.FromDocument(JsonNode.Parse("""
+                {"timezone":"UTC","block":["mon 01:00-04:00","mon 05:00-06:00"]}
+                """), "schedule"),
+            clock: clock);
+        var first = await fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            singleAgentMode: true,
+            ExecutionMode.Drain,
+            CancellationToken.None);
+
+        // The fixture's first ready query reports an empty queue, so drain only
+        // reaches the second iteration here.
+        Assert.Null(first);
+        Assert.Null(fixture.Coordinator.DeferredReason);
+        var claimed = await fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            singleAgentMode: true,
+            ExecutionMode.Drain,
+            CancellationToken.None);
+        Assert.Equal("abc-good", claimed!.Issue.Id);
+        Assert.Null(fixture.Coordinator.DeferredReason);
+
+        // The next drain iteration happens inside the second window.
+        clock.Now = new DateTimeOffset(2026, 9, 14, 5, 30, 0, TimeSpan.Zero);
+        var second = await fixture.Coordinator.WaitForPreparedClaimAsync(
+            fixture.Agent(hasRemote: false),
+            singleAgentMode: true,
+            ExecutionMode.Drain,
+            CancellationToken.None);
+
+        Assert.Null(second);
+        Assert.Contains("deferred without claiming", fixture.Coordinator.DeferredReason, StringComparison.Ordinal);
+        Assert.Equal("2", await fixture.ReadAsync("ready-count"));
+    }
+
+    private static ClaimSchedule PeakSchedule() => ClaimSchedule.FromDocument(JsonNode.Parse("""
+        {"timezone":"UTC","block":["mon-fri 01:00-04:00"]}
+        """), "schedule")!;
+
+    private sealed class FakeClock(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
     private sealed class CoordinatorFixture : IDisposable
     {
         private readonly DirectoryInfo root;
@@ -323,7 +493,9 @@ public sealed class ClaimCoordinatorTests
             string workspace,
             string bd,
             string git,
-            InitialClaimBarrier? initialClaimBarrier)
+            InitialClaimBarrier? initialClaimBarrier,
+            ClaimSchedule? schedule,
+            TimeProvider? clock)
         {
             this.root = root;
             this.workspace = workspace;
@@ -341,7 +513,9 @@ public sealed class ClaimCoordinatorTests
                 Log,
                 TimeSpan.FromMilliseconds(1),
                 claimGate: ClaimGate,
-                initialClaimBarrier: initialClaimBarrier);
+                initialClaimBarrier: initialClaimBarrier,
+                schedule: schedule,
+                clock: clock);
         }
 
         public ClaimCoordinator Coordinator { get; }
@@ -354,7 +528,9 @@ public sealed class ClaimCoordinatorTests
             string initialBranch = "abacus/abc-resume",
             string resumeIssueStatus = "open",
             string? resumeIssueAssignee = null,
-            InitialClaimBarrier? initialClaimBarrier = null)
+            InitialClaimBarrier? initialClaimBarrier = null,
+            ClaimSchedule? schedule = null,
+            TimeProvider? clock = null)
         {
             if (OperatingSystem.IsWindows())
             {
@@ -461,7 +637,7 @@ public sealed class ClaimCoordinatorTests
             var mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
             File.SetUnixFileMode(bd, mode);
             File.SetUnixFileMode(git, mode);
-            return new CoordinatorFixture(root, workspace, bd, git, initialClaimBarrier);
+            return new CoordinatorFixture(root, workspace, bd, git, initialClaimBarrier, schedule, clock);
         }
 
         public ValidatedAgent Agent(bool hasRemote) => new(

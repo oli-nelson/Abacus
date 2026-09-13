@@ -114,6 +114,10 @@ the branch after inspecting the workspace; Abacus will not force or detach it.
 Add `--start-paused` to start with claims disabled and the header showing
 **CLAIMS PAUSED** immediately. Press **Shift-Tab** to pause or resume new claims
 for every agent. Active work continues; an agent pauses only when it next reaches the claim boundary.
+When a configured [claim schedule](run-config.md#scheduled-claim-windows) is
+holding claims, the header shows **CLAIMS BLOCKED** and each agent row names the
+window and the next claimable time. The manual toggle cannot override a schedule;
+only editing or clearing the config can.
 
 Use the **Up** and **Down** arrows, or **k** and **j**, to select a row. The same
 keys scroll an open comment. Press **Enter** on an agent

@@ -4,6 +4,9 @@ namespace Abacus;
 
 public static class Program
 {
+    /// <summary>A finite run stopped claiming because the schedule window was closed.</summary>
+    private const int DeferredExitCode = 3;
+
     public static async Task<int> Main(string[] args)
     {
         var stdoutUi = TerminalUi.ForConsoleOut();
@@ -265,6 +268,14 @@ public static class Program
             options.AgentMode,
             options.ExecutionMode,
             options.Agents,
+            Schedule = options.Schedule is { } schedule
+                ? new
+                {
+                    timezone = schedule.Zone.Id,
+                    block = schedule.BlockedWindows.Select(static window => window.Spec).ToArray(),
+                    minWindowRemainingSeconds = schedule.MinWindowRemaining.TotalSeconds,
+                }
+                : null,
         });
         try
         {
@@ -296,7 +307,8 @@ public static class Program
                 events: events,
                 startPaused: options.StartPaused,
                 effort: options.Effort,
-                effortIsRequested: options.AgentMode == AgentMode.OpenCode);
+                effortIsRequested: options.AgentMode == AgentMode.OpenCode,
+                schedule: options.Schedule);
             if (options.StartPaused && !options.Stdio && !output.IsInteractiveDashboard)
                 throw new InvalidOperationException(
                     "--start-paused requires an interactive dashboard or --stdio so claims can be resumed");
@@ -310,12 +322,16 @@ public static class Program
             {
                 await output.SystemAsync(
                     $"Preflight checks passed for {validated.Agents.Count} agent{(validated.Agents.Count == 1 ? string.Empty : "s")}; no tickets claimed");
+                await ReportScheduleAsync(output, options);
             }
             else
             {
                 await output.SystemAsync(
                     $"Preflight complete; starting {AgentCommandFactory.DisplayName(options.AgentMode)} agent loops");
-                await new AbacusApplication(runner, output, notifier).RunAsync(validated, cancellation.Token);
+                await ReportScheduleAsync(output, options);
+                var outcome = await new AbacusApplication(runner, output, notifier)
+                    .RunAsync(validated, cancellation.Token);
+                if (outcome is RunOutcome.Deferred) exitCode = DeferredExitCode;
             }
         }
         catch (OperationCanceledException)
@@ -335,6 +351,16 @@ public static class Program
         if (events?.HasFailed == true) exitCode = 1;
         events?.Emit("run.exited", new { exitCode });
         return events?.HasFailed == true ? 1 : exitCode;
+    }
+
+    private static async Task ReportScheduleAsync(TextWriter output, Options options)
+    {
+        if (options.Schedule is not { } schedule) return;
+        await output.SystemAsync($"Schedule: {schedule.DescribeAt(TimeProvider.System.GetUtcNow())}");
+        foreach (var warning in schedule.Warnings())
+        {
+            await output.SystemAsync($"Warning: {warning}");
+        }
     }
 
     private static bool ConfirmSkillOverwrite(IReadOnlyList<string> existingSkills)

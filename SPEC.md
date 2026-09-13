@@ -176,17 +176,39 @@ Invalid CLI syntax/values/combinations fail directly too. Fully specified runs,
 explicit configs, and help never trigger discovery. Repository and installed-tool
 readiness remain normal preflight checks, not config-selection prerequisites.
 
-All run settings are supported. Explicit CLI scalars and boolean flags override
-saved values, CLI agent/filter lists replace their saved list, and reasoning model
-specifications and argument strings override per tier. Boolean CLI flags accept `=true` or `=false`. An explicit
-once/drain option replaces the configured execution choice; conflicting explicit
-options remain errors. Duplicate non-repeatable CLI options remain errors.
+All scalar, boolean, and list run settings are supported on the CLI.
+`baseConfig` and `schedule` are deliberately config-only: they are structural or
+policy settings that no invocation should override, so they have no CLI option and
+never round-trip through the run arguments. Explicit CLI scalars and boolean flags
+override saved values, CLI agent/filter lists replace their saved list, and
+reasoning model specifications and argument strings override per tier. Boolean CLI
+flags accept `=true` or `=false`. An explicit once/drain option replaces the
+configured execution choice; conflicting explicit options remain errors. Duplicate
+non-repeatable CLI options remain errors.
 Preflight ignores saved
 run-only output/lifecycle options, but rejects those options on its own CLI.
 Relative repository, workspace, and event-log paths resolve against the config
 directory; CLI paths still resolve against cwd. Save As rebases relative paths to
 preserve their destinations. Runtime validation and preflight remain mandatory;
 saving never starts agents. Help does not read a config file.
+
+The optional `schedule` object blocks new claims during recurring windows so an
+operator can avoid a provider's published peak-price hours. It requires a
+`timezone` and a non-empty `block` array of `"<days> <from>-<to>"` windows in that
+zone, plus an optional `minWindowRemaining` duration that a claim must fit inside
+the open hours. Everything outside the windows stays claimable, so the setting
+records the expensive hours rather than the cheap remainder. A derived config
+replaces the object; `null` clears an inherited schedule. Abacus must reject
+unparseable/unknown zones and windows rather than ignore them, and must warn when
+no window can ever satisfy `minWindowRemaining`.
+
+The schedule is a claim gate, never a run gate. In-flight tickets finish, and
+Abacus must not stop a harness at a window boundary. It is independent of the
+manual pause: toggling claims never bypasses the schedule, and the dashboard names
+the schedule as the reason alongside the next claimable time. Continuous runs wait
+for the next window. Finite runs (`--once`, `--drain`) stop claiming and exit `3`
+without claiming, before taking workspace locks or creating tmux sessions when the
+window is already closed, so `0` always means the ready queue was drained.
 
 Initialize a new multi-agent repository:
 

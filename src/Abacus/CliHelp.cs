@@ -54,6 +54,8 @@ internal static class CliHelp
                                         CLI overrides win over derived/base values.
                                         Paths stay relative to their source file. --config is not repeatable.
                                         Boolean flags accept =false to disable saved settings.
+                                        A config may also set a config-only "schedule" of claim windows
+                                        that block new tickets during recurring provider peak hours.
 
         Agent and model:
           --agent, -a <name> <workspace>  Required, repeatable; names and workspaces must be unique.
@@ -130,6 +132,10 @@ internal static class CliHelp
             clean-workspace also requires "confirm":true. EOF gracefully shuts down.
             --stdio rejects --verbose and desktop notifications.
             --once and --drain are mutually exclusive; finite modes fail on orchestration errors.
+            A run config may schedule claim windows (timezone, block, minWindowRemaining) that
+            block new tickets during recurring hours such as a provider's peak prices. Those
+            windows are config-only. Continuous runs wait for the next window; --once and --drain
+            exit 3 without claiming, so exit 0 always means the ready queue was drained.
 
             """ + Environment.NewLine + RunOptions,
         "preflight" => """

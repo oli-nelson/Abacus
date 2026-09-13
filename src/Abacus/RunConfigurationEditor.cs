@@ -130,6 +130,7 @@ internal static class RunConfigurationEditor
             return;
         }
         if (field.Kind == "agents") { EditAgents(config, ui); return; }
+        if (field.Kind == "schedule") { EditSchedule(config, field, ui); return; }
         if (field.Kind is "models" or "args")
         {
             var routes = (JsonObject?)config.Document[field.Name]?.DeepClone() ?? new JsonObject();
@@ -153,6 +154,65 @@ internal static class RunConfigurationEditor
         draft[field.Name] = value;
         new RunConfiguration(draft, config.BaseDirectory).ValidateShape();
         config.Document[field.Name] = value?.DeepClone();
+    }
+
+    private static void EditSchedule(RunConfiguration config, RunConfiguration.Field field, TerminalUi ui)
+    {
+        var source = config.Document[field.Name];
+        if (!config.Document.ContainsKey(field.Name))
+        {
+            try { source = config.ResolveInheritance().Document[field.Name]; }
+            catch (OptionsException) { /* A broken base remains editable as a draft. */ }
+        }
+
+        var schedule = (JsonObject?)source?.DeepClone() ?? new JsonObject();
+        foreach (var property in new[] { "timezone", "minWindowRemaining" })
+        {
+            var text = Ask($"{property} [{schedule[property]}] (blank keeps, - clears)", ui);
+            if (text == "-") schedule.Remove(property);
+            else if (text.Length > 0) schedule[property] = text;
+        }
+
+        var windows = (JsonArray?)schedule["block"]?.DeepClone() ?? new JsonArray();
+        while (true)
+        {
+            Console.Write("\u001b[H\u001b[2J");
+            Line("Blocked schedule windows", ui, TerminalUi.Bold, TerminalUi.Cyan);
+            Line("Format: <days> <from>-<to>, for example mon-fri 01:00-04:00", ui, TerminalUi.Dim);
+            Line("Days: mon, tue, wed, thu, fri, sat, sun, ranges such as mon-fri, or daily", ui, TerminalUi.Dim);
+            Line("Times use the schedule timezone; claims stay blocked for the window.", ui, TerminalUi.Dim);
+            Line(string.Empty, ui);
+            for (var index = 0; index < windows.Count; index++) Line($"{index + 1}. {windows[index]}", ui);
+            if (windows.Count == 0) Line("(no windows configured; claims are never blocked)", ui, TerminalUi.Yellow);
+            var action = Ask("Window number to edit, + to add, -number to remove, blank to return", ui);
+            if (action.Length == 0) break;
+            if (action.StartsWith('-') && int.TryParse(action[1..], out var remove) && remove > 0 && remove <= windows.Count)
+            {
+                windows.RemoveAt(remove - 1);
+                continue;
+            }
+
+            if (action == "+")
+            {
+                var added = Ask("new window (blank cancels)", ui);
+                if (added.Length > 0) windows.Add(added);
+                continue;
+            }
+
+            if (!int.TryParse(action, out var edit) || edit < 1 || edit > windows.Count) continue;
+            var entered = Ask($"window [{windows[edit - 1]}] (blank keeps, - removes)", ui);
+            if (entered == "-") windows.RemoveAt(edit - 1);
+            else if (entered.Length > 0) windows[edit - 1] = entered;
+        }
+
+        if (windows.Count == 0 && schedule["timezone"] is null && schedule["minWindowRemaining"] is null)
+        {
+            config.Document.Remove(field.Name);
+            return;
+        }
+
+        schedule["block"] = windows;
+        config.Document[field.Name] = schedule;
     }
 
     private static void EditAgents(RunConfiguration config, TerminalUi ui)

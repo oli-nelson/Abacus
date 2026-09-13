@@ -1,12 +1,34 @@
 namespace Abacus;
 
+/// <summary>How a run ended, so the caller can pick the process exit code.</summary>
+public enum RunOutcome
+{
+    /// <summary>Every loop finished its own work, including a drained ready queue.</summary>
+    Completed,
+
+    /// <summary>A finite run stopped claiming because a schedule window was closed.</summary>
+    Deferred,
+}
+
 public sealed class AbacusApplication(
     CommandRunner runner,
     TextWriter log,
     DesktopNotifier notifier)
 {
-    public async Task RunAsync(PreflightResult preflight, CancellationToken cancellationToken)
+    public async Task<RunOutcome> RunAsync(PreflightResult preflight, CancellationToken cancellationToken)
     {
+        var schedule = preflight.Options.Schedule;
+        // A finite run has nothing to wait for, so it never takes workspace locks or
+        // creates tmux sessions just to idle until the next window opens.
+        var now = TimeProvider.System.GetUtcNow();
+        if (schedule is not null
+            && preflight.Options.ExecutionMode is not ExecutionMode.Continuous
+            && !schedule.CanClaimAt(now, out _))
+        {
+            await log.SystemAsync($"Schedule: {schedule.DescribeAt(now)}; finite run deferred without claiming");
+            return RunOutcome.Deferred;
+        }
+
         using var ownership = await WorkspaceOwnership.AcquireAsync(
             new Git(runner, preflight.Tools.Git), preflight.Agents, cancellationToken);
         var beads = new Beads(runner, preflight.Tools.Bd);
@@ -96,6 +118,7 @@ public sealed class AbacusApplication(
                     tmuxWindowId: tmuxSessionLease.WindowId,
                     projectId: tmuxSessionLease.ProjectId);
 
+            var coordinators = new Dictionary<string, ClaimCoordinator>(StringComparer.Ordinal);
             var loops = preflight.Agents.Select(agent =>
             {
                 var recovery = new TicketRecovery(beads, log);
@@ -114,7 +137,9 @@ public sealed class AbacusApplication(
                     reasoningEfforts: preflight.Options.EffectiveReasoningEfforts,
                     defaultEffort: preflight.Options.Effort,
                     reasoningArguments: preflight.Options.EffectiveReasoningArguments,
-                    defaultArguments: preflight.Options.EffectiveExtraArguments);
+                    defaultArguments: preflight.Options.EffectiveExtraArguments,
+                    schedule: schedule);
+                coordinators[agent.Name] = claims;
                 var supervisor = new TicketSupervisor(
                     beads,
                     agentHost,
@@ -196,6 +221,15 @@ public sealed class AbacusApplication(
                     // The monitor shares the application lifetime.
                 }
             }
+
+            var deferral = coordinators.Values
+                .Select(static coordinator => coordinator.DeferredReason)
+                .FirstOrDefault(static reason => reason is not null);
+            if (deferral is not null)
+            {
+                await log.SystemAsync(deferral);
+                return RunOutcome.Deferred;
+            }
         }
         finally
         {
@@ -232,6 +266,8 @@ public sealed class AbacusApplication(
             notifier.RunCompleted(snapshot);
             await log.SummaryAsync(snapshot);
         }
+
+        return RunOutcome.Completed;
     }
 
     private async Task MonitorDashboardAsync(

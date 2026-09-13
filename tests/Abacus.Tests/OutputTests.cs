@@ -54,6 +54,19 @@ public sealed class OutputTests
     }
 
     [Fact]
+    public void HeaderDistinguishesScheduleBlockedClaimsFromAManualPause()
+    {
+        var scheduled = string.Join('\n',
+            ConsoleOutput.FormatHeaderLines(80, 1, "p/model", "high", false, true, null, null, scheduleBlocked: true));
+        Assert.Contains("CLAIMS BLOCKED", scheduled, StringComparison.Ordinal);
+        Assert.DoesNotContain("CLAIMS ON", scheduled, StringComparison.Ordinal);
+
+        var paused = string.Join('\n',
+            ConsoleOutput.FormatHeaderLines(80, 1, "p/model", "high", false, false, null, null, scheduleBlocked: true));
+        Assert.Contains("CLAIMS PAUSED", paused, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NarrowHeaderBoundsLongNamesWithoutHidingEffortOrControls()
     {
         var lines = ConsoleOutput.FormatHeaderLines(52, 4, new string('m', 100), "high", true, false,

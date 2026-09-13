@@ -72,6 +72,57 @@ still applies.
 their corresponding model strings. For example, use `"model": "gpt#high"` and
 `"reasoningModels": { "low": "small-model#low" }`. The old fields are rejected.
 
+## Scheduled claim windows
+
+Some providers charge more during published "peak" hours. Block those hours so
+the fleet starts work outside them:
+
+```json
+{
+  "version": 1,
+  "mode": "codex",
+  "model": "deepseek-v4-pro#high",
+  "agents": [{ "name": "agent-0", "workspace": "worktrees/0" }],
+  "schedule": {
+    "timezone": "UTC",
+    "minWindowRemaining": "30m",
+    "block": ["mon-fri 01:00-04:00", "mon-fri 06:00-10:00"]
+  }
+}
+```
+
+| Property | Meaning |
+| --- | --- |
+| `timezone` | Required. IANA zone the windows are written in, such as `UTC` or `Europe/Madrid`. |
+| `block` | Required, non-empty array of windows. Every hour outside them stays claimable. |
+| `minWindowRemaining` | Optional duration. Claims need at least this much of the open hours left, so long tickets are not started minutes before peak begins. |
+
+A window is `"<days> <from>-<to>"`:
+
+- Days are `mon`…`sun`, comma-separated lists (`sat,sun`), ranges (`mon-fri`),
+  `daily`, or `*`.
+- Times are 24-hour `HH:MM` in the configured zone. `from` is inclusive and `to`
+  is exclusive; a window whose end precedes its start runs into the following
+  day, so `"fri 22:00-02:00"` blocks Friday night and early Saturday.
+
+DeepSeek's published peak hours are `01:00-04:00` and `06:00-10:00` UTC Monday
+through Friday; every other hour is off-peak, so the two windows above are the
+whole policy. Capture the expensive hours rather than the cheap ones: off-peak
+is the default state, and listing only the peak windows keeps the setting short
+and easy to re-check against the provider's pricing page.
+
+The schedule gates **new claims**. Tickets already running finish, including
+into peak hours, and Abacus never stops a harness at a window boundary.
+Continuous runs wait for the next window and show why on the dashboard; finite
+runs (`--once`, `--drain`) exit `3` without claiming so a script can tell a
+deferral apart from a drained queue. Pausing or resuming claims by hand does not
+bypass the schedule.
+
+`schedule` is config-only: there is no equivalent CLI option. A derived config
+replaces the whole object, and `"schedule": null` clears an inherited schedule.
+Abacus warns when `minWindowRemaining` is longer than the longest open stretch,
+because no claim could ever start.
+
 ## Base config inheritance
 
 Use **one** `--config`. A config can declare one base file inside:
@@ -165,6 +216,7 @@ fields remain required to run. Semantics/defaults match the [CLI reference](cli-
 | --- | --- | --- |
 | `version` | integer, must be `1` | Schema version |
 | `baseConfig` | string path, or null | Base run config file (no CLI equivalent) |
+| `schedule` | object with `timezone`, `block` window strings, and optional `minWindowRemaining` | Claim windows (no CLI equivalent) |
 | `repo` | string path | `--repo` |
 | `mode` | string | `--mode` |
 | `model` | `model` or `model#effort` string | `--model` |

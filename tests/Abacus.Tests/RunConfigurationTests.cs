@@ -289,6 +289,81 @@ public sealed class RunConfigurationTests : IDisposable
     }
 
     [Fact]
+    public void ScheduledClaimWindowsLoadFromConfiguration()
+    {
+        var path = Write("""
+            {"version":1,"mode":"codex","model":"deepseek-v4-pro#high",
+             "agents":[{"name":"one","workspace":"worktrees/one"}],
+             "schedule":{"timezone":"UTC","minWindowRemaining":"30m",
+                         "block":["mon-fri 01:00-04:00","mon-fri 06:00-10:00"]}}
+            """);
+        var options = Options.Parse(["run", "--config", path]).Value!;
+
+        var schedule = Assert.IsType<ClaimSchedule>(options.Schedule);
+        Assert.Equal("UTC", schedule.Zone.Id);
+        Assert.Equal(TimeSpan.FromMinutes(30), schedule.MinWindowRemaining);
+        Assert.Equal(["mon-fri 01:00-04:00", "mon-fri 06:00-10:00"],
+            schedule.BlockedWindows.Select(static window => window.Spec));
+        Assert.Empty(schedule.Warnings());
+        // The schedule is config-only, so it never becomes a CLI argument.
+        Assert.DoesNotContain("schedule", RunConfiguration.Load(path).Arguments("run"));
+    }
+
+    [Fact]
+    public void DerivedScheduleReplacesOrClearsTheInheritedOne()
+    {
+        var baseConfig = Write("""
+            {"version":1,"mode":"codex","model":"saved",
+             "agents":[{"name":"one","workspace":"worktrees/one"}],
+             "schedule":{"timezone":"UTC","block":["mon-fri 01:00-04:00"]}}
+            """);
+        var replaced = Child(baseConfig, """
+            {"version":1,"schedule":{"timezone":"Europe/Madrid","block":["daily 20:00-22:00"]}}
+            """);
+        var options = Options.Parse(["run", "--config", replaced]).Value!;
+        Assert.Equal("Europe/Madrid", options.Schedule!.Zone.Id);
+        Assert.Equal(["daily 20:00-22:00"], options.Schedule.BlockedWindows.Select(static window => window.Spec));
+
+        var cleared = Child(baseConfig, """{"version":1,"schedule":null}""");
+        Assert.Null(Options.Parse(["run", "--config", cleared]).Value!.Schedule);
+        Assert.NotNull(Options.Parse(["run", "--config", baseConfig]).Value!.Schedule);
+    }
+
+    [Fact]
+    public void SaveAsKeepsTheScheduleObject()
+    {
+        var path = Write("""
+            {"version":1,"mode":"codex","model":"saved",
+             "agents":[{"name":"one","workspace":"worktrees/one"}],
+             "schedule":{"timezone":"UTC","block":["mon-fri 01:00-04:00"],"minWindowRemaining":"30m"}}
+            """);
+        var copy = Path.Combine(root.FullName, "copy.json");
+        RunConfiguration.Load(path).Save(copy, overwrite: false);
+
+        var schedule = Options.Parse(["run", "--config", copy]).Value!.Schedule!;
+        Assert.Equal(["mon-fri 01:00-04:00"], schedule.BlockedWindows.Select(static window => window.Spec));
+        Assert.Equal(TimeSpan.FromMinutes(30), schedule.MinWindowRemaining);
+    }
+
+    [Fact]
+    public void InvalidScheduleFailsConfigurationLoadAndSurfacesAsAnEditorWarning()
+    {
+        var path = Write("""
+            {"version":1,"mode":"codex","model":"saved",
+             "agents":[{"name":"one","workspace":"worktrees/one"}],
+             "schedule":{"timezone":"UTC","block":["mon-fri 25:00-04:00"]}}
+            """);
+
+        var exception = Assert.Throws<OptionsException>(() => Options.Parse(["run", "--config", path]));
+        Assert.Contains("schedule.block[0]", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("schedule.block[0]", string.Join(" ", RunConfiguration.Load(path).Warnings()));
+
+        var wrongType = Write("""{"version":1,"schedule":"mon-fri 01:00-04:00"}""", "wrong-type.json");
+        var shape = Assert.Throws<OptionsException>(() => RunConfiguration.Load(wrongType));
+        Assert.Contains("timezone and block", shape.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExtraArgumentFieldsLoadMergeAndOverridePerTier()
     {
         var baseConfig = Write("""

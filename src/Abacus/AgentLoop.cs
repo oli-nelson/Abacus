@@ -23,7 +23,9 @@ public sealed partial class ClaimCoordinator(
     IReadOnlyDictionary<string, string>? reasoningEfforts = null,
     string? defaultEffort = null,
     IReadOnlyDictionary<string, IReadOnlyList<string>>? reasoningArguments = null,
-    IReadOnlyList<string>? defaultArguments = null)
+    IReadOnlyList<string>? defaultArguments = null,
+    ClaimSchedule? schedule = null,
+    TimeProvider? clock = null)
 {
     private readonly DispatchFilters filters = dispatchFilters ?? DispatchFilters.Empty;
     private readonly ClaimGate claimsAllowed = claimGate ?? new ClaimGate();
@@ -35,8 +37,16 @@ public sealed partial class ClaimCoordinator(
     private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> argumentMappings = reasoningArguments
         ?? new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
     private readonly IReadOnlyList<string> defaultArguments = defaultArguments ?? AgentArguments.Empty;
+    private readonly ClaimSchedule? claimSchedule = schedule;
+    private readonly TimeProvider clock = clock ?? TimeProvider.System;
     private bool initialRecoveryPending = true;
     public TimeSpan PollingInterval { get; } = pollingInterval ?? TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Set when a finite run stopped claiming because the schedule blocked it. The
+    /// text explains why, so the run can report a deferral instead of a drained queue.
+    /// </summary>
+    public string? DeferredReason { get; private set; }
 
     public async Task<PreparedClaim> WaitForPreparedClaimAsync(
         ValidatedAgent agent,
@@ -59,7 +69,8 @@ public sealed partial class ClaimCoordinator(
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await WaitForClaimPermissionAsync(agent.Name, cancellationToken);
+            await WaitForClaimPermissionAsync(agent.Name, executionMode, cancellationToken);
+            if (DeferredReason is not null) return null;
             await log.SetAgentAsync(agent.Name, AgentActivity.Waiting, "Looking for a ready ticket");
             if (!Directory.Exists(agent.WorkspacePath))
             {
@@ -131,7 +142,9 @@ public sealed partial class ClaimCoordinator(
             BeadsIssue? issue;
             try
             {
-                await WaitForClaimPermissionAsync(agent.Name, cancellationToken);
+                // Re-checked after workspace inspection: a window can close during it.
+                await WaitForClaimPermissionAsync(agent.Name, executionMode, cancellationToken);
+                if (DeferredReason is not null) return null;
                 if (interruptedIssueId is not null)
                 {
                     issue = await beads.ResumeOpenIssueAsync(
@@ -431,6 +444,7 @@ public sealed partial class ClaimCoordinator(
 
     private async Task WaitForClaimPermissionAsync(
         string agentName,
+        ExecutionMode executionMode,
         CancellationToken cancellationToken)
     {
         if (!claimsAllowed.IsEnabled)
@@ -442,6 +456,27 @@ public sealed partial class ClaimCoordinator(
         }
 
         await claimsAllowed.WaitUntilEnabledAsync(cancellationToken);
+
+        // The schedule is a second, independent gate: pausing or resuming claims by
+        // hand never bypasses it. Continuous runs wait for the next window; finite
+        // runs stop claiming and report the deferral.
+        while (true)
+        {
+            var now = clock.GetUtcNow();
+            if (claimSchedule is null || claimSchedule.CanClaimAt(now, out _)) return;
+            var detail = $"Schedule: {claimSchedule.DescribeAt(now)}";
+            if (executionMode is not ExecutionMode.Continuous)
+            {
+                DeferredReason = $"{detail}; deferred without claiming";
+                LeaveInitialRecoveryPhase();
+                return;
+            }
+
+            await log.SetAgentAsync(agentName, AgentActivity.Paused, detail);
+            var wait = claimSchedule.NextClaimableAt(now) is { } opening ? opening - now : PollingInterval;
+            if (wait <= TimeSpan.Zero || wait > PollingInterval) wait = PollingInterval;
+            await Task.Delay(wait, cancellationToken);
+        }
     }
 
     private async Task WaitForInitialRecoveryPhaseAsync(
@@ -635,9 +670,10 @@ public sealed class AgentLoop(
                         continue;
                     }
 
-                    var detail = executionMode is ExecutionMode.Once
-                        ? "No executable ticket; once complete"
-                        : "No ready tickets; drain complete";
+                    var detail = claims.DeferredReason
+                        ?? (executionMode is ExecutionMode.Once
+                            ? "No executable ticket; once complete"
+                            : "No ready tickets; drain complete");
                     await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, detail);
                     return;
                 }
