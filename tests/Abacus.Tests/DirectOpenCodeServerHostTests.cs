@@ -4,6 +4,21 @@ namespace Abacus.Tests;
 
 public sealed class DirectOpenCodeServerHostTests
 {
+    [Fact]
+    public async Task SupervisorPromptBypassesTicketPromptAndTargetValidation()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = await DirectFixture.CreateAsync(exitImmediately: true);
+        var host = fixture.CreateHost();
+        var run = await host.StartAgentAsync(fixture.Agent with { HarnessPromptOverride = "supervisor-only prompt" },
+            new BeadsIssue("maintenance", IssueStatus.Open), "provider/supervisor", "low",
+            "http://127.0.0.1:4096", CancellationToken.None, ["--profile", "maintenance"]);
+        await WaitUntilAsync(() => run.HasExited);
+        Assert.Equal("supervisor-only prompt", await fixture.ReadAsync("prompt"));
+        Assert.Contains("maintenance", await File.ReadAllLinesAsync(fixture.PathOf("arguments")));
+        await host.StopAndCleanupAsync(run, CancellationToken.None);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

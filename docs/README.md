@@ -14,6 +14,7 @@ complete rather than reading every page in order.
 | [Run configurations](run-config.md) | Editing saved settings, Save As, draft warnings, and CLI overrides |
 | [CLI reference](cli-reference.md) | Looking up commands, modes, and option behavior |
 | [Events and stdio control](events-and-stdio.md) | Recording JSONL activity and controlling Abacus from another agent |
+| [Maintenance supervisor](supervisor.md) | Opt-in workspace/Beads repair, recovery retries, prompt policy, and controls |
 | [Operations guide](operations.md) | Running, observing, pausing, recovering, and stopping agents |
 | [Shared Dolt operations](shared-dolt.md) | Creating, migrating, troubleshooting, backing up, and rolling back shared Beads storage |
 | [Architecture and boundaries](architecture.md) | Understanding how Abacus stays safe and what it deliberately leaves to other tools |

@@ -5,6 +5,36 @@ namespace Abacus.Tests;
 public sealed class AttentionResolutionTests
 {
     [Fact]
+    public async Task RetrySupervisorRemovesOnlyTheSuppressionLabel()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = await AttentionFixture.CreateAsync();
+        await fixture.Beads.RetrySupervisorAsync(fixture.Root, "ab-123", CancellationToken.None);
+        Assert.Equal(new[] { "update", "ab-123", "--remove-label", "abacus:supervisor-cannot-resolve", "--json" },
+            await File.ReadAllLinesAsync(fixture.CallsPath));
+    }
+
+    [Fact]
+    public async Task RetrySupervisorReportsUpdateFailure()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = await AttentionFixture.CreateAsync(fail: true);
+        await Assert.ThrowsAsync<BeadsException>(() => fixture.Beads.RetrySupervisorAsync(fixture.Root, "ab-123", CancellationToken.None));
+    }
+
+    [Fact]
+    public void RetrySupervisorParsesBatchIdsWithoutRunPrerequisites()
+    {
+        var result = Options.Parse(["attention", "retry-supervisor", "ab-1", "ab-2", "--repo", "/tmp/repo"]);
+        Assert.Null(result.Value);
+        Assert.Equal(new[] { "ab-1", "ab-2" }, result.RetrySupervisorIssues);
+        Assert.Equal("/tmp/repo", result.RepositoryPath);
+        Assert.Throws<OptionsException>(() => Options.Parse(["attention", "retry-supervisor"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["attention", "retry-supervisor", "ab-1", "--reopen"]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["attention", "retry-supervisor", "ab-1", "ab-1"]));
+    }
+
+    [Fact]
     public async Task RemovesAttentionLabelWithoutAddingACommentWhenMessageIsOmitted()
     {
         if (OperatingSystem.IsWindows())

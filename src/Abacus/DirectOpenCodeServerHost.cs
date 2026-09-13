@@ -83,7 +83,7 @@ public sealed class DirectOpenCodeServerHost(
             $"{agent.Name} • {issue.Id}",
             effort,
             extraArguments: extraArguments);
-        var prompt = Prompt.Render(
+        var prompt = agent.HarnessPromptOverride ?? Prompt.Render(
             agent.Name,
             issue.Id,
             agent.WorkspacePath,

@@ -4,8 +4,8 @@ namespace Abacus;
 /// Keeps merge-slot ownership honest. A merge slot may only be held by an agent whose
 /// harness is still running, and only such an agent may sit in the waiter queue, so a
 /// slot claimed by a crashed or stopped harness would otherwise block every other agent
-/// forever. Reclaiming is deliberately limited to agents configured for this run: a
-/// holder or waiter Abacus does not host may belong to another machine or run.
+/// forever. This single-controller version treats the current run's configured agents
+/// as authoritative: unknown holders and waiters are reclaimed too.
 /// </summary>
 public sealed class MergeSlotReclaimer(Beads beads, TextWriter log)
 {
@@ -25,17 +25,16 @@ public sealed class MergeSlotReclaimer(Beads beads, TextWriter log)
 
         var holder = status.IsHeld ? status.Holder : null;
         var abandonedHolder = holder is not null
-            && configuredAgents.Contains(holder)
-            && !hasRunningHarness(holder);
+            && (!configuredAgents.Contains(holder) || !hasRunningHarness(holder));
 
-        // Beads never removes waiters, so drop the current holder and every configured
-        // agent whose harness is gone while keeping foreign and live waiters in order.
+        // Beads never removes waiters, so drop unknown agents, stopped agents, and
+        // the current holder while keeping configured live waiters in order.
         var queue = new List<string>();
         var queueChanged = false;
         var droppedStaleWaiter = false;
         foreach (var waiter in status.Waiters)
         {
-            if (configuredAgents.Contains(waiter) && !hasRunningHarness(waiter))
+            if (!configuredAgents.Contains(waiter) || !hasRunningHarness(waiter))
             {
                 queueChanged = true;
                 droppedStaleWaiter = true;
@@ -72,7 +71,8 @@ public sealed class MergeSlotReclaimer(Beads beads, TextWriter log)
             if (release.Succeeded)
             {
                 updated = updated with { Holder = null };
-                effects.Add($"released the Beads merge slot held by {holder}, which has no running harness");
+                var reason = configuredAgents.Contains(holder!) ? "has no running harness" : "is not configured in this run";
+                effects.Add($"released the Beads merge slot held by {holder}, which {reason}");
             }
             else
             {
@@ -99,7 +99,7 @@ public sealed class MergeSlotReclaimer(Beads beads, TextWriter log)
                     updated = updated with { Waiters = queue };
                     if (droppedStaleWaiter)
                     {
-                        effects.Add("removed merge-slot waiters that have no running harness");
+                        effects.Add("removed merge-slot waiters that have no running harness or are not configured in this run");
                     }
                 }
                 else

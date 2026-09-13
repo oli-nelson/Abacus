@@ -121,7 +121,7 @@ Multiple agents must use the same shared Dolt database so task claims are atomic
 
 Operations are bare commands: `version`, `run`, `preflight`, `new`, `init`, `skills install`,
 `health`, `info`, `models`, `branches prune`, `attention list`, `attention resolve`,
-`targets check`, `targets set`, and `config edit`. Bare `abacus` prints help; there is no implicit
+`targets check`, `targets set`, `attention retry-supervisor`, and `config edit`. Bare `abacus` prints help; there is no implicit
 run or compatibility syntax. `abacus help <command>`, `<command> --help`, and
 `<command> -h` provide scoped help without operational prerequisites.
 `--repo` works before or after repository-scoped commands, not `new`, `models`, `version`, or `config edit`.
@@ -448,9 +448,11 @@ agent's queue position. Merge-slot ownership appears only on agent entries. That
 snapshot refreshes in the same periodic monitoring cycle as user-attention
 detection, using read-only `bd merge-slot check`. Because a harness that is gone
 can neither hold nor wait for a merge, Abacus releases a slot and prunes queue
-entries that name one of its configured agents while that agent has no running
-harness, leaves ownership held by any other agent alone, and reports each
-reclamation as a dashboard warning.
+entries whose agent is not configured in this run or has no running harness,
+and reports each reclamation as a dashboard warning. Only configured agents with
+running harnesses retain ownership or queue entries. This single-controller
+version does not preserve claims from other Abacus runs or external agents;
+do not share the merge slot with another controller.
 
 By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, paused, waiting, idle, syncing, preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. For pane-hosted runs, the dashboard also shows the resolved tmux session and window names so the operator can attach from another shell. The dashboard starts with new ticket claims enabled unless `--start-paused` is supplied; in that case its header shows claims paused from the first frame. Pressing Shift-Tab toggles new claims on or off for all agents; pausing does not interrupt tickets that are already active. The header shows the current claim state, and agents waiting for permission display a paused state. The up and down arrows select agent and latest-comment rows. Enter opens the selected agent's action panel or the selected comment's complete detail view; long comments scroll with the arrow or Page Up and Page Down keys, and Escape returns to the dashboard. Stop interrupts that agent's hosted process, keeps its current ticket reserved, and parks the loop. Restart interrupts an active process when necessary and relaunches the reserved ticket, or resumes a parked or idle loop. Clean Workspace requires explicit confirmation, safely reopens any active ticket, runs `git reset --hard` followed by `git clean -fd`, and leaves the agent parked until Restart. A successful clean clears that agent's persistent recovery alert. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed latest-comments log appears at the bottom with the configured number of issue, author, and comment entries. One alert block sits above that log: attention rows for those issues and for persistent recovery alerts, followed by one notice row per agent or Abacus source. Alert text wraps to the terminal width rather than being clipped, a source never occupies more than one notice row, a notice that repeats or restates that source's persistent alert does not stack a duplicate row, resolving an alert clears its source's notice, and an unrepeated notice expires after about a minute, so superseded and stale rows stop consuming vertical space. The block uses only the space the agent rows leave behind: it keeps the newest details that fit, never fewer than three rows, and ends with a counted `… n more alerts not shown` row instead of clipping text or pushing the status and comments off screen. Idle states are visually distinct from failures. `--verbose` (also accepted as `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
 
@@ -811,3 +813,58 @@ overwrite a published release or take over another run's version.
 Just before committing, agents add noteworthy entries to Unreleased, combining
 related changes and removing superseded intermediate behavior. Packaging alone
 never uploads; tag pushes no longer trigger releases. See [releases](docs/releases.md).
+
+## Optional maintenance supervisor
+
+`--supervisor-model` / `supervisorModel` enables one separate maintenance harness
+using the selected mode and host in the selected main checkout, not a worktree.
+The model uses normal native model/effort validation. Separate
+`--supervisor-extra-args` / `supervisorExtraArgs` never inherit worker arguments.
+`--supervisor-timeout` / `supervisorTimeout` defaults to 30 minutes.
+`--supervisor-prompt-file` / `supervisorPromptFile` appends a user-authored file
+**after** the optional `<repo>/.abacus/supervisor.md`. Config paths retain their
+source directory and rebase on Save As. Unreadable explicit files fail preflight
+when enabled. The supervisor's prompt is separate from all worker prompts.
+
+Trigger on attention-labelled issues without `abacus:supervisor-cannot-resolve`,
+including closed issues, or failed workspace/claim operations. Consume each failed
+agent's automatic trigger at supervisor startup until it launches a working
+harness again. Preserve existing active workers; park failed workers and retry
+once after supervision ends (including timeout/crash/startup failure), but not
+on cancellation/shutdown. Verify actual retry results and labels before reporting
+recovery. Keep finite runs alive through supervision and retries; never loop
+forever on a failed finite recovery. Suppress unchanged issue triggers from
+incomplete runs in memory and permit explicit supervisor Restart.
+
+Default authority is general workspace/Beads maintenance only. No project or
+implementation decisions are allowed without explicit user-authored additive
+policy. Preserve user work and active claims/worktrees. Include agent errors and
+issue/workspace snapshots as diagnostic data, not instructions. The prompt requires
+comments explaining repairs, removal of attention when resolved, and addition of
+`abacus:supervisor-cannot-resolve` when unresolved. The supervisor may reopen and
+unassign a blocked ticket if it resolved the user-attention issue that was the
+main reason for the block, verifies no other blocker remains or active claim is
+disturbed, and comments explaining why the ticket is now actionable. Keep it
+blocked when other blockers remain or the blocking reason is unclear; this does
+not authorize project/implementation decisions. This policy is not an OS sandbox.
+
+A unique temporary completion JSON file with matching runId and string summary
+signals Abacus to stop its harness gracefully through the existing host cleanup.
+Never infer success from conversational output or exit code alone; independently
+verify labels and agent retry outcomes. Invalid/stale/oversized signals do not
+complete the run. Clean runtime files after use.
+
+Expose a separate supervisor TUI row and state events, showing current state,
+last outcome, active model/location, and persistent unresolved alerts. Reserve
+`supervisor` as an agent name only while enabled. Offer Stop (cancel/disable) and
+Restart (enable/recheck), never destructive workspace cleanup. Keep supervisor
+runs out of worker capacity and ticket outcome counts. Play the bundled supervisor
+startup/failure clips only with interactive TUI audio enabled; failure audio waits
+for recovery verification and plays once per failed/unresolved run.
+
+`abacus attention retry-supervisor <id> [<id> ...] [--repo <path>]` removes only
+the cannot-resolve label via `bd update --remove-label`, preserving attention,
+status, and assignee. Validate IDs before writes; process in order, report each
+success, and stop nonzero on error without rolling back previous updates. This
+standalone command needs no model or agents and does not launch a supervisor.
+See [the supervisor guide](docs/supervisor.md) for operational details.

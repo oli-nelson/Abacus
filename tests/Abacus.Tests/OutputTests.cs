@@ -4,6 +4,28 @@ namespace Abacus.Tests;
 
 public sealed class OutputTests
 {
+    [Fact]
+    public async Task SupervisorRowShowsOutcomeAndOnlyOffersSafeControls()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (120, 40), color: false);
+        output.EnableSupervisor();
+        await output.SetAgentAsync("supervisor", AgentActivity.Stopped, "Last run: timed out; unresolved");
+        var gate = new ClaimGate();
+        output.HandleDashboardKey(Key(ConsoleKey.DownArrow), gate);
+        output.HandleDashboardKey(Key(ConsoleKey.DownArrow), gate);
+        output.HandleDashboardKey(Key(ConsoleKey.Enter), gate);
+        string Frame() => writer.ToString().Split("\u001b[H")[^1];
+        Assert.Contains("Last run: timed out", Frame());
+        Assert.Contains("retry supervisor", Frame());
+        Assert.DoesNotContain("Clean workspace", Frame());
+        Assert.False(output.HandleDashboardKey(Key(ConsoleKey.C), gate));
+        string? requested = null;
+        output.HandleDashboardKey(Key(ConsoleKey.R), gate, (name, _) => requested = name);
+        Assert.Equal("supervisor", requested);
+    }
+
     [Theory]
     [InlineData(ConsoleKey.DownArrow, '\0', ConsoleKey.UpArrow, '\0')]
     [InlineData(ConsoleKey.J, 'j', ConsoleKey.K, 'k')]

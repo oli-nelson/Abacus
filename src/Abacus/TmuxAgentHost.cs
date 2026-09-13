@@ -90,7 +90,7 @@ public sealed class TmuxAgentHost(
         {
             await File.WriteAllTextAsync(
                 promptPath,
-                Prompt.Render(
+                agent.HarnessPromptOverride ?? Prompt.Render(
                     agent.Name,
                     issue.Id,
                     agent.WorkspacePath,

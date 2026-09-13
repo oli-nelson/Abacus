@@ -177,13 +177,13 @@ displayed. The slot is refreshed every five seconds with read-only
 `bd merge-slot check`.
 
 A harness that is gone can neither hold nor wait for a merge, so Abacus releases
-a slot and prunes queue entries that name one of its configured agents while that
-agent has no running agent process. This frees a slot stranded by a crashed,
-stopped, or exited harness instead of blocking every other agent. Ownership held
-by an agent this run does not host is never touched, and each reclamation is
-reported as a warning. Beads itself never removes waiters, so Abacus also drops
-the current holder from the stored queue and keeps each agent at its best
-position.
+a slot and prunes queue entries when the named agent is not configured in this
+run or has no running harness. Configured, running agents are preserved, and
+remaining waiters keep their order. Duplicate waiters and the current holder’s
+redundant waiter entry are also removed. Each reclamation is reported as a warning.
+**This version assumes a single controller:** claims and waiters from other
+runs or external agents are also removed. Do not share the merge slot with
+another controller.
 
 ### Logs instead of a dashboard
 

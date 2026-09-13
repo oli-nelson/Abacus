@@ -78,6 +78,7 @@ public sealed class AbacusApplication(
         var agentRuns = new AgentRunRegistry();
         var mergeSlotReclaimer = new MergeSlotReclaimer(beads, log);
         var inputMonitor = Task.CompletedTask;
+        var maintenanceMonitor = Task.CompletedTask;
         var controlShutdown = false;
         TmuxSessionLease? tmuxSessionLease = null;
         try
@@ -122,6 +123,8 @@ public sealed class AbacusApplication(
                     tmuxWindowId: tmuxSessionLease.WindowId,
                     projectId: tmuxSessionLease.ProjectId);
 
+            var maintenance = preflight.Options.SupervisorModel is null ? null
+                : new MaintenanceSupervisor(preflight, beads, agentHost, log, temporaryRoot);
             var coordinators = new Dictionary<string, ClaimCoordinator>(StringComparer.Ordinal);
             var loops = preflight.Agents.Select(agent =>
             {
@@ -142,7 +145,8 @@ public sealed class AbacusApplication(
                     defaultEffort: preflight.Options.Effort,
                     reasoningArguments: preflight.Options.EffectiveReasoningArguments,
                     defaultArguments: preflight.Options.EffectiveExtraArguments,
-                    schedule: schedule);
+                    schedule: schedule,
+                    maintenance: maintenance);
                 coordinators[agent.Name] = claims;
                 var supervisor = new TicketSupervisor(
                     beads,
@@ -171,13 +175,21 @@ public sealed class AbacusApplication(
                     agentControls[agent.Name],
                     agentRuns,
                     notifier,
-                    preflight.Options.EffectiveExtraArguments).RunAsync(linkedCancellation.Token);
+                    preflight.Options.EffectiveExtraArguments, maintenance).RunAsync(linkedCancellation.Token);
             }).ToArray();
+
+            if (maintenance is not null)
+                maintenanceMonitor = maintenance.RunAsync(() => loops.All(loop => loop.IsCompleted), linkedCancellation.Token);
 
             if (log is ConsoleOutput consoleOutput)
             {
                 void RequestAction(string name, AgentControlAction action)
                 {
+                    if (name == MaintenanceSupervisor.Name && maintenance is not null)
+                    {
+                        maintenance.Request(action);
+                        return;
+                    }
                     if (!agentControls.TryGetValue(name, out var control))
                         throw new ArgumentException($"unknown agent '{name}'");
                     var index = preflight.Agents.ToList().FindIndex(agent => agent.Name == name);
@@ -193,10 +205,10 @@ public sealed class AbacusApplication(
                         linkedCancellation.Cancel();
                     }).RunAsync(linkedCancellation.Token)
                     : consoleOutput.MonitorDashboardInputAsync(claimGate,
-                        (name, action) => agentControls[name].Request(action), linkedCancellation.Token);
+                        RequestAction, linkedCancellation.Token);
             }
 
-            foreach (var loop in loops)
+            foreach (var loop in loops.Append(maintenanceMonitor))
             {
                 _ = loop.ContinueWith(
                     _ => linkedCancellation.Cancel(),
@@ -207,7 +219,7 @@ public sealed class AbacusApplication(
 
             try
             {
-                await Task.WhenAll(loops);
+                await Task.WhenAll(loops.Append(maintenanceMonitor));
             }
             catch (OperationCanceledException) when (controlShutdown && !cancellationToken.IsCancellationRequested)
             {

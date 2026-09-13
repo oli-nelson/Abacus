@@ -367,3 +367,14 @@ The exact boundary is documented in
 
 For the full map, including visual guides and bundled skills, see
 [`docs/README.md`](docs/README.md).
+
+### Optional maintenance supervisor
+
+Add `--supervisor-model <model[#effort]>` (or `supervisorModel` in JSON) to enable
+maintenance help for attention issues and failed agents. It runs in the main
+checkout with a separate prompt, a configurable **30-minute** timeout, and TUI
+status/audio. Configure `--supervisor-extra-args` independently of worker arguments;
+`--supervisor-prompt-file` appends a custom policy after `.abacus/supervisor.md`.
+Use `abacus attention retry-supervisor <id> [<id> ...]` to clear cannot-resolve
+labels without clearing attention. See the [supervisor guide](docs/supervisor.md)
+for authority limits, lifecycle, and controls.

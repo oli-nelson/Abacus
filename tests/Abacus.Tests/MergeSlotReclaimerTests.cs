@@ -60,7 +60,7 @@ public sealed class MergeSlotReclaimerTests
     }
 
     [Fact]
-    public async Task HolderFromAnotherRunIsNeverTouched()
+    public async Task UnknownHolderAndWaiterAreRemoved()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -75,8 +75,40 @@ public sealed class MergeSlotReclaimerTests
             configured: ["alice", "bob"],
             running: []);
 
-        Assert.Empty(fixture.Calls());
-        Assert.Equal(status, updated);
+        Assert.Equal(new[]
+        {
+            "merge-slot release --holder remote-agent --json",
+            """update abc-merge-slot --metadata {"waiters":[]} --json""",
+        }, fixture.Calls());
+        Assert.Null(updated.Holder);
+        Assert.Empty(updated.Queue);
+        Assert.Contains("is not configured in this run", fixture.Log);
+    }
+
+    [Fact]
+    public async Task UnknownAndStoppedWaitersAreRemovedWhileLiveWaitersKeepTheirOrder()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = new ReclaimerFixture();
+        var status = new MergeSlotStatus(true, "abc-merge-slot", "alice",
+            ["unknown", "carol", "stopped", "bob", "other-unknown", "carol"]);
+        var updated = await fixture.ReclaimAsync(status,
+            configured: ["alice", "bob", "carol", "stopped"],
+            running: ["alice", "bob", "carol", "unknown", "other-unknown"]);
+        Assert.Equal("alice", updated.Holder);
+        Assert.Equal(new[] { "carol", "bob" }, updated.Queue);
+        Assert.Equal(new[] { """update abc-merge-slot --metadata {"waiters":["carol","bob"]} --json""" }, fixture.Calls());
+    }
+
+    [Fact]
+    public async Task UnknownHolderIsRemovedEvenIfRunningCallbackReportsItLive()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = new ReclaimerFixture();
+        var updated = await fixture.ReclaimAsync(new MergeSlotStatus(true, "abc-merge-slot", "unknown", []),
+            configured: ["alice"], running: ["unknown", "alice"]);
+        Assert.Null(updated.Holder);
+        Assert.Equal(new[] { "merge-slot release --holder unknown --json" }, fixture.Calls());
     }
 
     [Fact]

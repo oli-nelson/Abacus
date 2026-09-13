@@ -8,6 +8,20 @@ Unreleased section. Released versions are listed newest first.
 
 ### Added
 
+- Add an optional maintenance supervisor enabled by `--supervisor-model` or
+  `supervisorModel`. It runs through the selected harness in the main checkout
+  to address user-attention issues and workspace/claim failures, then retries
+  failed agents without repeated automatic failure loops. Its separate TUI row
+  shows progress and the last outcome; startup/failure clips follow interactive
+  TUI audio settings. Configure separate harness arguments, a timeout defaulting
+  to 30 minutes, and a custom prompt file through CLI or JSON. Repository
+  `.abacus/supervisor.md` instructions precede the custom file. By default it
+  handles only workspace/Beads maintenance, including reopening blocked tickets
+  whose primary attention blocker it resolved; project/implementation decisions
+  require explicit user-authored policy.
+- Add `abacus attention retry-supervisor <id> [<id> ...]` to remove
+  `abacus:supervisor-cannot-resolve` from selected issues without changing their
+  attention labels, status, or assignee, allowing another supervisor attempt.
 - Play a newly bundled attention clip whenever an issue starts needing user
   attention while TUI audio is enabled, including issues already labelled when
   the run starts. It plays once per newly observed issue, never restarts while
@@ -36,6 +50,12 @@ Unreleased section. Released versions are listed newest first.
 
 ### Changed
 
+- **Breaking:** Treat the current run's configured agents as the authoritative
+  merge-slot participants. Automatically release unknown holders and remove
+  unknown waiters, alongside configured agents without a running harness;
+  preserve configured live agents and remaining waiter order. Claims from
+  external agents or other runs are no longer protected: use a single
+  controller per shared merge slot.
 - Drop the blank ticket line from dashboard rows for agents that hold no ticket,
   so the name, state, and progress share one row and idle agents stop consuming
   vertical space.
@@ -63,10 +83,6 @@ Unreleased section. Released versions are listed newest first.
   never fewer than three, and ends with a counted `… n more alerts not shown`
   row, so resolved and superseded alerts stop occupying vertical space without
   clipping text or crowding out the status and comments when they fit.
-- Reclaim merge slots and waiter entries that name one of the run's agents while
-  that agent has no running harness. A crashed, stopped, or exited agent can no
-  longer leave the merge slot claimed forever and block every other agent;
-  ownership belonging to other agents is left untouched.
 - Stop telling agents to wait for the Beads merge slot with a shell retry loop.
   The agent prompt now requires harness-native waiting and forbids shell retry
   loops and background or detached processes, which could otherwise keep

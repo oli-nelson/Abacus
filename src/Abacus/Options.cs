@@ -68,8 +68,15 @@ public sealed record Options(
     IReadOnlyDictionary<string, string>? ReasoningEfforts = null,
     IReadOnlyList<string>? ExtraArguments = null,
     IReadOnlyDictionary<string, IReadOnlyList<string>>? ReasoningArguments = null,
-    ClaimSchedule? Schedule = null)
+    ClaimSchedule? Schedule = null,
+    string? SupervisorModel = null,
+    string SupervisorEffort = "high",
+    IReadOnlyList<string>? SupervisorExtraArguments = null,
+    TimeSpan? SupervisorTimeout = null,
+    string? SupervisorPromptFile = null)
 {
+    public TimeSpan EffectiveSupervisorTimeout => SupervisorTimeout ?? TimeSpan.FromMinutes(30);
+
     public const string DefaultTmuxLayout = "tiled";
 
     public bool UsesTmux => AgentMode is not AgentMode.OpenCodeServer
@@ -184,7 +191,7 @@ public sealed record Options(
             {
                 if (equals >= 0) values.Add(argument[(equals + 1)..]);
                 // These values are literal text and may legitimately begin with '-'.
-                else if (canonical is "--message" or "--append-prompt" or "--extra-args"
+                else if (canonical is "--message" or "--append-prompt" or "--extra-args" or "--supervisor-extra-args"
                     || (canonical == "--reasoning-args" && n == 1))
                 {
                     if (++index >= arguments.Count) throw new OptionsException($"{option} requires a value");
@@ -248,6 +255,13 @@ public sealed record Options(
                     if (!int.TryParse(Value("--agents"), out var count) || count <= 0)
                         throw new OptionsException("--agents is required and must be a positive integer");
                     parsed = OptionsParseResult.InitializeNewMultiAgentRepository(positionals[0], count);
+                    break;
+                case "attention retry-supervisor":
+                    if (positionals.Count == 0 || positionals.Any(id => !Git.IsValidIssueId(id)))
+                        throw new OptionsException("attention retry-supervisor requires one or more issue IDs");
+                    if (positionals.Distinct(StringComparer.Ordinal).Count() != positionals.Count)
+                        throw new OptionsException("duplicate issue IDs");
+                    parsed = new(null, false, RetrySupervisorIssues: positionals.ToArray());
                     break;
                 case "attention resolve":
                     if (positionals.Count != 1 || !Git.IsValidIssueId(positionals[0]))
@@ -327,7 +341,7 @@ public sealed record Options(
                 "--config" or "--mode" or "--model" or "--tmux-session" or "--tmux-window" or "--tmux-layout"
                     or "--opencode-server" or "--target-filter" or "--append-prompt" or "--label" or "--exclude-label"
                     or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify"
-                    or "--extra-args" => 1,
+                    or "--extra-args" or "--supervisor-model" or "--supervisor-extra-args" or "--supervisor-timeout" or "--supervisor-prompt-file" => 1,
                 "--remote-control" or "--notify-sound" or "--verbose" => 0,
                 "--once" or "--drain" or "--stdio" or "--no-intro" or "--tui-audio" or "--start-paused"
                     or "--disown-tmux-session" when command == "run" => 0,
@@ -367,6 +381,11 @@ public sealed record Options(
         string? issueType = null;
         int? priority = null;
         TimeSpan? ticketTimeout = null;
+        TimeSpan? supervisorTimeout = null;
+        string? supervisorModel = null;
+        string? supervisorPromptFile = null;
+        string supervisorEffort = "high";
+        IReadOnlyList<string>? supervisorArguments = null;
         var notificationMode = NotificationMode.Off;
         var notificationModeSpecified = false;
         var notificationSound = false;
@@ -411,6 +430,20 @@ public sealed record Options(
                     break;
                 case "--tmux-layout":
                     tmuxLayout = ReadValue(arguments, ref index, argument);
+                    break;
+                case "--supervisor-prompt-file":
+                    supervisorPromptFile = CanonicalizePath(ReadValue(arguments, ref index, argument));
+                    break;
+                case "--supervisor-model":
+                    supervisorModel = ReadValue(arguments, ref index, argument);
+                    break;
+                case "--supervisor-extra-args":
+                    supervisorArguments = AgentArguments.Split(arguments[++index], argument);
+                    break;
+                case "--supervisor-timeout":
+                    supervisorTimeout = ParseDuration(ReadValue(arguments, ref index, argument), argument);
+                    if (supervisorTimeout.Value.TotalMilliseconds > uint.MaxValue - 1)
+                        throw new OptionsException("--supervisor-timeout must not exceed 4294967294 milliseconds (about 49 days)");
                     break;
                 case "--model":
                     model = ReadValue(arguments, ref index, argument);
@@ -619,6 +652,15 @@ public sealed record Options(
             reasoningEfforts[label] = mappedEffort;
         }
 
+        if (supervisorModel is not null)
+        {
+            (supervisorModel, supervisorEffort) = ParseModelSpec(supervisorModel, "high", "--supervisor-model");
+            if (!IsValidModel(supervisorModel, agentMode))
+                throw new OptionsException("--supervisor-model must be valid for the selected harness (provider/model for OpenCode)");
+            if (agents.Any(agent => agent.Name == MaintenanceSupervisor.Name))
+                throw new OptionsException($"agent name '{MaintenanceSupervisor.Name}' is reserved when supervision is enabled");
+        }
+
         var duplicateName = agents
             .Where(static agent => !string.IsNullOrWhiteSpace(agent.Name))
             .GroupBy(static agent => agent.Name, StringComparer.Ordinal)
@@ -682,7 +724,10 @@ public sealed record Options(
                 ReasoningModels: reasoningModels,
                 ReasoningEfforts: reasoningEfforts,
                 ExtraArguments: extraArguments,
-                ReasoningArguments: reasoningArguments),
+                ReasoningArguments: reasoningArguments,
+                SupervisorModel: supervisorModel, SupervisorEffort: supervisorEffort,
+                SupervisorExtraArguments: supervisorArguments, SupervisorTimeout: supervisorTimeout,
+                SupervisorPromptFile: supervisorPromptFile),
             ShowHelp: false);
     }
 
@@ -736,13 +781,13 @@ public sealed record Options(
         return count;
     }
 
-    private static TimeSpan ParseDuration(string value)
+    private static TimeSpan ParseDuration(string value, string option = "--ticket-timeout")
     {
         if (value.Length < 2
             || !long.TryParse(value[..^1], out var amount)
             || amount <= 0)
         {
-            throw new OptionsException("--ticket-timeout must be a positive duration such as 30s, 15m, or 2h");
+            throw new OptionsException($"{option} must be a positive duration such as 30s, 15m, or 2h");
         }
 
         try
@@ -753,12 +798,12 @@ public sealed record Options(
                 'm' => TimeSpan.FromMinutes(amount),
                 'h' => TimeSpan.FromHours(amount),
                 _ => throw new OptionsException(
-                    "--ticket-timeout must be a positive duration such as 30s, 15m, or 2h"),
+                    $"{option} must be a positive duration such as 30s, 15m, or 2h"),
             };
         }
         catch (OverflowException)
         {
-            throw new OptionsException("--ticket-timeout is too large");
+            throw new OptionsException($"{option} is too large");
         }
     }
 
@@ -846,7 +891,8 @@ public sealed record OptionsParseResult(
     bool ShowVersion = false,
     bool EditConfiguration = false,
     string? ConfigurationInput = null,
-    string? ConfigurationOutput = null)
+    string? ConfigurationOutput = null,
+    IReadOnlyList<string>? RetrySupervisorIssues = null)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);

@@ -291,3 +291,11 @@ with the interactive picker or an explicit config and normal CLI flags instead o
 script arguments/environment overrides. Replace repeated `--config` arguments
 with `baseConfig` references in derived files. Previously generated scripts are
 not modified or deleted.
+
+## Optional supervisor
+
+Set `supervisorModel` to enable the [maintenance supervisor](supervisor.md).
+`supervisorExtraArgs` configures its separate harness arguments;
+`supervisorTimeout` defaults to `"30m"`. `supervisorPromptFile` is a config-relative
+path appended after the main checkout's optional `.abacus/supervisor.md`.
+All four fields support inheritance, null clearing, CLI overrides, and editing.

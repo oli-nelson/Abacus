@@ -606,3 +606,29 @@ All checks happen before any ticket is claimed or agent run is created.
   picker success/failure/cancellation, non-interactive process behavior, and
   generated configs through the picker and explicit paths outside the project;
   assert that new creates no launcher scripts.
+
+### Optional maintenance supervisor
+
+- Reuse the four-mode host boundary with an explicit prompt override; keep the
+  supervisor lifecycle separate from ticket supervision and normal claims.
+- Keep trigger suppression, failure/retry acknowledgments, and finite-run holds
+  in synchronized run-local state. One asynchronous supervisor loop is sufficient.
+- Reuse output rows/events and controls; never offer Clean Workspace on the main
+  checkout. Use the existing best-effort audio boundary and bundled clips.
+- Keep completion shell/file based: unique temporary path and run ID, bounded JSON
+  validation, then normal host stop/cleanup. Do not add a protocol or API server.
+- Extend the shared JSON field registry and parser for supervisor model, arguments,
+  30-minute timeout, and config-relative additive prompt file. Default repo policy
+  precedes the custom file. Add a narrow attention retry-supervisor CLI command.
+- Cover suppression, errors, retries, cancellation, finite lifetime, prompt order,
+  completion races, host overrides, controls, and standalone label removal with
+  unit and fake-CLI integration tests. See SPEC.md and docs/supervisor.md.
+
+### Single-controller merge-slot cleanup
+
+- Treat configured agents in the current run as the authoritative merge-slot
+  participants. Release unknown holders and remove unknown waiters, as well as
+  configured agents without a running harness. Preserve configured live agents
+  and waiter order; retain duplicate/current-holder waiter cleanup and warnings.
+- Do not preserve another run's claims in this version; document the
+  single-controller requirement and test unknown holders and mixed waiter queues.

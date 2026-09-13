@@ -419,8 +419,8 @@ The dashboard also tracks the repository merge slot. While it is held, the
 holder's agent row is marked and waiting agents show their queue position; the
 agent rows are the only merge-slot display. Because a harness that is gone can
 neither hold nor wait for a merge, Abacus releases a slot and prunes queue
-entries naming one of its configured agents while that agent has no running
-harness, leaves ownership held by any other agent alone, and reports each
+entries naming an agent not configured in this run or one without a running
+harness, preserves only configured live agents, and reports each
 reclamation as a warning.
 
 ### Execution length
@@ -518,3 +518,18 @@ Works outside Git without Beads, an agent harness, tmux, or other external tools
 Accepts no options or arguments except scoped help. Release versions omit the
 Git tag's leading `v`; source builds default to `0.0.0-dev`.
 See [releases](releases.md) for version selection and publishing.
+
+## Optional supervisor and attention retries
+
+| Option | Behavior |
+| --- | --- |
+| `--supervisor-model <model[#effort]>` | Enable maintenance supervision using the selected harness in the main checkout. |
+| `--supervisor-extra-args "<arguments>"` | Separate supervisor harness arguments; worker arguments are not inherited. |
+| `--supervisor-timeout <duration>` | Positive `s`/`m`/`h` duration, default `30m`. |
+| `--supervisor-prompt-file <path>` | Append this file after `.abacus/supervisor.md`; CLI paths are cwd-relative. |
+
+These options are accepted by `run` and `preflight` and have JSON equivalents.
+`abacus attention retry-supervisor <id> [<id> ...] [--repo <path>]` removes only
+`abacus:supervisor-cannot-resolve`, preserving attention, status, and assignment.
+It requires no model or configured agents and does not launch supervision.
+See [maintenance supervision](supervisor.md) for the complete contract.

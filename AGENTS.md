@@ -12,7 +12,7 @@ Use the upstream GitHub documentation for the external command-line tools:
 
 Keep the implementation shell-first and simple: C# should orchestrate the existing `bd`, `git`, `opencode`, and `tmux` command-line tools rather than integrating with their APIs or protocols.
 
-Just before committing, update the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md)
+When making changes, update the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md)
 with concise, user-facing entries for noteworthy changes (features, fixes,
 breaking changes, or meaningful operational/documentation changes). Skip routine
 internal churn and avoid duplicate entries. Consolidate related changes into

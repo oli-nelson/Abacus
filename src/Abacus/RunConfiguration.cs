@@ -18,6 +18,10 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         new("mode", "--mode", "string", "opencode, codex, claude, opencode-server; default opencode"),
         new("model", "--model", "string", "Required fallback model; OpenCode uses provider/model"),
         new("extraArgs", "--extra-args", "string", "Extra agent CLI arguments for every launch, e.g. -p deepseek"),
+        new("supervisorModel", "--supervisor-model", "string", "Optional supervisor model#effort; enables maintenance supervision"),
+        new("supervisorExtraArgs", "--supervisor-extra-args", "string", "Separate supervisor harness arguments"),
+        new("supervisorPromptFile", "--supervisor-prompt-file", "path", "Additional supervisor prompt file, appended after .abacus/supervisor.md"),
+        new("supervisorTimeout", "--supervisor-timeout", "string", "Positive s/m/h duration; default 30m"),
         new("agents", "--agent", "agents", "Named agent workspaces"),
         new("reasoningModels", "--reasoning-model", "models", "Optional high / medium / low model#effort routes"),
         new("reasoningArgs", "--reasoning-args", "args", "Optional high / medium / low extra argument strings"),
@@ -268,7 +272,7 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         var copy = (JsonObject)Document.DeepClone();
         string Rebase(string path) => string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path)
             ? path : Path.GetRelativePath(directory, ResolvePath(path));
-        foreach (var name in new[] { "baseConfig", "repo", "eventLog" })
+        foreach (var name in new[] { "baseConfig", "repo", "eventLog", "supervisorPromptFile" })
             if (copy[name] is JsonValue value) copy[name] = Rebase(value.GetValue<string>());
         if (copy["agents"] is JsonArray agents)
             foreach (var agent in agents)

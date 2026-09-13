@@ -11,6 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="../../media/abacus_supervisor.mp3" LogicalName="Abacus.Media.abacus_supervisor.mp3" />
+    <EmbeddedResource Include="../../media/abacus_supervisor_failed.mp3" LogicalName="Abacus.Media.abacus_supervisor_failed.mp3" />
     <EmbeddedResource Include="../../media/abacus_intro.mp3"
                       LogicalName="Abacus.Media.abacus_intro.mp3" />
     <EmbeddedResource Include="../../media/abacus_attention.mp3"

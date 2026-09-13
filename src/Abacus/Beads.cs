@@ -164,6 +164,32 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
         }
     }
 
+    internal async Task<string> ReadProjectDirectoryAsync(string workspace, CancellationToken token)
+    {
+        var result = await RunAsync(workspace, null, ["where", "--json"], token);
+        EnsureCommandSuccess(result, "identify supervisor Beads project");
+        try
+        {
+            using var document = JsonDocument.Parse(result.StandardOutput);
+            var path = document.RootElement.GetProperty("path").GetString();
+            if (string.IsNullOrWhiteSpace(path) || !Path.IsPathRooted(path))
+                throw new JsonException("expected an absolute Beads project path");
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            throw new PreflightException($"could not identify supervisor Beads project: {ex.Message}");
+        }
+    }
+
+    public async Task<CommandResult> RetrySupervisorAsync(string workspace, string issueId, CancellationToken token)
+    {
+        var result = await RunAsync(workspace, agentName: null,
+            ["update", issueId, "--remove-label", MaintenanceSupervisor.CannotResolveLabel, "--json"], token);
+        EnsureCommandSuccess(result, $"allow supervisor retry for '{issueId}'");
+        return result;
+    }
+
     public async Task<CommandResult> ResolveUserAttentionAsync(
         string workspace,
         string issueId,
@@ -590,6 +616,16 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
             cancellationToken);
         EnsureCommandSuccess(result, "list issues needing user attention");
         return ParseIssues(result.StandardOutput, "user-attention issue result");
+    }
+
+    public async Task<IReadOnlyList<BeadsIssue>> GetSupervisorUnresolvedIssuesAsync(
+        string workspace, CancellationToken cancellationToken)
+    {
+        var result = await RunWithActorAsync(workspace, MaintenanceSupervisor.Name,
+            ["list", "--label", MaintenanceSupervisor.CannotResolveLabel, "--all", "--limit", "0", "--json"],
+            cancellationToken);
+        EnsureCommandSuccess(result, "list supervisor-unresolved issues");
+        return ParseIssues(result.StandardOutput, "supervisor-unresolved issue result");
     }
 
     public async Task<IReadOnlyList<BeadsIssue>> GetClosedIssuesAsync(

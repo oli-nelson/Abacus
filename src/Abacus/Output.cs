@@ -188,6 +188,9 @@ internal static class OutputExtensions
 
 public sealed class ConsoleOutput : TextWriter, IAgentOutput
 {
+    private bool supervisorEnabled;
+    internal void EnableSupervisor() { lock (gate) supervisorEnabled = true; }
+    private bool IsSupervisor(string name) => supervisorEnabled && name == MaintenanceSupervisor.Name;
     /// <summary>A notice is only useful while its condition is current; stale rows are noise.</summary>
     private static readonly TimeSpan DefaultAlertLifetime = TimeSpan.FromMinutes(1);
     private const int MaximumTransientAlerts = 3;
@@ -369,8 +372,15 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
         if (selectedAgent is not null && requestedAction is not null)
         {
-            requestAgentAction?.Invoke(selectedAgent, requestedAction.Value);
-            Events?.Emit("control.requested", new { agent = selectedAgent, action = requestedAction.Value });
+            try
+            {
+                requestAgentAction?.Invoke(selectedAgent, requestedAction.Value);
+                Events?.Emit("control.requested", new { agent = selectedAgent, action = requestedAction.Value });
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                lock (gate) { systemStatus = ex.Message; RenderDashboard(); }
+            }
         }
 
         return true;
@@ -820,7 +830,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         builder.Append(rendered ? "\u001b[H" : "\u001b[2J\u001b[H");
         var scheduleBlocked = ScheduleBlocksClaims();
         var claimLabel = !claimingEnabled ? "CLAIMS PAUSED" : scheduleBlocked ? "CLAIMS BLOCKED" : "CLAIMS ON";
-        foreach (var headerLine in FormatHeaderLines(width, agents.Count, model, effort,
+        foreach (var headerLine in FormatHeaderLines(width, agents.Count - (supervisorEnabled ? 1 : 0), model, effort,
                      effortIsRequested, claimingEnabled, tmuxSessionName, tmuxWindowName, scheduleBlocked))
         {
             var claimIndex = headerLine.IndexOf(claimLabel, StringComparison.Ordinal);
@@ -946,13 +956,9 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             }
             else
             {
-                foreach (var option in new[]
-                {
-                    "   [S] Stop agent",
-                    "   [R] Restart agent",
-                    "   [C] Clean workspace",
-                    "   [Esc] Close",
-                })
+                foreach (var option in IsSupervisor(selected.Name)
+                    ? new[] { "   [S] Cancel / disable supervisor", "   [R] Enable / retry supervisor", "   [Esc] Close" }
+                    : new[] { "   [S] Stop agent", "   [R] Restart agent", "   [C] Clean workspace", "   [Esc] Close" })
                 {
                     builder.Append(Truncate(option, width)).Append("\u001b[K\n");
                 }
@@ -1104,7 +1110,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 return true;
             }
 
-            if (key.Key is ConsoleKey.C)
+            if (key.Key is ConsoleKey.C && !IsSupervisor(SelectedAgent()!.Name))
             {
                 panel = DashboardPanel.ConfirmClean;
                 return true;

@@ -9,7 +9,7 @@ public sealed class SoundPlayerTests
     {
         var assembly = typeof(Program).Assembly;
 
-        foreach (var clip in new[] { SoundClip.Intro, SoundClip.UserAttention })
+        foreach (var clip in new[] { SoundClip.Intro, SoundClip.UserAttention, SoundClip.Supervisor, SoundClip.SupervisorFailed })
         {
             using var stream = assembly.GetManifestResourceStream(clip.ResourceName);
             Assert.NotNull(stream);

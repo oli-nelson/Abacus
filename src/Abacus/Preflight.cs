@@ -11,7 +11,8 @@ public sealed record ValidatedAgent(
     string? MergeInstructionsOverride = null,
     TargetRegistry? Targets = null,
     IReadOnlyList<string>? TargetBranches = null,
-    ReasoningPolicy? Reasoning = null);
+    ReasoningPolicy? Reasoning = null,
+    string? HarnessPromptOverride = null);
 
 public sealed record PreflightResult(
     Options Options,
@@ -42,6 +43,9 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
         var git = new Git(runner, tools.Git);
         var controllerRoot = await git.ResolveMainRepositoryAsync(
             Environment.CurrentDirectory, options.RepositoryPath, cancellationToken);
+
+        if (options.SupervisorModel is not null)
+            await MaintenanceSupervisor.ReadAdditivePromptAsync(controllerRoot, options.SupervisorPromptFile, cancellationToken);
 
         var beads = new Beads(runner, tools.Bd);
         var existingAgents = options.Agents
@@ -94,6 +98,24 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
         }
 
         ValidateDoltSafety(validated);
+        if (options.SupervisorModel is not null)
+        {
+            if (await beads.IsNoGitOpsEnabledAsync(controllerRoot, cancellationToken))
+                throw new PreflightException($"Supervisor main checkout has no-git-ops enabled. {Beads.DisableNoGitOpsCommand}");
+            var mainIdentity = await beads.ReadDoltIdentityAsync(controllerRoot, MaintenanceSupervisor.Name, cancellationToken);
+            var workerIdentity = validated[0].DoltIdentity;
+            if (workerIdentity.IsShared)
+            {
+                if (!mainIdentity.IsShared || mainIdentity.SharedKey != workerIdentity.SharedKey)
+                    throw new PreflightException("Supervisor main checkout must use the same shared Dolt database as the agents");
+            }
+            else if (mainIdentity.IsShared
+                || await beads.ReadProjectDirectoryAsync(controllerRoot, cancellationToken)
+                    != await beads.ReadProjectDirectoryAsync(validated[0].WorkspacePath, cancellationToken))
+            {
+                throw new PreflightException("Supervisor main checkout and agent must use the same Beads project (check bd where --json)");
+            }
+        }
 
         var targets = await TargetRegistry.LoadAsync(
             Path.Combine(controllerRoot, ".abacus", "targets.json"), cancellationToken);

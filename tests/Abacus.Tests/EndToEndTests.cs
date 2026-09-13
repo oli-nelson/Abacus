@@ -344,8 +344,10 @@ public sealed partial class EndToEndTests
         }
     }
 
-    [Fact]
-    public async Task AbandonedMergeSlotClaimIsReleasedWithoutARunningHarness()
+    [Theory]
+    [InlineData("alice")]
+    [InlineData("unknown-agent")]
+    public async Task AbandonedMergeSlotClaimIsReleasedWithoutARunningHarness(string holder)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -363,7 +365,7 @@ public sealed partial class EndToEndTests
             await File.WriteAllTextAsync(Path.Combine(root.FullName, "claimed"), string.Empty);
             await File.WriteAllTextAsync(
                 Path.Combine(root.FullName, "merge-slot"),
-                """{"available":false,"holder":"alice","id":"abc-merge-slot","waiters":["alice","bob"]}""");
+                $$"""{"available":false,"holder":"{{holder}}","id":"abc-merge-slot","waiters":["alice","bob"]}""");
 
             var startInfo = DirectStartInfo(root.FullName, bin, workspace, executionOption: null);
             process = Process.Start(startInfo)!;
@@ -390,13 +392,14 @@ public sealed partial class EndToEndTests
             var calls = await File.ReadAllTextAsync(
                 Path.Combine(root.FullName, "bd-calls"),
                 wait.Token);
-            Assert.Contains("merge-slot release --holder alice --json", calls, StringComparison.Ordinal);
+            Assert.Contains($"merge-slot release --holder {holder} --json", calls, StringComparison.Ordinal);
             Assert.Contains(
-                """update abc-merge-slot --metadata {"waiters":["bob"]} --json""",
+                """update abc-merge-slot --metadata {"waiters":[]} --json""",
                 calls,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "released the Beads merge slot held by alice, which has no running harness",
+                $"released the Beads merge slot held by {holder}, which " +
+                    (holder == "alice" ? "has no running harness" : "is not configured in this run"),
                 Errors(),
                 StringComparison.Ordinal);
             Assert.Empty(await stdout);

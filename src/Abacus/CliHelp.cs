@@ -21,6 +21,7 @@ internal static class CliHelp
           models               List model IDs grouped by installed agent harness.
           branches prune       Delete local Abacus branches for closed tickets.
           attention list       Print attention-labelled issue IDs, one per line.
+          attention retry-supervisor <id> [<id> ...]  Allow another supervisor attempt.
           attention resolve <id> [--message <text>] [--reopen]
                                Resolve user attention, optionally comment and reopen.
           targets check [<id> ...]
@@ -66,6 +67,14 @@ internal static class CliHelp
                                         Repeatable model[#effort] mapping for high, medium, or low.
                                         A missing suffix inherits the fallback model's effort.
                                         Interactive OpenCode uses its configured variant.
+          --supervisor-model <model[#effort]>
+                                        Enable optional maintenance supervisor in the main checkout.
+          --supervisor-extra-args <string>
+                                        Separate supervisor harness arguments (no agent args inherited).
+          --supervisor-prompt-file <path>
+                                        Append this file after the repo's .abacus/supervisor.md.
+          --supervisor-timeout <duration>
+                                        Positive s/m/h runtime limit; default 30m.
           --extra-args <string>          Extra CLI arguments for every agent launch, e.g. -p deepseek.
                                         Split on whitespace; quote values that contain spaces.
           --reasoning-args <tier> <string>
@@ -213,11 +222,20 @@ internal static class CliHelp
             Skips and reports branches checked out in any worktree. Never deletes remote refs
             or non-Abacus branches. Does not run agent preflight.
             """,
-        "attention" => "Usage: abacus attention <list|resolve> [options]\nUse 'abacus help attention resolve' for resolution options.",
+        "attention" => "Usage: abacus attention <list|resolve|retry-supervisor> [options]\nUse 'abacus help attention resolve' for resolution options.",
         "attention list" => """
             Usage: abacus attention list [--repo <path>]
             Prints IDs for all issues carrying abacus:needs-user-attention, including closed issues,
             one per line with no heading. Read-only; no agent preflight.
+            """,
+        "attention retry-supervisor" => """
+            Usage: abacus attention retry-supervisor <id> [<id> ...] [--repo <path>]
+
+            Remove only abacus:supervisor-cannot-resolve from the specified issues.
+            Keep attention labels, issue status, and assignees unchanged. An enabled
+            running supervisor can reconsider attention-labelled issues on its next check.
+            Does not launch Abacus or a harness. Updates run in order and stop on error;
+            earlier successful updates are not rolled back.
             """,
         "attention resolve" => """
             Usage: abacus attention resolve <id> [--message <text>] [--reopen] [--repo <path>]

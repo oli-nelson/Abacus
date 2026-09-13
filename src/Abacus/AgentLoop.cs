@@ -25,7 +25,8 @@ public sealed partial class ClaimCoordinator(
     IReadOnlyDictionary<string, IReadOnlyList<string>>? reasoningArguments = null,
     IReadOnlyList<string>? defaultArguments = null,
     ClaimSchedule? schedule = null,
-    TimeProvider? clock = null)
+    TimeProvider? clock = null,
+    MaintenanceSupervisor? maintenance = null)
 {
     private readonly DispatchFilters filters = dispatchFilters ?? DispatchFilters.Empty;
     private readonly ClaimGate claimsAllowed = claimGate ?? new ClaimGate();
@@ -133,6 +134,11 @@ public sealed partial class ClaimCoordinator(
                         throw new BeadsException($"Beads pull failed during finite execution: {detail}");
                     }
 
+                    if (maintenance is not null)
+                    {
+                        await maintenance.FailedAsync(agent.Name, $"Beads pull failed: {detail}", cancellationToken);
+                        continue;
+                    }
                     await log.SetAgentAsync(agent.Name, AgentActivity.Retrying, "Beads pull failed; retrying soon");
                     await Task.Delay(PollingInterval, cancellationToken);
                     continue;
@@ -186,6 +192,11 @@ public sealed partial class ClaimCoordinator(
                     throw;
                 }
 
+                if (maintenance is not null)
+                {
+                    await maintenance.FailedAsync(agent.Name, exception.Message, cancellationToken);
+                    continue;
+                }
                 await log.SetAgentAsync(agent.Name, AgentActivity.Retrying, "Could not claim work; retrying soon");
                 await Task.Delay(PollingInterval, cancellationToken);
                 continue;
@@ -193,6 +204,8 @@ public sealed partial class ClaimCoordinator(
 
             if (issue is null)
             {
+                maintenance?.Healthy(agent.Name);
+                if (maintenance is not null) await log.ClearPersistentAlertAsync(agent.Name);
                 var idleDetail = executionMode is ExecutionMode.Continuous
                     ? "No ready tickets; checking again soon"
                     : "No ready tickets; finite run is complete";
@@ -279,6 +292,11 @@ public sealed partial class ClaimCoordinator(
                     throw;
                 }
 
+                if (maintenance is not null)
+                {
+                    await maintenance.FailedAsync(agent.Name, exception.Message, cancellationToken);
+                    continue;
+                }
                 await log.SetAgentAsync(agent.Name, AgentActivity.Retrying, "Workspace preparation failed; retrying soon");
                 await Task.Delay(PollingInterval, cancellationToken);
                 await log.ClearTicketAsync(agent.Name);
@@ -572,7 +590,8 @@ public sealed class AgentLoop(
     AgentControl agentControl,
     AgentRunRegistry? agentRuns = null,
     DesktopNotifier? notifier = null,
-    IReadOnlyList<string>? defaultArguments = null)
+    IReadOnlyList<string>? defaultArguments = null,
+    MaintenanceSupervisor? maintenance = null)
 {
     private readonly AgentControl control = agentControl;
     private readonly Git workspaceGit = git;
@@ -591,6 +610,7 @@ public sealed class AgentLoop(
                 action ??= control.TakeRequestedAction();
                 if (action is AgentControlAction.CleanWorkspace)
                 {
+                    maintenance?.OperatorStopped(agent.Name);
                     var cleaned = await CleanWorkspaceAsync(cancellationToken);
                     await log.SetAgentAsync(
                         agent.Name,
@@ -604,6 +624,7 @@ public sealed class AgentLoop(
 
                 if (action is AgentControlAction.Stop)
                 {
+                    maintenance?.OperatorStopped(agent.Name);
                     await log.SetAgentAsync(
                         agent.Name,
                         AgentActivity.Stopped,
@@ -614,6 +635,7 @@ public sealed class AgentLoop(
 
                 if (action is AgentControlAction.Restart)
                 {
+                    maintenance?.OperatorStopped(agent.Name);
                     await log.ClearPersistentAlertAsync(agent.Name);
                     await log.SetAgentAsync(agent.Name, AgentActivity.Starting, "Restart requested by operator");
                 }
@@ -670,6 +692,9 @@ public sealed class AgentLoop(
                         continue;
                     }
 
+                    maintenance?.Healthy(agent.Name);
+                    if (maintenance is not null && claims.DeferredReason is null
+                        && await maintenance.CheckFiniteCompletionAsync(agent.Name, cancellationToken)) continue;
                     var detail = claims.DeferredReason
                         ?? (executionMode is ExecutionMode.Once
                             ? "No executable ticket; once complete"
@@ -741,6 +766,8 @@ public sealed class AgentLoop(
 
                 await log.SetRunLocationAsync(agent.Name, run.Location);
                 runs.MarkRunning(agent.Name);
+                maintenance?.Healthy(agent.Name, working: true);
+                if (maintenance is not null) await log.ClearPersistentAlertAsync(agent.Name);
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Working,
@@ -778,6 +805,13 @@ public sealed class AgentLoop(
                         "One ticket processed; once complete");
                     return;
                 }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (SupervisorRecoveryFailedException) { throw; }
+            catch (Exception exception) when (maintenance is not null)
+            {
+                claims.LeaveInitialRecoveryPhase();
+                await maintenance.FailedAsync(agent.Name, exception.Message, cancellationToken);
             }
             catch (StartupInvariantException)
             {

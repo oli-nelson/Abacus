@@ -197,6 +197,17 @@ public static class Program
                 return 0;
             }
 
+            if (parsed.RetrySupervisorIssues is { } retryIssues)
+            {
+                var beads = new Beads(new CommandRunner(TextWriter.Null));
+                foreach (var issue in retryIssues)
+                {
+                    await beads.RetrySupervisorAsync(workingDirectory, issue, CancellationToken.None);
+                    stdoutUi.WriteStatus(Console.Out, "OK", $"Removed supervisor-cannot-resolve from {issue}; attention label and status unchanged.");
+                }
+                return 0;
+            }
+
             if (parsed.AttentionResolution is { } attentionResolution)
             {
                 await new Beads(new CommandRunner(TextWriter.Null))
