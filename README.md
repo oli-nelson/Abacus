@@ -44,6 +44,21 @@ already use rather than replacing Git, Beads, tmux, or your agent harness.
 - **Small by design.** One dependency-free .NET console application shells out
   to documented CLI contracts.
 
+## Feature overview
+
+| Feature | What you get |
+| --- | --- |
+| [Parallel ticket execution](#what-happens-to-a-ticket) | Atomic Beads claims, dedicated agent workspaces, and per-ticket Git branches. |
+| [Choice of agent harness](#agent-modes) | Interactive OpenCode, Codex, or Claude Code sessions, plus OpenCode Server attachment. |
+| [Model and effort routing](#reasoning-based-model-routing) | Select models by ticket reasoning tier, with optional per-tier harness arguments. |
+| [Target branches and dispatch filters](docs/targets.md) | Route tickets to allowed local branches and narrow work by target, label, type, or priority. |
+| [Live dashboard and controls](docs/operations.md) | Agent status, an Attention Center, latest comments, and run settings; pause claims or stop and restart individual agents. |
+| [Recovery and notifications](#interrupted-workspaces) | Preserve interrupted work, reopen unfinished tickets after exits or timeouts, and receive desktop attention and outcome alerts. |
+| [Optional maintenance supervisor](#optional-maintenance-supervisor) | A separate agent helps resolve workspace and Beads problems within an explicit maintenance policy. |
+| [Reusable run configurations](docs/run-config.md) | Inheritable JSON settings, a terminal config editor, CLI overrides, and scheduled windows that block new claims without interrupting active work. |
+| [Setup and repository checks](#set-up-a-project) | Initialize new or existing projects, install bundled planning and maintenance skills, and check readiness before launching agents. |
+| [Automation and event logs](docs/events-and-stdio.md) | JSONL events, stdio controls, and finite runs with `--once` or `--drain`. |
+
 ## Start here
 
 Choose the path that matches your repository:
@@ -307,6 +322,17 @@ Saved configs use the equivalent `extraArgs` and `reasoningArgs` fields.
 Explore the [visual agent-loop guide](docs/agent-loop-flow.html), or read the
 [operations guide](docs/operations.md) for detailed recovery and shutdown rules.
 
+### Optional maintenance supervisor
+
+Add `--supervisor-model <model[#effort]>` (or `supervisorModel` in JSON) to enable
+maintenance help for attention issues and failed agents. It runs in the main
+checkout with a separate prompt, a configurable **30-minute** timeout, and TUI
+status/audio. Configure `--supervisor-extra-args` independently of worker arguments;
+`--supervisor-prompt-file` appends a custom policy after `.abacus/supervisor.md`.
+Use `abacus attention retry-supervisor <id> [<id> ...]` to clear cannot-resolve
+labels without clearing attention. See the [supervisor guide](docs/supervisor.md)
+for authority limits, lifecycle, and controls.
+
 ## Commands at a glance
 
 | Command | Purpose |
@@ -367,14 +393,3 @@ The exact boundary is documented in
 
 For the full map, including visual guides and bundled skills, see
 [`docs/README.md`](docs/README.md).
-
-### Optional maintenance supervisor
-
-Add `--supervisor-model <model[#effort]>` (or `supervisorModel` in JSON) to enable
-maintenance help for attention issues and failed agents. It runs in the main
-checkout with a separate prompt, a configurable **30-minute** timeout, and TUI
-status/audio. Configure `--supervisor-extra-args` independently of worker arguments;
-`--supervisor-prompt-file` appends a custom policy after `.abacus/supervisor.md`.
-Use `abacus attention retry-supervisor <id> [<id> ...]` to clear cannot-resolve
-labels without clearing attention. See the [supervisor guide](docs/supervisor.md)
-for authority limits, lifecycle, and controls.
