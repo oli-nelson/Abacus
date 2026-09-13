@@ -6,6 +6,8 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-13
+
 ### Added
 
 - Add an optional maintenance supervisor enabled by `--supervisor-model` or
