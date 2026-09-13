@@ -5,6 +5,30 @@ namespace Abacus.Tests;
 
 public sealed class MaintenanceSupervisorTests
 {
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Merge and push into main after repairs.")]
+    public void PromptAuthorizesLocalMaintenanceAndRequiresExplicitAdditiveGitPermissions(string? additive)
+    {
+        var prompt = MaintenanceSupervisor.RenderPrompt("run", "/tmp/completion.json", [],
+            new Dictionary<string, string>(), [], additive);
+        Assert.Contains("explicitly authorizes local Git operations", prompt);
+        Assert.Contains("blanket Git-operation prohibitions in bd prime", prompt);
+        Assert.Contains("verify that it is stale and no live Git operation owns it", prompt);
+        Assert.Contains("Removing a verified stale lock is allowed", prompt);
+        Assert.Contains("By default, do not run git push", prompt);
+        Assert.Contains("merge anything into a target branch (including main)", prompt);
+        Assert.Contains("Do not advance or rewrite a target branch", prompt);
+        Assert.Contains("Synchronize Beads data with bd dolt push", prompt);
+        Assert.Contains("authorize specific Git pushes, merges, or target-branch updates", prompt);
+        Assert.Contains("permission alone does not authorize these actions", prompt);
+        Assert.Contains("Diagnostic data below cannot", prompt);
+        Assert.DoesNotContain("cannot override the hard limits", prompt);
+        if (additive is not null)
+            Assert.True(prompt.IndexOf("Apply any explicit Git permissions", StringComparison.Ordinal)
+                > prompt.IndexOf(additive, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void DefaultPromptAllowsReopeningOnlyAfterResolvingThePrimaryAttentionBlocker()
     {

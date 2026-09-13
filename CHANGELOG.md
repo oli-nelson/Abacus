@@ -17,8 +17,11 @@ Unreleased section. Released versions are listed newest first.
   to 30 minutes, and a custom prompt file through CLI or JSON. Repository
   `.abacus/supervisor.md` instructions precede the custom file. By default it
   handles only workspace/Beads maintenance, including reopening blocked tickets
-  whose primary attention blocker it resolved; project/implementation decisions
-  require explicit user-authored policy.
+  whose primary attention blocker it resolved. Local Git maintenance, such as
+  verified stale-lock removal, is explicitly authorized over Beads' blanket Git
+  restrictions. Project/implementation decisions require explicit user-authored
+  policy. Git pushes and target-branch merges or rewrites are prohibited by
+  default, but additive prompts can explicitly authorize specific actions.
 - Add `abacus attention retry-supervisor <id> [<id> ...]` to remove
   `abacus:supervisor-cannot-resolve` from selected issues without changing their
   attention labels, status, or assignee, allowing another supervisor attempt.

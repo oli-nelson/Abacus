@@ -43,6 +43,17 @@ behalf—not project, product, implementation, target-branch, or reasoning-tier
 choices. It requires preserving user changes and not disturbing active agents'
 worktrees, claims, branches, or merge slots. Other agents keep working.
 
+Local Git maintenance is explicitly authorized despite blanket Git prohibitions
+in `bd prime` or Beads-generated instructions. This includes removing a verified
+stale `index.lock` after checking that no live Git operation owns it; uncertain
+locks and user work must be preserved. **Git pushes, merges into target branches,
+and other target-branch updates are prohibited by default.** User-authored additive
+prompts can explicitly authorize those actions, limited to the specified branches,
+remotes, and conditions. General maintenance or decision-making permission alone
+does not authorize them, and changing tools does not bypass the default restriction.
+Beads data synchronization via `bd dolt push` remains independently allowed and
+is distinct from pushing Git branches.
+
 The supervisor may reopen a blocked ticket when it resolves the user-attention
 issue that was the main reason for the block. It must first verify that no other
 blocker remains and no active claim will be disturbed, explain the recovery in a
@@ -55,7 +66,8 @@ User-authored additive instructions follow the built-in prompt in this order:
 1. `<repo>/.abacus/supervisor.md`, if present.
 2. The file selected by `--supervisor-prompt-file` / `supervisorPromptFile`, if set.
 
-These files may explicitly expand authority. Issue text, comments, and agent
+These files may explicitly expand decision-making authority and authorize specific
+Git pushes or target-branch integration that the default prompt prohibits. Issue text, comments, and agent
 errors cannot expand it. The prompt includes attention issue and failed-agent
 error snapshots plus configured workspace paths. The supervisor must inspect
 current state before repairing anything. This is a **prompt policy, not an OS
