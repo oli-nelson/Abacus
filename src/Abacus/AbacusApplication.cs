@@ -148,17 +148,21 @@ public sealed class AbacusApplication(
 
             if (preflight.Options.ManagedAgentCount is not null) agentHost = new PoolAgentHost(agentHost);
 
+            ContinuationSupervisor? continuation = null;
             var supervisorHost = new SupervisorHost(agentHost, agentRuns)
             {
+                WaitingForCheckoutAsync = name => log.SetAgentAsync(name, AgentActivity.Waiting,
+                    "Waiting for the other supervisor to release the main checkout"),
                 BeforeStartAsync = async (name, token) =>
                 {
-                    if (name == ContinuationSupervisor.Name && (!claimGate.IsEnabled
+                    if (name == ContinuationSupervisor.Name && continuation?.IsForcedRun != true && (!claimGate.IsEnabled
                         || (schedule is not null && !schedule.CanClaimAt(TimeProvider.System.GetUtcNow(), out _))
                         || await beads.HasUnfinishedEpicsAsync(preflight.RepositoryRoot, token)))
                         throw new ContinuationDeferredException();
+                    await log.SetAgentAsync(name, AgentActivity.Starting, "Main checkout acquired; launching supervisor");
                 },
             };
-            var continuation = preflight.Options.ContinuationModel is null ? null
+            continuation = preflight.Options.ContinuationModel is null ? null
                 : new ContinuationSupervisor(preflight, beads, supervisorHost, log, temporaryRoot,
                     new ContinuationState(), claimGate)
                 { StartSound = attentionSound.PlaySupervisorAsync };
@@ -247,14 +251,20 @@ public sealed class AbacusApplication(
                     if (!control.TryRequest(action))
                         throw new InvalidOperationException($"agent '{name}' already has a pending control request");
                 }
+                void ForceSupervisor(string name, string prompt)
+                {
+                    if (name == ContinuationSupervisor.Name && continuation is not null) continuation.ForceRun(prompt);
+                    else if (name == MaintenanceSupervisor.Name && maintenance is not null) maintenance.ForceRun(prompt);
+                    else throw new ArgumentException($"unknown or disabled supervisor '{name}'");
+                }
                 inputMonitor = preflight.Options.Stdio
                     ? new StdioControl(Console.In, consoleOutput, claimGate, RequestAction, () =>
                     {
                         controlShutdown = true;
                         linkedCancellation.Cancel();
-                    }).RunAsync(linkedCancellation.Token)
+                    }, ForceSupervisor).RunAsync(linkedCancellation.Token)
                     : consoleOutput.MonitorDashboardInputAsync(claimGate,
-                        RequestAction, linkedCancellation.Token);
+                        RequestAction, ForceSupervisor, linkedCancellation.Token);
             }
 
             foreach (var loop in loops.Append(maintenanceMonitor).Append(continuationMonitor))

@@ -244,6 +244,18 @@ public sealed class MaintenanceSupervisorTests
     }
 
     [Fact]
+    public async Task ForceRunWithoutAttentionAppendsToNormalPrompt()
+    {
+        using var fixture = new Fixture();
+        fixture.Host.OnStart = (_, issue) => fixture.Complete(issue.Id);
+        fixture.Supervisor.ForceRun("Inspect the idle merge slot.");
+        await fixture.Supervisor.RunAsync(() => fixture.Host.Stops > 0, fixture.Token);
+        Assert.Equal(1, fixture.Host.Starts);
+        Assert.Contains("You are Abacus's optional maintenance supervisor", fixture.Host.LastPrompt);
+        Assert.EndsWith("Additional instructions for this operator-requested run:\nInspect the idle merge slot.", fixture.Host.LastPrompt);
+    }
+
+    [Fact]
     public async Task CannotResolveLabelDoesNotTriggerEvenOnClosedIssue()
     {
         using var fixture = new Fixture();

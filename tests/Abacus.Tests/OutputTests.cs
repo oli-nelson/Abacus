@@ -5,6 +5,27 @@ namespace Abacus.Tests;
 public sealed class OutputTests
 {
     [Fact]
+    public async Task SupervisorForceRunCollectsAndSubmitsAdditionalPrompt()
+    {
+        var writer = new StringWriter();
+        using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
+            interactive: true, terminalSize: () => (100, 30), color: false);
+        output.EnableSupervisor();
+        await output.SetAgentAsync("maintenance", AgentActivity.Idle, "Waiting");
+        var gate = new ClaimGate();
+        output.HandleDashboardKey(Key(ConsoleKey.DownArrow), gate);
+        output.HandleDashboardKey(Key(ConsoleKey.DownArrow), gate);
+        output.HandleDashboardKey(Key(ConsoleKey.Enter), gate);
+        Assert.True(output.HandleDashboardKey(Key(ConsoleKey.F, 'f'), gate));
+        string? name = null, prompt = null;
+        output.HandleDashboardKey(Key(ConsoleKey.A, 'a'), gate);
+        output.HandleDashboardKey(Key(ConsoleKey.B, 'b'), gate);
+        output.HandleDashboardKey(Key(ConsoleKey.Enter), gate, (_, _) => { }, (n, p) => { name = n; prompt = p; });
+        Assert.Equal("maintenance", name);
+        Assert.Equal("ab", prompt);
+    }
+
+    [Fact]
     public async Task SupervisorRowShowsOutcomeAndOnlyOffersSafeControls()
     {
         var writer = new StringWriter();

@@ -24,6 +24,7 @@ public sealed class MaintenanceSupervisor(
     private bool busy;
     private int generation;
     private bool enabled = true;
+    private string? forcedPrompt;
     internal Func<SoundClip, Task> StartSound { get; init; } = clip =>
     {
         SoundPlayer.TryStart(clip)?.ContinueInBackground();
@@ -46,6 +47,17 @@ public sealed class MaintenanceSupervisor(
         if (action == AgentControlAction.CleanWorkspace)
             throw new InvalidOperationException("The supervisor cannot clean the main checkout; use Stop or Restart.");
         if (!control.TryRequest(action)) throw new InvalidOperationException("Supervisor already has a pending request");
+    }
+
+    public void ForceRun(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) throw new ArgumentException("force-run prompt must not be empty");
+        lock (gate)
+        {
+            if (forcedPrompt is not null) throw new InvalidOperationException("maintenance already has a pending force run");
+            forcedPrompt = prompt;
+            Volatile.Write(ref enabled, true);
+        }
     }
 
     public async Task FailedAsync(string name, string error, CancellationToken token)
@@ -122,6 +134,7 @@ public sealed class MaintenanceSupervisor(
                 if (action is AgentControlAction.Stop)
                 {
                     enabled = false;
+                    lock (gate) forcedPrompt = null;
                     await log.SetAgentAsync(Name, AgentActivity.Stopped, "Cancelled by operator; Restart to enable supervision");
                 }
                 else if (action is AgentControlAction.Restart)
@@ -137,7 +150,7 @@ public sealed class MaintenanceSupervisor(
                 using var operation = control.CreateOperationCancellation(token);
                 try
                 {
-                    if (enabled) await CheckAsync(operation.Token);
+                    if (Volatile.Read(ref enabled)) await CheckAsync(operation.Token);
                     initialScan.TrySetResult();
                 }
                 catch (OperationCanceledException) when (!token.IsCancellationRequested)
@@ -172,20 +185,23 @@ public sealed class MaintenanceSupervisor(
         var issues = await beads.GetIssuesNeedingUserAttentionAsync(preflight.RepositoryRoot, Name, token);
         var eligible = issues.Where(issue => issue.Labels?.Contains(CannotResolveLabel) != true).ToArray();
         bool shouldRun;
+        string? extraPrompt;
         lock (gate)
         {
             attemptedIssues.IntersectWith(eligible.Select(issue => issue.Id));
-            shouldRun = eligible.Any(issue => !attemptedIssues.Contains(issue.Id))
+            extraPrompt = forcedPrompt;
+            shouldRun = extraPrompt is not null || eligible.Any(issue => !attemptedIssues.Contains(issue.Id))
                 || failures.Values.Any(failure => failure.Failed && !failure.Consumed);
             if (!shouldRun) return;
             busy = true;
+            forcedPrompt = null;
             attemptedIssues.UnionWith(eligible.Select(issue => issue.Id));
             foreach (var failure in failures.Values.Where(failure => failure.Failed)) failure.Consumed = true;
         }
         initialScan.TrySetResult();
         try
         {
-            var result = await RunHarnessAsync(eligible, token);
+            var result = await RunHarnessAsync(eligible, extraPrompt, token);
             await log.SetSupervisorLastRunAsync(Name, $"{result}\nRecovery verification pending.");
             token.ThrowIfCancellationRequested();
             await log.SetAgentAsync(Name, AgentActivity.Recovering, $"Checking recovery • {result}");
@@ -235,7 +251,7 @@ public sealed class MaintenanceSupervisor(
         }
     }
 
-    private async Task<string> RunHarnessAsync(IReadOnlyList<BeadsIssue> issues, CancellationToken token)
+    private async Task<string> RunHarnessAsync(IReadOnlyList<BeadsIssue> issues, string? extraPrompt, CancellationToken token)
     {
         var runId = Guid.NewGuid().ToString("N");
         var completionPath = Path.Combine(temporaryRoot, $"supervisor-{runId}.json");
@@ -283,6 +299,7 @@ public sealed class MaintenanceSupervisor(
                 lock (gate) errors = failures.Where(pair => pair.Value.Failed).ToDictionary(pair => pair.Key, pair => pair.Value.Error);
                 var prompt = RenderPrompt(runId, completionPath, issues, errors, preflight.Agents, additive,
                     pool?.GetDiagnosticSnapshot(), preflight.Options.ManagedAgentCount is not null);
+                if (extraPrompt is not null) prompt += "\n\nAdditional instructions for this operator-requested run:\n" + extraPrompt;
                 var agent = preflight.Agents[0] with
                 {
                     Name = Name, WorkspacePath = preflight.RepositoryRoot, Targets = null, Reasoning = null,
@@ -290,10 +307,10 @@ public sealed class MaintenanceSupervisor(
                 };
                 await log.SetModelAsync(Name, preflight.Options.SupervisorModel!, preflight.Options.SupervisorEffort);
                 await log.SetAgentAsync(Name, AgentActivity.Starting, $"Starting maintenance run {runId}; timeout {preflight.Options.EffectiveSupervisorTimeout}");
-                await PlayAsync(SoundClip.MaintenanceStarting);
                 run = await host.StartAgentAsync(agent, new BeadsIssue(runId, IssueStatus.Open, "Maintenance supervisor"),
                     preflight.Options.SupervisorModel!, preflight.Options.SupervisorEffort,
                     preflight.OpenCodeServerUrl, timeout.Token, preflight.Options.SupervisorExtraArguments ?? AgentArguments.Empty);
+                await PlayAsync(SoundClip.MaintenanceStarting);
                 await log.SetRunLocationAsync(Name, run.Location);
                 await log.SetAgentAsync(Name, AgentActivity.Working, $"Maintenance run {runId}; completion signal pending");
                 while (true)

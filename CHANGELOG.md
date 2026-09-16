@@ -8,6 +8,11 @@ Unreleased section. Released versions are listed newest first.
 
 ### Added
 
+- Force-run either supervisor from its dashboard menu with a typed one-run
+  instruction, or via the `force-supervisor` stdio command. The instruction is
+  appended to the normal prompt and policy; explicit continuation runs can
+  proceed despite unfinished epics or claim gates.
+
 - Add an independently optional empty-backlog continuation supervisor with its
   own model, arguments, timeout, and custom planning prompts. It can write specs
   and create epics under user policy when no unfinished epics remain. Process-local
@@ -20,6 +25,10 @@ Unreleased section. Released versions are listed newest first.
   maintenance authority.
 
 ### Changed
+
+- Show when one supervisor is waiting for the other to release the main
+  checkout, rather than leaving it in Starting. Delay maintenance's startup
+  sound until its harness has actually launched.
 
 - Increase the default maintenance and continuation supervisor timeouts to
   90 minutes (1.5 hours) per run; explicit timeout overrides remain unchanged.

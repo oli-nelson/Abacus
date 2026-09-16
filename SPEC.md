@@ -983,3 +983,12 @@ independently of current status. No prior run displays an explicit empty state.
 There is no offline continuation-retry command. Runtime Restart rearms and rechecks, but
 never bypasses unfinished epics. Use the same unique completion-file validation,
 bounded timeout, and safe harness cleanup contract as maintenance supervision.
+
+While a supervisor is configured in a run, its dashboard action menu offers Force run
+with prompt. The operator types a nonempty single-line prompt; Abacus appends it
+after that role's normal prompt and additive policy for one run. Force run bypasses
+the role's automatic trigger; continuation also bypasses the empty-epic,
+pause, and claim-schedule gates for this explicitly requested run. It does not
+disable host serialization, timeouts, completion verification, or safety policy.
+The equivalent stdio command is `force-supervisor` with `agent` set to
+`maintenance` or `continuation` and a nonempty `prompt` string.

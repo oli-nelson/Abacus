@@ -221,6 +221,16 @@ workspace cleanup. The obsolete offline `abacus continuation retry` command is
 removed: restart Abacus instead. Neither restart bypasses unfinished epics, manual
 pause, or claim schedules.
 
+Select either supervisor row, press **Enter**, then **F** to type a one-run
+instruction and press **Enter** to force a run. The instruction is appended to
+the complete normal prompt, including repository and configured additive policy;
+it does not replace the supervisor's safety rules. **Esc** cancels entry.
+Force run bypasses automatic triggers; for continuation it also bypasses the
+empty-epic, pause, and schedule gates. The supervisor still inspects existing
+work and uses normal timeout, serialized checkout access, and completion checks.
+In stdio mode send `{"id":"1","command":"force-supervisor","agent":"maintenance","prompt":"Check the stuck claim"}`
+(or use `continuation` as the agent).
+
 ### Shared checkout and merge instructions
 
 Both roles use the selected harness, with separate rows, arguments, prompts,

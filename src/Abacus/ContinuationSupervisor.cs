@@ -15,6 +15,22 @@ public sealed class ContinuationSupervisor(
     private bool enabled = true;
     private bool attemptedInFiniteRun;
     private int generation;
+    private readonly object forceGate = new();
+    private string? forcedPrompt;
+    private bool forcedRunActive;
+
+    public bool IsForcedRun { get { lock (forceGate) return forcedRunActive; } }
+
+    public void ForceRun(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) throw new ArgumentException("force-run prompt must not be empty");
+        lock (forceGate)
+        {
+            if (forcedPrompt is not null) throw new InvalidOperationException("continuation already has a pending force run");
+            forcedPrompt = prompt;
+            Volatile.Write(ref enabled, true);
+        }
+    }
 
     internal Func<SoundClip, Task> StartSound { get; init; } = clip =>
     {
@@ -64,6 +80,7 @@ public sealed class ContinuationSupervisor(
             if (action == AgentControlAction.Stop)
             {
                 enabled = false;
+                lock (forceGate) forcedPrompt = null;
                 await log.SetAgentAsync(Name, AgentActivity.Stopped, "Disabled by operator; Restart to enable");
             }
             else if (action == AgentControlAction.Restart)
@@ -73,24 +90,30 @@ public sealed class ContinuationSupervisor(
                 enabled = true;
                 await log.ClearPersistentAlertAsync(Name);
             }
-            if (!enabled) return;
+            if (!Volatile.Read(ref enabled)) return;
             using var operation = control.CreateOperationCancellation(token);
             try
             {
                 // Observe the entire epic backlog, independent of ready/label/target filters.
-                if (await beads.HasUnfinishedEpicsAsync(preflight.RepositoryRoot, operation.Token))
+                string? extraPrompt;
+                lock (forceGate) extraPrompt = forcedPrompt;
+                if (extraPrompt is null && await beads.HasUnfinishedEpicsAsync(preflight.RepositoryRoot, operation.Token))
                 {
                     state.ObserveUnfinished();
                     return;
                 }
-                if (!claimGate.IsEnabled || (preflight.Options.Schedule is { } schedule
-                    && !schedule.CanClaimAt(TimeProvider.System.GetUtcNow(), out _))) return;
-                if (preflight.Options.ExecutionMode != ExecutionMode.Continuous && attemptedInFiniteRun) return;
-                if (!state.TryConsume()) return;
+                if (extraPrompt is null && (!claimGate.IsEnabled || (preflight.Options.Schedule is { } schedule
+                    && !schedule.CanClaimAt(TimeProvider.System.GetUtcNow(), out _)))) return;
+                if (extraPrompt is null && preflight.Options.ExecutionMode != ExecutionMode.Continuous && attemptedInFiniteRun) return;
+                if (extraPrompt is null && !state.TryConsume()) return;
+                lock (forceGate)
+                {
+                    if (extraPrompt is not null) { forcedPrompt = null; forcedRunActive = true; }
+                }
                 attemptedInFiniteRun = true;
                 try
                 {
-                    var result = await RunHarnessAsync(operation.Token);
+                    var result = await RunHarnessAsync(extraPrompt, operation.Token);
                     if (!result.StartsWith("deferred", StringComparison.Ordinal))
                         await log.SetSupervisorLastRunAsync(Name, result);
                     var hasEpics = await beads.HasUnfinishedEpicsAsync(preflight.RepositoryRoot, operation.Token);
@@ -104,7 +127,7 @@ public sealed class ContinuationSupervisor(
                     if (failed) await log.SetPersistentAlertAsync(Name, detail);
                     else await log.ClearPersistentAlertAsync(Name);
                 }
-                finally { lock (finiteChecks) generation++; }
+                finally { lock (forceGate) forcedRunActive = false; lock (finiteChecks) generation++; }
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {
@@ -124,7 +147,7 @@ public sealed class ContinuationSupervisor(
         finally { check.Release(); }
     }
 
-    private async Task<string> RunHarnessAsync(CancellationToken token)
+    private async Task<string> RunHarnessAsync(string? extraPrompt, CancellationToken token)
     {
         var runId = Guid.NewGuid().ToString("N");
         var completionPath = Path.Combine(temporaryRoot, $"continuation-{runId}.json");
@@ -135,7 +158,8 @@ public sealed class ContinuationSupervisor(
         {
             var additive = await ReadAdditivePromptAsync(preflight.RepositoryRoot,
                 preflight.Options.ContinuationPromptFile, timeout.Token);
-            var prompt = RenderPrompt(runId, completionPath, preflight.Agents[0].Targets, additive);
+            var prompt = RenderPrompt(runId, completionPath, preflight.Agents[0].Targets, additive, extraPrompt is not null);
+            if (extraPrompt is not null) prompt += "\n\nAdditional instructions for this operator-requested run:\n" + extraPrompt;
             var agent = preflight.Agents[0] with
             {
                 Name = Name, WorkspacePath = preflight.RepositoryRoot, Targets = null, Reasoning = null,
@@ -209,10 +233,9 @@ public sealed class ContinuationSupervisor(
         return parts.Count == 0 ? null : string.Join("\n\n", parts);
     }
 
-    internal static string RenderPrompt(string runId, string completionPath, TargetRegistry? targets, string? additive) => $$"""
+    internal static string RenderPrompt(string runId, string completionPath, TargetRegistry? targets, string? additive, bool forced = false) => $$"""
         You are Abacus's optional continuation supervisor, acting on the user's explicit policy below.
-        The repository currently has no unfinished epics, including blocked epics. Recheck with
-        bd list --type epic --all --limit 0 --json before planning; if unfinished epics appeared, stop.
+        {{(forced ? "This run was explicitly requested by the operator, regardless of epic backlog. Inspect existing epics with bd list --type epic --all --limit 0 --json and avoid duplicate or conflicting work." : "The repository currently has no unfinished epics, including blocked epics. Recheck with bd list --type epic --all --limit 0 --json before planning; if unfinished epics appeared, stop.")}}
         This is one bounded planning session, not an endless development loop. Do not launch background
         processes, other supervisors, or edit Abacus runtime files or your own policy.
         Read repository instructions, existing specs, closed history, and current tasks before proposing work.

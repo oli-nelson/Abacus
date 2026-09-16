@@ -242,6 +242,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private readonly Dictionary<string, SupervisorLastRun> supervisorLastRuns = new(StringComparer.Ordinal);
     private int supervisorRunScrollOffset;
     private bool supervisorRunFromMenu;
+    private readonly StringBuilder forcePrompt = new();
     private enum DashboardScreen { Agents, Attention, Comments, Settings }
     private DashboardScreen screen;
     private readonly HashSet<string>[] seenScreenContent = [[], [], [], []];
@@ -317,6 +318,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     internal async Task MonitorDashboardInputAsync(
         ClaimGate claimGate,
         Action<string, AgentControlAction> requestAgentAction,
+        Action<string, string> forceSupervisor,
         CancellationToken cancellationToken)
     {
         if (!interactive || Console.IsInputRedirected)
@@ -334,7 +336,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                     HandleDashboardKey(
                         Console.ReadKey(intercept: true),
                         claimGate,
-                        requestAgentAction);
+                        requestAgentAction,
+                        forceSupervisor);
                 }
             }
             catch (InvalidOperationException)
@@ -356,8 +359,35 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     internal bool HandleDashboardKey(
         ConsoleKeyInfo key,
         ClaimGate claimGate,
-        Action<string, AgentControlAction>? requestAgentAction)
+        Action<string, AgentControlAction>? requestAgentAction,
+        Action<string, string>? forceSupervisor = null)
     {
+        if (panel is DashboardPanel.ForcePrompt)
+        {
+            string? agent = null;
+            string? prompt = null;
+            lock (gate)
+            {
+                if (key.Key == ConsoleKey.Escape) { panel = DashboardPanel.AgentMenu; forcePrompt.Clear(); }
+                else if (key.Key == ConsoleKey.Backspace && forcePrompt.Length > 0) forcePrompt.Length--;
+                else if (key.Key == ConsoleKey.Enter && forcePrompt.Length > 0)
+                {
+                    agent = SelectedAgent()?.Name;
+                    prompt = forcePrompt.ToString();
+                    forcePrompt.Clear();
+                    panel = DashboardPanel.Closed;
+                }
+                else if (!char.IsControl(key.KeyChar) && forcePrompt.Length < 4096) forcePrompt.Append(key.KeyChar);
+                RenderDashboard();
+            }
+            if (agent is not null && prompt is not null)
+            {
+                try { forceSupervisor?.Invoke(agent, prompt); Events?.Emit("control.requested", new { agent, action = "force-run" }); }
+                catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+                { lock (gate) { systemStatus = ex.Message; RenderDashboard(); } }
+            }
+            return true;
+        }
         if (IsClaimToggle(key))
         {
             var enabled = claimGate.Toggle();
@@ -923,6 +953,15 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             return;
         }
 
+        if (panel is DashboardPanel.ForcePrompt)
+        {
+            builder.Append(Color(Bold + Cyan, Truncate($" FORCE RUN — {SelectedAgent()?.Name}", width))).Append("\u001b[K\n");
+            builder.Append(Truncate(" Type additional instructions; Enter runs, Esc cancels", width)).Append("\u001b[K\n");
+            builder.Append(Truncate(" > " + forcePrompt, width)).Append("\u001b[K\n");
+            WriteScreenFrame(screenHeader, builder, width, detail: true);
+            return;
+        }
+
         if (panel is DashboardPanel.CommentDetail && openComment is not null)
         {
             RenderCommentDetail(builder, openComment, width, line);
@@ -1040,7 +1079,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 else
                 {
                     foreach (var option in IsSupervisor(selected.Name)
-                        ? new[] { "   [L] Last run details", "   [S] Cancel / disable supervisor", "   [R] Enable / retry supervisor", "   [Esc] Close" }
+                        ? new[] { "   [L] Last run details", "   [S] Cancel / disable supervisor", "   [R] Enable / retry supervisor", "   [F] Force run with prompt", "   [Esc] Close" }
                         : new[] { "   [S] Stop agent", "   [R] Restart agent", "   [C] Clean workspace", "   [Esc] Close" })
                     {
                         builder.Append(Truncate(option, width)).Append("\u001b[K\n");
@@ -1287,6 +1326,12 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
         if (panel is DashboardPanel.AgentMenu)
         {
+            if (key.Key == ConsoleKey.F && SelectedAgent() is { } target && IsSupervisor(target.Name))
+            {
+                forcePrompt.Clear();
+                panel = DashboardPanel.ForcePrompt;
+                return true;
+            }
             var action = key.Key switch
             {
                 ConsoleKey.S => AgentControlAction.Stop,
@@ -1873,5 +1918,6 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         ConfirmClean,
         CommentDetail,
         SupervisorRunDetail,
+        ForcePrompt,
     }
 }

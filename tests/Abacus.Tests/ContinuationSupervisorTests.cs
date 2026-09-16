@@ -91,6 +91,21 @@ public sealed class ContinuationSupervisorTests
     }
 
     [Fact]
+    public async Task ForceRunBypassesAutomaticGatesAndAppendsToNormalPrompt()
+    {
+        using var fixture = new Fixture();
+        fixture.Epic("open");
+        fixture.Gate.SetEnabled(false);
+        var supervisor = fixture.Supervisor();
+        supervisor.ForceRun("Review epic-1 specifically.");
+        Assert.True(await supervisor.CheckFiniteCompletionAsync("alice", fixture.Token));
+        Assert.Equal(1, fixture.Host.Starts);
+        Assert.Contains("You are Abacus's optional continuation supervisor", fixture.Host.LastPrompt);
+        Assert.EndsWith("Additional instructions for this operator-requested run:\nReview epic-1 specifically.", fixture.Host.LastPrompt);
+        Assert.Contains("regardless of epic backlog", fixture.Host.LastPrompt);
+    }
+
+    [Fact]
     public async Task ObservedWorkRearmsContinuousContinuationAfterItCloses()
     {
         using var fixture = new Fixture();
@@ -212,7 +227,11 @@ public sealed class ContinuationSupervisorTests
     {
         using var fixture = new Fixture();
         var runs = new AgentRunRegistry();
-        var host = new SupervisorHost(fixture.Host, runs);
+        var waiting = new List<string>();
+        var host = new SupervisorHost(fixture.Host, runs)
+        {
+            WaitingForCheckoutAsync = name => { waiting.Add(name); return Task.CompletedTask; },
+        };
         var maintenance = fixture.Agent with { Name = MaintenanceSupervisor.Name };
         var continuation = fixture.Agent with { Name = ContinuationSupervisor.Name };
         var first = await host.StartAgentAsync(maintenance, new("one", IssueStatus.Open), "p/m", "high", null, fixture.Token);
@@ -220,6 +239,7 @@ public sealed class ContinuationSupervisorTests
         var pending = host.StartAgentAsync(continuation, new("two", IssueStatus.Open), "p/m", "high", null, fixture.Token);
         Assert.False(pending.IsCompleted);
         Assert.False(runs.IsRunning(continuation.Name));
+        Assert.Equal([continuation.Name], waiting);
         await host.StopAndCleanupAsync(first, fixture.Token);
         var second = await pending;
         Assert.False(runs.IsRunning(maintenance.Name));
@@ -303,12 +323,14 @@ public sealed class ContinuationSupervisorTests
     {
         public int Starts;
         public int Stops;
+        public string? LastPrompt;
         public string? Failure;
         public bool FailCleanup;
         public Task<IAgentRun> StartAgentAsync(ValidatedAgent agent, BeadsIssue issue, string model, string effort,
             string? serverUrl, CancellationToken token, IReadOnlyList<string>? extraArguments = null)
         {
             Starts++;
+            LastPrompt = agent.HarnessPromptOverride;
             if (Failure == "startup") throw new IOException("startup failure");
             if (Failure is null)
                 File.WriteAllText(Path.Combine(root, $"continuation-{issue.Id}.json"), JsonSerializer.Serialize(new { runId = issue.Id, summary = "no-op" }));

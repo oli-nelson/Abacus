@@ -201,6 +201,22 @@ public sealed class EventReportingTests
     }
 
     [Fact]
+    public void StdioForceSupervisorRequiresPromptAndForwardsIt()
+    {
+        var stdout = new StringWriter();
+        using var events = new EventReporter(stdout);
+        using var output = new ConsoleOutput(TextWriter.Null, [], "p/m", false, interactive: false, events: events);
+        string? agent = null, prompt = null;
+        var control = new StdioControl(new StringReader(""), output, new ClaimGate(), (_, _) => { }, () => { },
+            (a, p) => { agent = a; prompt = p; });
+        control.Handle("""{"id":"bad","command":"force-supervisor","agent":"maintenance"}""");
+        control.Handle("""{"id":"good","command":"force-supervisor","agent":"maintenance","prompt":"Repair this"}""");
+        Assert.Equal("maintenance", agent);
+        Assert.Equal("Repair this", prompt);
+        Assert.Contains("\"id\":\"bad\",\"command\":\"force-supervisor\",\"ok\":false", stdout.ToString());
+    }
+
+    [Fact]
     public void IntroOnlyPlaysForInteractiveDashboard()
     {
         var normal = RunOptions();

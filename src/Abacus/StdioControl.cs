@@ -8,13 +8,14 @@ internal sealed class StdioControl(
     ConsoleOutput output,
     ClaimGate claims,
     Action<string, AgentControlAction> requestAction,
-    Action shutdown)
+    Action shutdown,
+    Action<string, string>? forceSupervisor = null)
 {
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         output.Events!.Emit("control.ready", new
         {
-            commands = new[] { "status", "pause", "resume", "stop", "restart", "clean-workspace", "shutdown" },
+            commands = new[] { "status", "pause", "resume", "stop", "restart", "force-supervisor", "clean-workspace", "shutdown" },
             claimsEnabled = claims.IsEnabled,
         });
         try
@@ -72,7 +73,9 @@ internal sealed class StdioControl(
             command = RequiredString(root, "command");
             var agentAction = command is "stop" or "restart" or "clean-workspace";
             if (properties.Any(p => p is not ("id" or "command")
-                && !(agentAction && p == "agent") && !(command == "clean-workspace" && p == "confirm")))
+                && !((agentAction || command == "force-supervisor") && p == "agent")
+                && !(command == "force-supervisor" && p == "prompt")
+                && !(command == "clean-workspace" && p == "confirm")))
                 throw new FormatException("unexpected command property");
             switch (command)
             {
@@ -95,6 +98,10 @@ internal sealed class StdioControl(
                         "restart" => AgentControlAction.Restart,
                         _ => AgentControlAction.CleanWorkspace,
                     });
+                    break;
+                case "force-supervisor":
+                    if (forceSupervisor is null) throw new InvalidOperationException("force-supervisor is unavailable");
+                    forceSupervisor(RequiredString(root, "agent"), RequiredString(root, "prompt"));
                     break;
                 case "shutdown": break;
                 default: throw new FormatException($"unknown command '{command}'");
