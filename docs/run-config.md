@@ -40,10 +40,7 @@ already exist. Editing existing JSON directly in your preferred editor also work
   "repo": "repo",
   "mode": "codex",
   "model": "gpt-5.6-sol#high",
-  "agents": [
-    { "name": "agent-0", "workspace": "worktrees/0" },
-    { "name": "agent-1", "workspace": "worktrees/1" }
-  ],
+  "agentCount": 2,
   "extraArgs": "-p deepseek",
   "reasoningModels": { "high": "gpt-6-astra#xhigh", "low": "gpt-5.6-luna#low" },
   "reasoningArgs": { "high": "--profile deep" },
@@ -82,7 +79,7 @@ the fleet starts work outside them:
   "version": 1,
   "mode": "codex",
   "model": "deepseek-v4-pro#high",
-  "agents": [{ "name": "agent-0", "workspace": "worktrees/0" }],
+  "agentCount": 1,
   "schedule": {
     "timezone": "UTC",
     "minWindowRemaining": "30m",
@@ -146,8 +143,10 @@ Apply the deepest base first, then each derived file, then explicit CLI options.
 - Omitted fields inherit. Explicit `null` clears an inherited setting back to
   unset/default; `false` disables an inherited boolean.
 - Agent and filter arrays replace the entire previous list. An empty array clears
-  the list; clearing all agents makes the final run invalid unless CLI agents
-  supply replacements.
+  the list; clearing all explicit agents defaults to one managed worker.
+  `agentCount` selects managed workers without paths and replaces inherited `agents`;
+  optional `agentNames` supplies display labels independently of pool slots.
+  A non-null `agents` list replaces inherited `agentCount` and `agentNames`. CLI overrides work likewise.
 - `reasoningModels` merges per tier. A null tier clears that route;
   `"reasoningModels": null` clears all routes. An empty object adds no overrides.
 - `reasoningArgs` merges per tier exactly like `reasoningModels`. A null tier
@@ -171,7 +170,7 @@ edited alone; a harness config inheriting that base can still be complete.
 
 When `abacus run` has **no `--config`** and is missing required argument values:
 
-1. Report the missing model, agent names/workspace paths, and server address when
+1. Report the missing model, incomplete explicit agent fields, and server address when
    `--mode opencode-server` requires it.
 2. Search only the working directory (not parents or subdirectories) for `.json`
    files matching the run-config schema. Incomplete drafts are included;
@@ -221,6 +220,12 @@ fields remain required to run. Semantics/defaults match the [CLI reference](cli-
 | `mode` | string | `--mode` |
 | `model` | `model` or `model#effort` string | `--model` |
 | `extraArgs` | string of extra harness CLI arguments | `--extra-args` |
+| `continuationModel` | model specification; enables empty-backlog planning | `--continuation-model` |
+| `continuationExtraArgs` | separate argument string | `--continuation-extra-args` |
+| `continuationPromptFile` | config-relative policy path | `--continuation-prompt-file` |
+| `continuationTimeout` | positive duration (default `30m`) | `--continuation-timeout` |
+| `agentNames` | optional array of worker display names (not slot IDs) | repeatable `--agent-name` |
+| `agentCount` | integer 1–256 (default 1) | `--agents` |
 | `agents` | array of `{ "name": "...", "workspace": "..." }` | `--agent` |
 | `reasoningModels` | object with optional `high`, `medium`, `low` model or `model#effort` strings | `--reasoning-model` |
 | `reasoningArgs` | object with optional `high`, `medium`, `low` argument strings | `--reasoning-args` |
@@ -256,7 +261,7 @@ Run configs are separate from `<repo>/.abacus/targets.json` and
 
 `abacus new` writes four config files in the project root, with no shell scripts:
 
-- `abacus_base.json`: shared `repo`, `agents`, default `effort`, and `version`,
+- `abacus_base.json`: shared `repo`, `agentCount`, default `effort`, and `version`,
   with `startPaused: true`, `notify: "all"`, `notifySound: true`, and `tuiAudio: true`.
 - `abacus_opencode.json`: OpenCode `model#high` plus all three reasoning tiers mapped to it.
 - `abacus_codex.json`: Codex `model#high` plus all three reasoning tiers mapped to it.
@@ -284,7 +289,10 @@ abacus run --config /path/to/project/abacus_codex.json --start-paused=false
 
 To add another inheritance level, create `local.json` with
 `"baseConfig": "abacus_codex.json"` and use `abacus run --config local.json`.
-The base records created worktrees; add new worktrees there explicitly.
+The base records `agentCount`; adjust it to resize worker capacity. Abacus creates
+and reuses external pool worktrees on run, preserving unused slots and caches.
+Legacy `agents` lists remain supported without moving or deleting their workspaces.
+See [managed worktrees](worktrees.md) for migration and maintenance.
 
 **Migration:** new projects no longer include launcher scripts. Use `abacus run`
 with the interactive picker or an explicit config and normal CLI flags instead of
@@ -294,7 +302,7 @@ not modified or deleted.
 
 ## Optional supervisor
 
-Set `supervisorModel` to enable the [maintenance supervisor](supervisor.md).
+Set `maintainerModel` to enable the [maintenance supervisor](supervisor.md).
 `supervisorExtraArgs` configures its separate harness arguments;
 `supervisorTimeout` defaults to `"30m"`. `supervisorPromptFile` is a config-relative
 path appended after the main checkout's optional `.abacus/supervisor.md`.

@@ -54,7 +54,7 @@ already use rather than replacing Git, Beads, tmux, or your agent harness.
 | [Target branches and dispatch filters](docs/targets.md) | Route tickets to allowed local branches and narrow work by target, label, type, or priority. |
 | [Live dashboard and controls](docs/operations.md) | Agent status, an Attention Center, latest comments, and run settings; pause claims or stop and restart individual agents. |
 | [Recovery and notifications](#interrupted-workspaces) | Preserve interrupted work, reopen unfinished tickets after exits or timeouts, and receive desktop attention and outcome alerts. |
-| [Optional maintenance supervisor](#optional-maintenance-supervisor) | A separate agent helps resolve workspace and Beads problems within an explicit maintenance policy. |
+| [Optional supervisors](docs/supervisor.md) | Independently enable maintenance/attention repair and bounded empty-backlog planning, with separate user policies. |
 | [Reusable run configurations](docs/run-config.md) | Inheritable JSON settings, a terminal config editor, CLI overrides, and scheduled windows that block new claims without interrupting active work. |
 | [Setup and repository checks](#set-up-a-project) | Initialize new or existing projects, install bundled planning and maintenance skills, and check readiness before launching agents. |
 | [Automation and event logs](docs/events-and-stdio.md) | JSONL events, stdio controls, and finite runs with `--once` or `--drain`. |
@@ -91,7 +91,7 @@ Abacus targets macOS and Linux.
 
 You need only the agent harness selected for a particular run. Before launching
 agents, the repository must have Beads initialized with `no-git-ops=false`, and
-each agent must have a unique workspace. Multiple agents must share one
+Abacus allocates a unique pooled workspace for each agent. Multiple agents must share one
 reachable, server-backed Dolt database.
 
 Use `abacus health` to inspect most of these conditions before configuring a
@@ -148,15 +148,14 @@ from the directory that should contain your new project:
 abacus new my-project --agents 4
 ```
 
-It creates a Git repository, a shared-server Beads database, four detached
-worktrees, committed `.abacus/targets.json` and `.abacus/reasoning.json` defaults, the bundled skills,
+It creates a Git repository, a shared-server Beads database, a four-worker pool
+configuration, committed `.abacus/targets.json` and `.abacus/reasoning.json` defaults, the bundled skills,
 and ready-to-use JSON run configs (no shell launcher scripts):
 
 ```text
 my-project/
 ├── repo/                     # main checkout and shared Beads project
-├── worktrees/{0,1,2,3}/      # persistent agent workspaces
-├── abacus_base.json                  # shared repo and agents
+├── abacus_base.json                  # shared repo and agentCount
 └── abacus_{opencode,codex,claude}.json # mode/model + example reasoning routes
 ```
 
@@ -182,9 +181,10 @@ Generated runs start paused; press **Shift-Tab** to resume claims. Desktop
 notifications, notification sounds, and TUI audio are enabled in the base
 config.
 
-The initializer is the **only** Abacus operation that creates repositories,
-worktrees, or Beads configuration. Normal orchestration expects those resources
-to exist already. See the [generated project walkthrough](docs/getting-started.md#path-a-create-a-new-multi-agent-project)
+The initializer creates repositories and Beads configuration. Normal runs allocate
+and reuse worktrees automatically outside the checkout; you only choose worker
+capacity with `--agents` or `agentCount`. Workers lease independent slots; optional
+`--agent-name` / `agentNames` labels can change freely between runs. See [managed worktrees](docs/worktrees.md). See the [generated project walkthrough](docs/getting-started.md#path-a-create-a-new-multi-agent-project)
 for config overrides and the complete setup contract.
 
 ### Save and edit run settings
@@ -235,7 +235,7 @@ Abacus supports exactly four execution modes:
 | `claude` | Interactive tmux pane | Native Claude ID or alias | Supports `--remote-control` for Claude Remote Control. |
 | `opencode-server` | Direct process or tmux pane | `provider/model` | Attaches to an existing server and passes `--variant`. |
 
-Example with two existing worktrees:
+Example with two automatically managed worktrees:
 
 ```sh
 abacus run --mode codex \
@@ -245,8 +245,7 @@ abacus run --mode codex \
   --reasoning-model high gpt-6-astra#xhigh \
   --reasoning-model medium gpt-5.6-terra#high \
   --reasoning-model low gpt-5.6-luna#low \
-  -a alice /work/repo-a \
-  -a bob /work/repo-b
+  --agents 2
 ```
 
 Every local mode launches the full interactive agent interface with a real TTY.
@@ -324,7 +323,7 @@ Explore the [visual agent-loop guide](docs/agent-loop-flow.html), or read the
 
 ### Optional maintenance supervisor
 
-Add `--supervisor-model <model[#effort]>` (or `supervisorModel` in JSON) to enable
+Add `--maintainer <model[#effort]>` (or `maintainerModel` in JSON) to enable
 maintenance help for attention issues and failed agents. It runs in the main
 checkout with a separate prompt, a configurable **30-minute** timeout, and TUI
 status/audio. Configure `--supervisor-extra-args` independently of worker arguments;
@@ -332,6 +331,10 @@ status/audio. Configure `--supervisor-extra-args` independently of worker argume
 Use `abacus attention retry-supervisor <id> [<id> ...]` to clear cannot-resolve
 labels without clearing attention. See the [supervisor guide](docs/supervisor.md)
 for authority limits, lifecycle, and controls.
+
+
+For automatic project continuation, configure `--continuation-model` and a planning
+policy with `--continuation-prompt-file`. See [the supervisor guide](docs/supervisor.md#independent-continuation-supervisor).
 
 ## Commands at a glance
 
@@ -347,9 +350,10 @@ for authority limits, lifecycle, and controls.
 | `abacus models` | List model IDs discoverable from installed harnesses. |
 | `abacus attention list` | Print issue IDs that need a decision or outside action. |
 | `abacus attention resolve <id> [--message <text>] [--reopen]` | Respond to and clear an attention request. |
+| `abacus worktrees list / reclaim / remove / recover / prune` | Inspect and maintain the managed worktree pool. |
 | `abacus branches prune` | Remove local Abacus branches for closed issues. |
 | `abacus preflight [run options]` | Validate a specific run without claims or workspace changes. |
-| `abacus run [run options] -a <name> <workspace> [-a ...]` | Start one or more agent loops. |
+| `abacus run [run options] [--agents <count>]` | Start one or more agent loops. |
 
 Bare `abacus` prints help; use explicit commands. Old flag-based operations are
 not accepted. Run `abacus --help` for the built-in summary and see the
@@ -371,8 +375,8 @@ agents, monitor status, recover interrupted work, and report outcomes.
 It **does not** start OpenCode servers, judge whether code is correct,
 choose ticket outcomes, merge branches, push Git commits, or manage a dynamic
 agent pool. It may create and temporarily own its derived tmux session and agent
-window. Except for the standalone initializer, it does not create worktrees or
-configure Beads/Dolt.
+window. It allocates a fixed-capacity reusable worktree pool, but does not
+configure Beads/Dolt outside the standalone initializer.
 
 The exact boundary is documented in
 [Architecture and boundaries](docs/architecture.md#deliberate-boundaries).

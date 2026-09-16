@@ -136,8 +136,8 @@ public sealed partial class Git(CommandRunner runner, string executable = "git")
         startCommit ??= await ResolveTargetCommitAsync(workspace, agentName, "main", cancellationToken);
         if (!IsCommitId(startCommit)) throw new WorkspacePreparationException("invalid starting commit");
         var switchArguments = branchExists.Succeeded
-            ? new[] { "-C", workspace, "switch", "--no-guess", branch }
-            : new[] { "-C", workspace, "switch", "-c", branch, startCommit };
+            ? new[] { "-C", workspace, "switch", "--no-overwrite-ignore", "--no-guess", branch }
+            : new[] { "-C", workspace, "switch", "--no-overwrite-ignore", "-c", branch, startCommit };
         var switchResult = await RunAsync(workspace, agentName, switchArguments, cancellationToken);
         if (!switchResult.Succeeded)
         {
@@ -266,7 +266,7 @@ public sealed partial class Git(CommandRunner runner, string executable = "git")
         string agentName,
         CancellationToken cancellationToken)
     {
-        var status = await RunAsync(workspace, agentName, ["-C", workspace, "status", "--porcelain"], cancellationToken);
+        var status = await RunAsync(workspace, agentName, ["-C", workspace, "status", "--porcelain", "--untracked-files=normal"], cancellationToken);
         if (!status.Succeeded)
         {
             throw new WorkspacePreparationException($"could not inspect Git status: {FailureDetail(status)}");
@@ -280,6 +280,7 @@ public sealed partial class Git(CommandRunner runner, string executable = "git")
         string agentName,
         CancellationToken cancellationToken)
     {
+        await EnsureResetPreservesUntrackedAsync(workspace, agentName, cancellationToken);
         var reset = await RunAsync(
             workspace,
             agentName,
@@ -291,18 +292,36 @@ public sealed partial class Git(CommandRunner runner, string executable = "git")
                 $"could not reset the workspace: {FailureDetail(reset)}");
         }
 
-        var clean = await RunAsync(
-            workspace,
-            agentName,
-            ["-C", workspace, "clean", "-fd"],
-            cancellationToken);
-        if (!clean.Succeeded)
-        {
-            throw new WorkspacePreparationException(
-                $"could not remove untracked files: {FailureDetail(clean)}");
-        }
+        // A reset deliberately leaves untracked files and ignored build caches alone.
+        // Normal dispatch still refuses ordinary untracked leftovers for operator review.
+    }
 
-        await EnsureCleanAsync(workspace, agentName, cancellationToken);
+    private async Task EnsureResetPreservesUntrackedAsync(
+        string workspace, string agentName, CancellationToken cancellationToken)
+    {
+        // reset --hard can delete untracked obstructions, even without git clean.
+        // Include ignored paths; --directory would hide obstructions beneath tracked paths.
+        var untracked = await RunAsync(workspace, agentName,
+            ["-C", workspace, "ls-files", "--others", "-z"], cancellationToken);
+        var head = await RunAsync(workspace, agentName,
+            ["-C", workspace, "ls-tree", "-r", "--name-only", "-z", "HEAD"], cancellationToken);
+        if (!untracked.Succeeded || !head.Succeeded)
+            throw new WorkspacePreparationException("could not verify untracked-file safety before reset");
+        var comparer = OperatingSystem.IsMacOS() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var trackedPaths = head.StandardOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries).ToHashSet(comparer);
+        var trackedAncestors = new HashSet<string>(comparer);
+        foreach (var tracked in trackedPaths)
+            for (var slash = tracked.IndexOf('/'); slash >= 0; slash = tracked.IndexOf('/', slash + 1))
+                trackedAncestors.Add(tracked[..slash]);
+        foreach (var path in untracked.StandardOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var conflict = trackedPaths.Contains(path) || trackedAncestors.Contains(path);
+            for (var slash = path.IndexOf('/'); !conflict && slash >= 0; slash = path.IndexOf('/', slash + 1))
+                conflict = trackedPaths.Contains(path[..slash]);
+            if (conflict)
+                throw new WorkspacePreparationException(
+                    $"reset would overwrite untracked or ignored path '{path}'; preserved for operator review");
+        }
     }
 
     private async Task EnsureCleanAsync(

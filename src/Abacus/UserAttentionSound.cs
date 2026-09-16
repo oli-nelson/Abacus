@@ -55,9 +55,19 @@ internal sealed class UserAttentionSound : IAsyncDisposable
         }
     }
 
-    // The supervisor has one sequential loop. Reserve priority before awaiting
-    // cleanup so dashboard refreshes cannot start attention audio in the gap.
+    private readonly SemaphoreSlim supervisorAudio = new(1, 1);
+
+    // Serialize calls from both roles, including maintenance failure announcements.
     internal async Task PlaySupervisorAsync(SoundClip clip)
+    {
+        await supervisorAudio.WaitAsync();
+        try { await PlaySupervisorCoreAsync(clip); }
+        finally { supervisorAudio.Release(); }
+    }
+
+    // Reserve priority before awaiting
+    // cleanup so dashboard refreshes cannot start attention audio in the gap.
+    private async Task PlaySupervisorCoreAsync(SoundClip clip)
     {
         ISoundPlayback? attention;
         ISoundPlayback? previousSupervisor;

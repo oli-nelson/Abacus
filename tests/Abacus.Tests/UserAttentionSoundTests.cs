@@ -97,13 +97,14 @@ public sealed class UserAttentionSoundTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task SupervisorPreemptsAttentionAndSuppressesItUntilFinished(bool failed)
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task SupervisorPreemptsAttentionAndSuppressesItUntilFinished(int kind)
     {
         var attention = new List<FakePlayback>();
         var supervisor = new FakePlayback();
-        var clip = failed ? SoundClip.SupervisorFailed : SoundClip.Supervisor;
+        var clip = kind switch { 0 => SoundClip.MaintenanceStarting, 1 => SoundClip.ContinuationStarting, _ => SoundClip.SupervisorFailed };
         await using var sound = new UserAttentionSound(true, () => Track(attention))
         {
             StartSupervisorClip = requested =>
@@ -135,7 +136,7 @@ public sealed class UserAttentionSoundTests
         await using var sound = new UserAttentionSound(true, () => { starts++; return attention; })
         { StartSupervisorClip = _ => supervisor };
         sound.Changed([Issue("abc-1")]);
-        var starting = sound.PlaySupervisorAsync(SoundClip.Supervisor);
+        var starting = sound.PlaySupervisorAsync(SoundClip.MaintenanceStarting);
         Assert.False(starting.IsCompleted);
         sound.Changed([Issue("abc-2")]);
         Assert.Equal(1, starts);
@@ -152,7 +153,7 @@ public sealed class UserAttentionSoundTests
         var starts = 0;
         var sound = new UserAttentionSound(true, () => { starts++; return new FakePlayback(); })
         { StartSupervisorClip = _ => supervisor };
-        await sound.PlaySupervisorAsync(SoundClip.Supervisor);
+        await sound.PlaySupervisorAsync(SoundClip.MaintenanceStarting);
         sound.Changed([Issue("abc-1")]);
         Assert.Equal(0, starts);
         await sound.DisposeAsync();
@@ -166,9 +167,35 @@ public sealed class UserAttentionSoundTests
         var starts = 0;
         await using var sound = new UserAttentionSound(true, () => { starts++; return new FakePlayback(); })
         { StartSupervisorClip = _ => null };
-        await sound.PlaySupervisorAsync(SoundClip.Supervisor);
+        await sound.PlaySupervisorAsync(SoundClip.MaintenanceStarting);
         sound.Changed([Issue("abc-1")]);
         Assert.Equal(1, starts);
+    }
+
+    [Fact]
+    public async Task ConcurrentSupervisorAnnouncementsDoNotLeakOverlappingPlayback()
+    {
+        var attention = new FakePlayback { StopCompletion = new TaskCompletionSource() };
+        var started = new List<(SoundClip Clip, FakePlayback Playback)>();
+        await using var sound = new UserAttentionSound(true, () => attention)
+        {
+            StartSupervisorClip = clip =>
+            {
+                Assert.DoesNotContain(started, previous => previous.Playback.IsPlaying);
+                var playback = new FakePlayback();
+                started.Add((clip, playback));
+                return playback;
+            },
+        };
+        sound.Changed([Issue("abc-1")]);
+        var maintenance = sound.PlaySupervisorAsync(SoundClip.MaintenanceStarting);
+        var continuation = sound.PlaySupervisorAsync(SoundClip.ContinuationStarting);
+        Assert.Empty(started);
+        attention.StopCompletion.SetResult();
+        await Task.WhenAll(maintenance, continuation);
+        Assert.Equal(new[] { SoundClip.MaintenanceStarting, SoundClip.ContinuationStarting }, started.Select(x => x.Clip));
+        Assert.Equal(1, started[0].Playback.Disposals);
+        Assert.True(started[1].Playback.IsPlaying);
     }
 
     private static FakePlayback Track(List<FakePlayback> playbacks)

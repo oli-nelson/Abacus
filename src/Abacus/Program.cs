@@ -40,6 +40,39 @@ public static class Program
                 workingDirectory = await new Git(new CommandRunner(TextWriter.Null))
                     .ResolveMainRepositoryAsync(workingDirectory, parsed.RepositoryPath, CancellationToken.None);
 
+            if (parsed.WorktreeCommand is { } worktreeCommand)
+            {
+                var runner = new CommandRunner(TextWriter.Null);
+                var pool = await WorktreePool.OpenAsync(runner, workingDirectory, CancellationToken.None);
+                if (worktreeCommand == "list")
+                {
+                    var slots = await pool.InspectAsync(CancellationToken.None);
+                    if (slots.Count == 0) Console.Out.WriteLine("No managed worktrees yet; abacus run creates the pool automatically.");
+                    foreach (var slot in slots)
+                        Console.Out.WriteLine($"{slot.Name}  {slot.State}  {slot.Bytes?.ToString() ?? "?"} bytes  {slot.Path}  {slot.Detail}");
+                    return 0;
+                }
+                using var lease = pool.AcquireLease();
+                if (worktreeCommand == "recover")
+                {
+                    await pool.ConfirmStoppedAsync(parsed.WorktreeSlot!, CancellationToken.None);
+                    Console.Out.WriteLine("Execution-stop confirmation recorded; Git changes and issue reservation preserved. The next run rechecks recovery safety.");
+                }
+                else if (worktreeCommand == "prune")
+                {
+                    foreach (var name in await pool.PruneAsync(CancellationToken.None)) Console.Out.WriteLine($"Forgot {name}");
+                }
+                else
+                {
+                    var targets = await TargetRegistry.LoadAsync(Path.Combine(workingDirectory, ".abacus", "targets.json"), CancellationToken.None);
+                    if (worktreeCommand == "reclaim")
+                        await pool.ReclaimAsync(parsed.WorktreeSlot!, targets, new Beads(runner), CancellationToken.None);
+                    else await pool.RemoveAsync(parsed.WorktreeSlot!, targets, new Beads(runner), CancellationToken.None);
+                    Console.Out.WriteLine($"{worktreeCommand}: {parsed.WorktreeSlot}");
+                }
+                return 0;
+            }
+
             if (parsed.TargetCommand is { } targetCommand)
             {
                 var runner = new CommandRunner(TextWriter.Null);
@@ -61,7 +94,7 @@ public static class Program
                 stdoutUi.WriteSection(Console.Out, "Project layout");
                 stdoutUi.WriteKeyValue(Console.Out, "Project", result.ProjectRoot);
                 stdoutUi.WriteKeyValue(Console.Out, "Repository", result.RepositoryPath);
-                stdoutUi.WriteKeyValue(Console.Out, "Worktrees", $"{result.WorktreesPath} (0-{result.AgentCount - 1})");
+                stdoutUi.WriteKeyValue(Console.Out, "Worktrees", $"Managed pool under {result.WorktreesPath}; {result.AgentCount} slots allocated on first run");
                 stdoutUi.WriteKeyValue(Console.Out, "Beads database", result.BeadsDatabase);
                 stdoutUi.WriteKeyValue(Console.Out, "Configs",
                     string.Join(", ", result.ConfigurationPaths.Select(Path.GetFileName)));

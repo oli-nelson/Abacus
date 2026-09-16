@@ -40,7 +40,7 @@ public sealed partial class EndToEndTests
             script = await File.ReadAllTextAsync(opencode);
             script = script.Replace("#!/bin/sh", $$"""
                 #!/bin/sh
-                if test "$BEADS_ACTOR" = supervisor; then
+                if test "$BEADS_ACTOR" = maintenance; then
                   printf '%s\n' "$PWD" > {{Q(Path.Combine(root.FullName, "supervisor-directory"))}}
                   printf '%s\n' "$2" > {{Q(Path.Combine(root.FullName, "supervisor-prompt"))}}
                   echo run >> {{Q(Path.Combine(root.FullName, "supervisor-starts"))}}

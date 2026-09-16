@@ -252,12 +252,12 @@ public sealed record HealthReport(
             if (Worktrees.Count == 0)
             {
                 AppendStatus(text, "FAIL", "Git reported no referenced worktrees.", color);
-                text.AppendLine("  Multi-agent execution cannot use linked worktrees until worktrees are created. Separate clones may also be supplied, but health does not search for them.");
+                text.AppendLine("  Check the Git repository registration before running Abacus.");
             }
             else if (Worktrees.Count == 1)
             {
                 AppendStatus(text, "WARN", "No additional linked worktrees are referenced by the root repository.", color);
-                text.AppendLine("  Multi-agent execution cannot use linked worktrees until more are created. Separate clones may also be supplied, but health does not search for them.");
+                text.AppendLine("  Abacus will allocate managed worktrees automatically; use --agents to choose capacity.");
             }
             else
             {
@@ -301,10 +301,10 @@ public sealed record HealthReport(
         text.AppendLine();
         AppendReadiness(text, "Bundled skills readiness", AreSkillsInstalled, color);
         AppendReadiness(text, "Single-agent readiness", SingleAgentReady, color);
-        AppendReadiness(text, "Multi-agent readiness from linked worktrees", MultiAgentReady, color);
+        AppendReadiness(text, "Multi-agent readiness with managed worktrees", MultiAgentReady, color);
         if (!MultiAgentReady)
         {
-            text.AppendLine("Separate clones can satisfy the workspace requirement, but they were not searched.");
+            text.AppendLine("Multiple workers require a reachable shared Dolt database; workspace paths are managed automatically.");
         }
 
         return text.ToString();
@@ -521,7 +521,7 @@ public sealed partial class HealthChecker(CommandRunner runner, string? executab
         var multiAgentReady = singleAgentReady
             && identity?.IsShared is true
             && worktreeError is null
-            && worktrees.Count > 1;
+            && worktrees.Count > 0;
 
         return new HealthReport(
             repositoryRoot,

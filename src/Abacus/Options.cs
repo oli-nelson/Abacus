@@ -73,8 +73,17 @@ public sealed record Options(
     string SupervisorEffort = "high",
     IReadOnlyList<string>? SupervisorExtraArguments = null,
     TimeSpan? SupervisorTimeout = null,
-    string? SupervisorPromptFile = null)
+    string? SupervisorPromptFile = null,
+    int? ManagedAgentCount = null,
+    string? ContinuationModel = null,
+    string ContinuationEffort = "high",
+    IReadOnlyList<string>? ContinuationExtraArguments = null,
+    TimeSpan? ContinuationTimeout = null,
+    string? ContinuationPromptFile = null)
 {
+    public TimeSpan EffectiveContinuationTimeout => ContinuationTimeout ?? TimeSpan.FromMinutes(30);
+    public bool HasSupervisors => SupervisorModel is not null || ContinuationModel is not null;
+
     public TimeSpan EffectiveSupervisorTimeout => SupervisorTimeout ?? TimeSpan.FromMinutes(30);
 
     public const string DefaultTmuxLayout = "tiled";
@@ -136,7 +145,7 @@ public sealed record Options(
             var topic = string.Join(" ", arguments.Skip(index));
             return OptionsParseResult.Help with { HelpText = CliHelp.For(topic) };
         }
-        if (command is "skills" or "branches" or "attention" or "targets" or "config")
+        if (command is "skills" or "branches" or "attention" or "targets" or "config" or "worktrees")
         {
             if (index == arguments.Count || arguments[index] is "--help" or "-h")
             {
@@ -171,10 +180,10 @@ public sealed record Options(
             if (argument is "--help" or "-h") { help = true; continue; }
             var equals = argument.IndexOf('=');
             var option = equals < 0 ? argument : argument[..equals];
-            var canonical = option switch { "-a" => "--agent", "-v" => "--verbose", _ => option };
+            var canonical = option switch { "-a" => "--agent", "-v" => "--verbose", "--supervisor-model" => "--maintainer", _ => option };
             var arity = OptionArity(command, canonical);
             if (arity < 0) throw new OptionsException($"unknown option '{option}' for {command}");
-            if (!seen.Add(canonical) && canonical is not ("--agent" or "--label" or "--exclude-label" or "--target-filter" or "--reasoning-model" or "--reasoning-args"))
+            if (!seen.Add(canonical) && canonical is not ("--agent" or "--agent-name" or "--label" or "--exclude-label" or "--target-filter" or "--reasoning-model" or "--reasoning-args"))
                 throw new OptionsException($"{option} can only be specified once");
             if (equals >= 0 && arity == 0 && run)
             {
@@ -191,7 +200,7 @@ public sealed record Options(
             {
                 if (equals >= 0) values.Add(argument[(equals + 1)..]);
                 // These values are literal text and may legitimately begin with '-'.
-                else if (canonical is "--message" or "--append-prompt" or "--extra-args" or "--supervisor-extra-args"
+                else if (canonical is "--message" or "--append-prompt" or "--extra-args" or "--supervisor-extra-args" or "--continuation-extra-args"
                     || (canonical == "--reasoning-args" && n == 1))
                 {
                     if (++index >= arguments.Count) throw new OptionsException($"{option} requires a value");
@@ -244,6 +253,21 @@ public sealed record Options(
             }
             switch (command)
             {
+                case "worktrees list":
+                case "worktrees prune":
+                case "worktrees reclaim":
+                case "worktrees recover":
+                case "worktrees remove":
+                    var needsSlot = command is "worktrees reclaim" or "worktrees remove" or "worktrees recover";
+                    if (positionals.Count != (needsSlot ? 1 : 0)
+                        || (needsSlot && !WorktreePool.IsSlotName(positionals[0])))
+                        throw new OptionsException($"{command} requires " + (needsSlot ? "one pool slot ID" : "no positional arguments"));
+                    if (command == "worktrees remove" && !seen.Contains("--confirm"))
+                        throw new OptionsException("worktrees remove requires --confirm; removing a slot also deletes its ignored caches");
+                    if (command == "worktrees recover" && !seen.Contains("--confirm"))
+                        throw new OptionsException("worktrees recover requires --confirm: first stop all surviving agents and subprocesses using this slot");
+                    parsed = new(null, false, WorktreeCommand: command[10..], WorktreeSlot: positionals.SingleOrDefault());
+                    break;
                 case "config edit":
                     if (positionals.Count > 1) throw new OptionsException("config edit accepts at most one input file");
                     parsed = new(null, false, EditConfiguration: true,
@@ -252,8 +276,8 @@ public sealed record Options(
                 case "new":
                     if (positionals.Count != 1 || !IsValidProjectName(positionals[0]))
                         throw new OptionsException("new requires a single nonempty project directory name, not a path");
-                    if (!int.TryParse(Value("--agents"), out var count) || count <= 0)
-                        throw new OptionsException("--agents is required and must be a positive integer");
+                    if (!int.TryParse(Value("--agents"), out var count) || count is < 1 or > 256)
+                        throw new OptionsException("--agents is required and must be an integer from 1 through 256");
                     parsed = OptionsParseResult.InitializeNewMultiAgentRepository(positionals[0], count);
                     break;
                 case "attention retry-supervisor":
@@ -338,10 +362,11 @@ public sealed record Options(
             return option switch
             {
                 "--agent" or "--reasoning-model" or "--reasoning-args" => 2,
-                "--config" or "--mode" or "--model" or "--tmux-session" or "--tmux-window" or "--tmux-layout"
+                "--agent-name" or "--agents" or "--config" or "--mode" or "--model" or "--tmux-session" or "--tmux-window" or "--tmux-layout"
                     or "--opencode-server" or "--target-filter" or "--append-prompt" or "--label" or "--exclude-label"
                     or "--type" or "--priority" or "--ticket-timeout" or "--latest-comments" or "--notify"
-                    or "--extra-args" or "--supervisor-model" or "--supervisor-extra-args" or "--supervisor-timeout" or "--supervisor-prompt-file" => 1,
+                    or "--extra-args" or "--maintainer" or "--supervisor-extra-args" or "--supervisor-timeout" or "--supervisor-prompt-file"
+                    or "--continuation-model" or "--continuation-extra-args" or "--continuation-timeout" or "--continuation-prompt-file" => 1,
                 "--remote-control" or "--notify-sound" or "--verbose" => 0,
                 "--once" or "--drain" or "--stdio" or "--no-intro" or "--tui-audio" or "--start-paused"
                     or "--disown-tmux-session" when command == "run" => 0,
@@ -351,7 +376,7 @@ public sealed record Options(
         return (command, option) switch
         {
             ("config edit", "--output") or ("new", "--agents") or ("attention resolve", "--message") or ("targets set", "--start-commit") => 1,
-            ("attention resolve", "--reopen") or ("targets set", "--adopt-existing-branch") => 0,
+            ("worktrees recover", "--confirm") or ("worktrees remove", "--confirm") or ("attention resolve", "--reopen") or ("targets set", "--adopt-existing-branch") => 0,
             _ => -1,
         };
     }
@@ -381,6 +406,11 @@ public sealed record Options(
         string? issueType = null;
         int? priority = null;
         TimeSpan? ticketTimeout = null;
+        TimeSpan? continuationTimeout = null;
+        string? continuationModel = null;
+        string? continuationPromptFile = null;
+        string continuationEffort = "high";
+        IReadOnlyList<string>? continuationArguments = null;
         TimeSpan? supervisorTimeout = null;
         string? supervisorModel = null;
         string? supervisorPromptFile = null;
@@ -394,6 +424,8 @@ public sealed record Options(
         string? appendAgentPrompt = null;
         var appendAgentPromptSpecified = false;
         var agents = new List<AgentOptions>();
+        var managedNames = new List<string>();
+        int? managedAgentCount = null;
         var reasoningModels = new Dictionary<string, string>(StringComparer.Ordinal);
         var reasoningEfforts = new Dictionary<string, string>(StringComparer.Ordinal);
         IReadOnlyList<string>? extraArguments = null;
@@ -434,7 +466,11 @@ public sealed record Options(
                 case "--supervisor-prompt-file":
                     supervisorPromptFile = CanonicalizePath(ReadValue(arguments, ref index, argument));
                     break;
-                case "--supervisor-model":
+                case "--continuation-model": continuationModel = ReadValue(arguments, ref index, argument); break;
+                case "--continuation-extra-args": continuationArguments = AgentArguments.Split(arguments[++index], argument); break;
+                case "--continuation-timeout": continuationTimeout = ParseDuration(ReadValue(arguments, ref index, argument), argument); break;
+                case "--continuation-prompt-file": continuationPromptFile = CanonicalizePath(ReadValue(arguments, ref index, argument)); break;
+                case "--maintainer":
                     supervisorModel = ReadValue(arguments, ref index, argument);
                     break;
                 case "--supervisor-extra-args":
@@ -559,6 +595,14 @@ public sealed record Options(
                 case "-v":
                     verbose = true;
                     break;
+                case "--agent-name":
+                    managedNames.Add(ReadValue(arguments, ref index, argument));
+                    break;
+                case "--agents":
+                    if (!int.TryParse(ReadValue(arguments, ref index, argument), out var agentCount) || agentCount < 1 || agentCount > 256)
+                        throw new OptionsException("--agents must be an integer from 1 through 256");
+                    managedAgentCount = agentCount;
+                    break;
                 case "--agent":
                     var name = ReadValue(arguments, ref index, argument);
                     var workspace = ReadValue(arguments, ref index, argument);
@@ -654,12 +698,39 @@ public sealed record Options(
 
         if (supervisorModel is not null)
         {
-            (supervisorModel, supervisorEffort) = ParseModelSpec(supervisorModel, "high", "--supervisor-model");
+            (supervisorModel, supervisorEffort) = ParseModelSpec(supervisorModel, "high", "--maintainer");
             if (!IsValidModel(supervisorModel, agentMode))
-                throw new OptionsException("--supervisor-model must be valid for the selected harness (provider/model for OpenCode)");
+                throw new OptionsException("--maintainer must be valid for the selected harness (provider/model for OpenCode)");
             if (agents.Any(agent => agent.Name == MaintenanceSupervisor.Name))
                 throw new OptionsException($"agent name '{MaintenanceSupervisor.Name}' is reserved when supervision is enabled");
         }
+
+        if (continuationModel is not null)
+        {
+            (continuationModel, continuationEffort) = ParseModelSpec(continuationModel, "high", "--continuation-model");
+            if (!IsValidModel(continuationModel, agentMode))
+                throw new OptionsException("--continuation-model must be valid for the selected harness (provider/model for OpenCode)");
+            if (agents.Any(agent => agent.Name == ContinuationSupervisor.Name))
+                throw new OptionsException($"agent name '{ContinuationSupervisor.Name}' is reserved when continuation is enabled");
+        }
+
+        if ((managedAgentCount is not null || managedNames.Count > 0) && agents.Count > 0)
+            throw new OptionsException("--agents / --agent-name cannot be combined with legacy --agent workspaces");
+        if (agents.Count == 0)
+        {
+            managedAgentCount ??= managedNames.Count > 0 ? managedNames.Count : 1;
+            if (managedAgentCount is < 1 or > 256)
+                throw new OptionsException("managed worker count must be from 1 through 256");
+            if (managedNames.Any(name => name.Length > 100 || name.Any(char.IsControl)))
+                throw new OptionsException("agent names must be at most 100 characters without control characters");
+            if (managedNames.Count > managedAgentCount)
+                throw new OptionsException("more --agent-name values than --agents capacity");
+            agents.AddRange(Enumerable.Range(1, managedAgentCount.Value)
+                .Select(number => new AgentOptions(number <= managedNames.Count ? managedNames[number - 1] : $"agent-{number}", "")));
+        }
+
+        if (agents.Any(a => a.Name == MaintenanceSupervisor.Name || a.Name == ContinuationSupervisor.Name))
+            throw new OptionsException("maintenance and continuation are reserved agent names");
 
         var duplicateName = agents
             .Where(static agent => !string.IsNullOrWhiteSpace(agent.Name))
@@ -684,11 +755,11 @@ public sealed record Options(
 
         var missing = new List<string>();
         if (string.IsNullOrWhiteSpace(model)) missing.Add("--model <model[#effort]> is required");
-        if (agents.Count == 0) missing.Add("at least one -a <agent_name> <git_workspace_path> pair is required");
+
         for (var agentIndex = 0; agentIndex < agents.Count; agentIndex++)
         {
             if (string.IsNullOrWhiteSpace(agents[agentIndex].Name)) missing.Add($"agent {agentIndex + 1} requires a name");
-            if (string.IsNullOrWhiteSpace(agents[agentIndex].WorkspacePath)) missing.Add($"agent {agentIndex + 1} requires a workspace path");
+            if (managedAgentCount is null && string.IsNullOrWhiteSpace(agents[agentIndex].WorkspacePath)) missing.Add($"agent {agentIndex + 1} requires a workspace path");
         }
         if (agentMode is AgentMode.OpenCodeServer && string.IsNullOrWhiteSpace(server))
             missing.Add("--mode opencode-server requires --opencode-server <host:port>");
@@ -727,7 +798,10 @@ public sealed record Options(
                 ReasoningArguments: reasoningArguments,
                 SupervisorModel: supervisorModel, SupervisorEffort: supervisorEffort,
                 SupervisorExtraArguments: supervisorArguments, SupervisorTimeout: supervisorTimeout,
-                SupervisorPromptFile: supervisorPromptFile),
+                SupervisorPromptFile: supervisorPromptFile, ManagedAgentCount: managedAgentCount,
+                ContinuationModel: continuationModel, ContinuationEffort: continuationEffort,
+                ContinuationExtraArguments: continuationArguments, ContinuationTimeout: continuationTimeout,
+                ContinuationPromptFile: continuationPromptFile),
             ShowHelp: false);
     }
 
@@ -892,7 +966,8 @@ public sealed record OptionsParseResult(
     bool EditConfiguration = false,
     string? ConfigurationInput = null,
     string? ConfigurationOutput = null,
-    IReadOnlyList<string>? RetrySupervisorIssues = null)
+    IReadOnlyList<string>? RetrySupervisorIssues = null,
+    string? WorktreeCommand = null, string? WorktreeSlot = null)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);

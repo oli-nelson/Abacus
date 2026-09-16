@@ -34,7 +34,7 @@ Help, version reporting, model listing, and new-repository creation remain usabl
 `--repo` is not accepted with version reporting, model listing, new-repository creation, or config editing.
 
 An interactive `run` without `--config` offers a one-time cwd config picker when
-required model/agent/server arguments are missing. Invalid or complete CLI input,
+required model/server arguments are missing. Invalid or complete CLI input,
 explicit configs, preflight, stdio, verbose, and redirected I/O never prompt.
 
 ## Command structure
@@ -74,7 +74,7 @@ abacus new <project-name> --agents <agent-count>
 ```
 
 Creates `<project-name>/repo`, shared-server Beads configuration, bundled
-skills, detached worktrees under `<project-name>/worktrees`, and JSON run configs
+skills and JSON run configs requesting a managed worktree pool
 for OpenCode, Codex, and Claude inheriting one shared base. No shell launchers are
 generated. Execute `abacus run` from the project root and select a harness config;
 non-interactive invocations require explicit `--config` or complete CLI arguments.
@@ -239,11 +239,12 @@ abacus run [--mode <opencode|codex|claude|opencode-server>] \
   [--opencode-server <host:port>] \
   [--once | --drain] \
   [--verbose] \
-  -a <agent-name> <git-workspace> [-a ...]
+  [--agents <count>]
 ```
 
-`--model` and at least one `-a` pair are required. Each agent name and canonical
-workspace path must be unique.
+`--model` is required; one managed worker is the default. Use `--agents N` for
+a pool or legacy `-a` pairs for explicit workspaces, never both. Explicit names
+and canonical workspace paths must be unique.
 
 ## Preflight
 
@@ -259,7 +260,9 @@ claims, workspace changes, hosted agents, cleanup, or a run summary. It rejects
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `--agent <name> <workspace>`, `-a <name> <workspace>` | — | Adds an agent and its dedicated Git workspace. Repeat for a pool. |
+| `--agents <count>` | 1, or supplied name count | Worker capacity; lease independent pool slots, no paths required. |
+| `--agent-name <name>` | agent-N | Repeatable optional display names; safe to change between runs. |
+| `--agent <name> <workspace>`, `-a <name> <workspace>` | — | Legacy explicit workspace, mutually exclusive with `--agents`. |
 | `--mode <mode>` | `opencode` | Selects one of the four supported modes. |
 | `--model <model[#effort]>` | — | Required fallback model and optional effort; effort defaults to `high`. |
 | `--reasoning-model <tier> <model[#effort]>` | — | Repeatable mapping for `high`, `medium`, and `low`; an omitted suffix inherits the fallback model's effort. |
@@ -523,7 +526,7 @@ See [releases](releases.md) for version selection and publishing.
 
 | Option | Behavior |
 | --- | --- |
-| `--supervisor-model <model[#effort]>` | Enable maintenance supervision using the selected harness in the main checkout. |
+| `--maintainer <model[#effort]>` | Enable maintenance supervision using the selected harness in the main checkout. |
 | `--supervisor-extra-args "<arguments>"` | Separate supervisor harness arguments; worker arguments are not inherited. |
 | `--supervisor-timeout <duration>` | Positive `s`/`m`/`h` duration, default `30m`. |
 | `--supervisor-prompt-file <path>` | Append this file after `.abacus/supervisor.md`; CLI paths are cwd-relative. |
@@ -533,3 +536,11 @@ These options are accepted by `run` and `preflight` and have JSON equivalents.
 `abacus:supervisor-cannot-resolve`, preserving attention, status, and assignment.
 It requires no model or configured agents and does not launch supervision.
 See [maintenance supervision](supervisor.md) for the complete contract.
+
+## Pool maintenance and continuation
+
+See [managed worktrees](worktrees.md) for `worktrees list`, `recover --confirm`, `reclaim`, `remove
+--confirm`, and `prune`. See [supervisors](supervisor.md#independent-continuation-supervisor)
+for independent `--continuation-model`, `--continuation-extra-args`,
+`--continuation-timeout`, and `--continuation-prompt-file`. Continuation suppression
+is process-local; restart the continuation row or start a new Abacus process to retry.

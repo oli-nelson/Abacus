@@ -29,11 +29,32 @@ public sealed class AbacusApplication(
             return RunOutcome.Deferred;
         }
 
+        var pool = await WorktreePool.OpenAsync(runner, preflight.RepositoryRoot, cancellationToken, preflight.Tools.Git);
+        using var poolLease = pool.AcquireLease();
+        // An old execution can still own the repository's merge slot or be integrating in the
+        // main checkout. Do not let a new controller reclaim its holder or launch supervisors.
+        foreach (var slot in pool.ReadManifest()?.Slots ?? [])
+            if (pool.ReadAssignment(slot.Name)?.Phase == "execution-uncertain")
+                throw new StartupInvariantException($"{slot.Name}: previous execution may still be alive. Stop all surviving harnesses/subprocesses using this slot, then run abacus worktrees recover {slot.Name} --confirm before restarting.");
+        if (preflight.Options.ManagedAgentCount is not null)
+        {
+            var original = preflight.Options;
+            var targets = preflight.Agents[0].Targets!;
+            var start = await new Git(runner, preflight.Tools.Git).ResolveTargetCommitAsync(
+                preflight.RepositoryRoot, "abacus", targets.Targets.ContainsKey(targets.DefaultTarget) ? targets.DefaultTarget : targets.Targets.Keys.First(), cancellationToken);
+            await pool.EnsureSlotsAsync(original.ManagedAgentCount!.Value, start, cancellationToken);
+            var slots = pool.ReadManifest()!.Slots.Select(s => new AgentOptions(s.Name, s.Path)).ToArray();
+            var validatedPool = await new Preflight(runner).RunAsync(original with
+                { Agents = slots, ManagedAgentCount = null }, cancellationToken);
+            pool.ValidatedSlots = validatedPool.Agents.ToDictionary(a => a.WorkspacePath, StringComparer.Ordinal);
+
+        }
+
         // New user-attention issues play the bundled attention clip, but only when
         // TUI audio is enabled; the monitor records the snapshot either way.
         await using var attentionSound = new UserAttentionSound(preflight.Options.TuiAudio);
         using var ownership = await WorkspaceOwnership.AcquireAsync(
-            new Git(runner, preflight.Tools.Git), preflight.Agents, cancellationToken);
+            new Git(runner, preflight.Tools.Git), preflight.Options.ManagedAgentCount is null ? preflight.Agents : [], cancellationToken);
         var beads = new Beads(runner, preflight.Tools.Bd);
         var baselineAgent = preflight.Agents[0];
         if (preflight.Agents.Count == 1 && baselineAgent.HasRemote)
@@ -79,6 +100,7 @@ public sealed class AbacusApplication(
         var mergeSlotReclaimer = new MergeSlotReclaimer(beads, log);
         var inputMonitor = Task.CompletedTask;
         var maintenanceMonitor = Task.CompletedTask;
+        var continuationMonitor = Task.CompletedTask;
         var controlShutdown = false;
         TmuxSessionLease? tmuxSessionLease = null;
         try
@@ -106,9 +128,10 @@ public sealed class AbacusApplication(
                 attentionSound,
                 agentRuns,
                 preflight.Agents,
+                preflight.Options,
                 preflight.Options.LatestCommentCount,
                 includeLatestComments: log is ConsoleOutput dashboard && (dashboard.IsInteractiveDashboard || dashboard.Events is not null),
-                linkedCancellation.Token);
+                linkedCancellation.Token, preflight.Options.ManagedAgentCount is null ? null : pool);
             IAgentHost agentHost = !preflight.Options.UsesTmux
                 ? new DirectOpenCodeServerHost(runner, log, preflight.Tools.AgentExecutable)
                 : new TmuxAgentHost(
@@ -123,8 +146,24 @@ public sealed class AbacusApplication(
                     tmuxWindowId: tmuxSessionLease.WindowId,
                     projectId: tmuxSessionLease.ProjectId);
 
+            if (preflight.Options.ManagedAgentCount is not null) agentHost = new PoolAgentHost(agentHost);
+
+            var supervisorHost = new SupervisorHost(agentHost, agentRuns)
+            {
+                BeforeStartAsync = async (name, token) =>
+                {
+                    if (name == ContinuationSupervisor.Name && (!claimGate.IsEnabled
+                        || (schedule is not null && !schedule.CanClaimAt(TimeProvider.System.GetUtcNow(), out _))
+                        || await beads.HasUnfinishedEpicsAsync(preflight.RepositoryRoot, token)))
+                        throw new ContinuationDeferredException();
+                },
+            };
+            var continuation = preflight.Options.ContinuationModel is null ? null
+                : new ContinuationSupervisor(preflight, beads, supervisorHost, log, temporaryRoot,
+                    new ContinuationState(), claimGate)
+                { StartSound = attentionSound.PlaySupervisorAsync };
             var maintenance = preflight.Options.SupervisorModel is null ? null
-                : new MaintenanceSupervisor(preflight, beads, agentHost, log, temporaryRoot)
+                : new MaintenanceSupervisor(preflight, beads, supervisorHost, log, temporaryRoot, pool: pool)
                 { StartSound = attentionSound.PlaySupervisorAsync };
             var coordinators = new Dictionary<string, ClaimCoordinator>(StringComparer.Ordinal);
             var loops = preflight.Agents.Select(agent =>
@@ -176,16 +215,25 @@ public sealed class AbacusApplication(
                     agentControls[agent.Name],
                     agentRuns,
                     notifier,
-                    preflight.Options.EffectiveExtraArguments, maintenance).RunAsync(linkedCancellation.Token);
+                    preflight.Options.EffectiveExtraArguments, maintenance, continuation,
+                    preflight.Options.ManagedAgentCount is null ? null : pool, beads).RunAsync(linkedCancellation.Token);
             }).ToArray();
 
             if (maintenance is not null)
                 maintenanceMonitor = maintenance.RunAsync(() => loops.All(loop => loop.IsCompleted), linkedCancellation.Token);
 
+            if (continuation is not null)
+                continuationMonitor = continuation.RunAsync(() => loops.All(loop => loop.IsCompleted), linkedCancellation.Token);
+
             if (log is ConsoleOutput consoleOutput)
             {
                 void RequestAction(string name, AgentControlAction action)
                 {
+                    if (name == ContinuationSupervisor.Name && continuation is not null)
+                    {
+                        continuation.Request(action);
+                        return;
+                    }
                     if (name == MaintenanceSupervisor.Name && maintenance is not null)
                     {
                         maintenance.Request(action);
@@ -209,7 +257,7 @@ public sealed class AbacusApplication(
                         RequestAction, linkedCancellation.Token);
             }
 
-            foreach (var loop in loops.Append(maintenanceMonitor))
+            foreach (var loop in loops.Append(maintenanceMonitor).Append(continuationMonitor))
             {
                 _ = loop.ContinueWith(
                     _ => linkedCancellation.Cancel(),
@@ -220,7 +268,7 @@ public sealed class AbacusApplication(
 
             try
             {
-                await Task.WhenAll(loops.Append(maintenanceMonitor));
+                await Task.WhenAll(loops.Append(maintenanceMonitor).Append(continuationMonitor));
             }
             catch (OperationCanceledException) when (controlShutdown && !cancellationToken.IsCancellationRequested)
             {
@@ -294,14 +342,17 @@ public sealed class AbacusApplication(
         UserAttentionSound attentionSound,
         AgentRunRegistry agentRuns,
         IReadOnlyList<ValidatedAgent> agents,
+        Options options,
         int latestCommentCount,
         bool includeLatestComments,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, WorktreePool? pool = null)
     {
         var agent = agents[0];
         var configuredAgents = agents
             .Select(static validated => validated.Name)
             .ToHashSet(StringComparer.Ordinal);
+        if (options.SupervisorModel is not null) configuredAgents.Add(MaintenanceSupervisor.Name);
+        if (options.ContinuationModel is not null) configuredAgents.Add(ContinuationSupervisor.Name);
         string? lastAttentionFailure = null;
         string? lastCommentsFailure = null;
         string? lastMergeSlotFailure = null;
@@ -357,8 +408,10 @@ public sealed class AbacusApplication(
                 {
                     try
                     {
+                        var path = pool is null ? workspaceAgent.WorkspacePath : pool.ActiveWorkspace(workspaceAgent.Name);
+                        if (path is null) { await log.SetWorkspaceAsync(workspaceAgent.Name, null, null); continue; }
                         var status = await git.GetWorkspaceStatusAsync(
-                            workspaceAgent.WorkspacePath, workspaceAgent.Name, cancellationToken);
+                            path, workspaceAgent.Name, cancellationToken);
                         await log.SetWorkspaceAsync(workspaceAgent.Name, status.Branch, status.IsDirty);
                     }
                     catch (Exception exception) when (exception is WorkspacePreparationException or CommandStartException or CommandTimeoutException)

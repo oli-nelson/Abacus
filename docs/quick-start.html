@@ -742,7 +742,7 @@
       <nav class="route" aria-label="Fast path">
         <a href="#repository"><strong>01</strong>Create the repo</a>
         <a href="#beads"><strong>02</strong>Choose storage</a>
-        <a href="#worktrees"><strong>03</strong>Add worktrees</a>
+        <a href="#worktrees"><strong>03</strong>Managed worktrees</a>
         <a href="#single-agent"><strong>04</strong>Start Abacus</a>
         <a href="#dashboard"><strong>05</strong>Watch and steer</a>
       </nav>
@@ -813,7 +813,6 @@ git add README.md
 git commit -m "Create project"
 
 export REPO="$PWD"
-export WORKTREES="$HOME/work/acme-widget-agents"
 git status --short</code></pre>
         </div>
 
@@ -834,8 +833,8 @@ git status --short</code></pre>
         <div class="section-heading">
           <span class="section-number">03</span>
           <div>
-            <h2>Give every agent a worktree</h2>
-            <p class="section-intro">A worktree is a second working directory attached to the same Git repository. Normal orchestration never creates worktrees and rejects duplicate resolved workspace paths. The standalone <code>new</code> command creates a new project and its worktrees.</p>
+            <h2>Let Abacus manage worktrees</h2>
+            <p class="section-intro">A worktree is a second working directory attached to the same Git repository. Abacus automatically allocates and reuses an external worktree pool. Choose capacity with <code>--agents</code> (default one); no workspace paths or manual creation are required.</p>
           </div>
         </div>
 
@@ -843,7 +842,7 @@ git status --short</code></pre>
           <section class="card">
             <p class="kicker">Topology</p>
             <h3>Keep main out of the pool</h3>
-            <p>Use <code>$REPO</code> to create issues, inspect health, and coordinate merges. Put persistent agent checkouts under <code>$WORKTREES</code>.</p>
+            <p>Use <code>$REPO</code> to create issues, inspect health, and coordinate merges. Abacus stores persistent agent checkouts under its application-data directory, with bookkeeping in the shared Git directory.</p>
           </section>
           <section class="card">
             <p class="kicker">Branch ownership</p>
@@ -853,11 +852,10 @@ git status --short</code></pre>
         </div>
 
         <div class="code-block">
-          <div class="code-label"><span>Create two candidate agent worktrees</span><button class="copy-button" type="button">Copy</button></div>
-          <pre><code>mkdir -p "$WORKTREES"
-git -C "$REPO" worktree add --detach "$WORKTREES/alice" main
-git -C "$REPO" worktree add --detach "$WORKTREES/bob" main
-git -C "$REPO" worktree list --porcelain</code></pre>
+          <div class="code-label"><span>Inspect and maintain the managed pool</span><button class="copy-button" type="button">Copy</button></div>
+          <pre><code>abacus worktrees list --repo "$REPO"
+# After stopping Abacus, reclaim a safely merged slot without deleting caches:
+abacus worktrees reclaim agent-1 --repo "$REPO"</code></pre>
         </div>
 
         <div class="callout info">
@@ -865,7 +863,7 @@ git -C "$REPO" worktree list --porcelain</code></pre>
           <p><strong>Beads follows the Git common directory.</strong> Linked worktrees automatically discover the primary repository’s Beads workspace. Initialize Beads once from <code>$REPO</code>; do not initialize a separate database inside every worktree.</p>
         </div>
 
-        <p class="muted small">If Beads initialization adds project files or agent instructions after you create these worktrees, commit those files and recreate or update the detached worktrees to that commit before running agents.</p>
+        <p class="muted small">Commit setup files before dispatch. Abacus creates missing worktrees on run, preserves interrupted work, and retains ignored compilation caches across reuse. See <a href="worktrees.md">pool maintenance and migration</a>.</p>
       </article>
 
       <article id="beads">
@@ -939,8 +937,8 @@ abacus health --repo "$REPO"</code></pre>
         <h3>Verify every worktree sees the same database</h3>
         <div class="code-block">
           <div class="code-label"><span>Identity check</span><button class="copy-button" type="button">Copy</button></div>
-          <pre><code>bd -C "$WORKTREES/alice" dolt show --json
-bd -C "$WORKTREES/bob" dolt show --json</code></pre>
+          <pre><code>bd -C "$REPO" dolt show --json
+abacus health --repo "$REPO"</code></pre>
         </div>
         <p class="muted">For a multi-agent run, Abacus requires both outputs to identify the same reachable host, port, and database. Keep host spelling consistent—do not mix <code>localhost</code> and <code>127.0.0.1</code>.</p>
 
@@ -1125,9 +1123,8 @@ and distinguish local commit or merge limits from legitimate push limits.</code>
           <pre><code>export SESSION=abacus-work
 export WINDOW=agents
 export MODEL=sonnet
-export AGENT_WORKTREE="$WORKTREES/alice"
 
-git -C "$AGENT_WORKTREE" status --short
+git -C "$REPO" status --short
 
 abacus run --repo "$REPO" \
   --mode claude \
@@ -1136,7 +1133,7 @@ abacus run --repo "$REPO" \
   --model "${MODEL}#high" \
   --notify attention \
   --notify-sound \
-  -a alice "$AGENT_WORKTREE"</code></pre>
+  --agents 1</code></pre>
         </div>
 
         <p>Attach to the Claude pane with <code>tmux attach-session -t "$SESSION"</code>. Detach without stopping it using <kbd>Ctrl-b</kbd>, then <kbd>d</kbd>.</p>
@@ -1151,7 +1148,7 @@ abacus run --repo "$REPO" \
   --tmux-session "$SESSION" --tmux-window "$WINDOW" \
   --model "${MODEL}#high" \
   --notify all --notify-sound \
-  -a alice "$AGENT_WORKTREE"</code></pre>
+  --agents 1</code></pre>
           </div>
           <p class="small"><strong>This is not Claude’s cloud-execution <code>--remote</code> flag.</strong> Abacus maps its switch to Remote Control. The agent process, files, tools, and network access remain on your machine. Sign into Claude Code with a claude.ai subscription and accept workspace trust before relying on unattended startup; Team and Enterprise organizations may also need an administrator to enable Remote Control.</p>
         </section>
@@ -1188,8 +1185,8 @@ bd create "Add health endpoint" --type task --priority 1 --json
 bd create "Document health endpoint" --type task --priority 2 --json
 bd ready --json
 
-bd -C "$WORKTREES/alice" dolt show --json
-bd -C "$WORKTREES/bob" dolt show --json
+bd -C "$REPO" dolt show --json
+abacus health --repo "$REPO"
 abacus health --repo "$REPO"</code></pre>
         </div>
 
@@ -1202,8 +1199,7 @@ abacus health --repo "$REPO"</code></pre>
   --model "${MODEL}#high" \
   --notify all \
   --notify-sound \
-  -a alice "$WORKTREES/alice" \
-  -a bob "$WORKTREES/bob"</code></pre>
+  --agents 2</code></pre>
         </div>
 
         <div class="grid-3">
@@ -1268,7 +1264,7 @@ abacus run --repo "$REPO" --mode claude \
   --tmux-session "$SESSION" --tmux-window "$WINDOW" \
   --model "$MODEL" \
   --append-prompt "Keep the change narrowly scoped." \
-  -a alice "$REPO"</code></pre>
+  --agents 1</code></pre>
         </div>
 
         <div class="callout info">
@@ -1328,7 +1324,7 @@ abacus run --repo "$REPO" --mode claude \
 
         <h3>Follow the latest Beads comments</h3>
         <p>New ticket claims start enabled unless <code>--start-paused</code> is supplied. Press <kbd>Shift-Tab</kbd> to pause or resume claims across all agents. Tickets that are already active keep running; agents at the next claim boundary display <code>PAUSED</code>, and the header always shows the current claim state.</p>
-        <p>Select a row with <kbd>↑</kbd> or <kbd>↓</kbd>. Press <kbd>Enter</kbd> on an agent to open its action panel. Stop parks that loop while retaining its active ticket and workspace; Restart revalidates the retained ticket's target, binding, history, and ownership before relaunch, or resumes the parked loop. Clean Workspace asks for confirmation, reopens any active ticket, runs <code>git reset --hard</code> and <code>git clean -fd</code>, and leaves the agent stopped until you choose Restart.</p>
+        <p>Select a row with <kbd>↑</kbd> or <kbd>↓</kbd>. Press <kbd>Enter</kbd> on an agent to open its action panel. Stop parks that loop while retaining its active ticket and workspace; Restart revalidates the retained ticket's target, binding, history, and ownership before relaunch, or resumes the parked loop. Clean Workspace asks for confirmation, reopens any active ticket, runs only <code>git reset --hard</code> (preserving untracked files and ignored caches), and leaves the agent stopped until you choose Restart.</p>
         <p>Selection continues through the latest-comment rows. Press <kbd>Enter</kbd> on one to read its complete wrapped text with issue, author, and timestamp context. Scroll long comments with <kbd>↑</kbd>, <kbd>↓</kbd>, <kbd>Page Up</kbd>, or <kbd>Page Down</kbd>, and press <kbd>Esc</kbd> to return.</p>
         <p>The dashboard polls Beads in the same five-second cycle used for user-attention detection, then places the newest comments at the very bottom, newest first. It shows up to 8 entries by default. Each entry puts the issue ID, a width-aware truncated issue title, and the comment author on a header line. The normalized comment wraps onto up to two indented body lines, with truncation when necessary. Only headers are colored; body lines use the terminal default color. Open a comment with Enter to read its complete text.</p>
 
@@ -1348,8 +1344,7 @@ abacus run --repo "$REPO" --latest-comments 12 \
   --mode claude \
   --tmux-session "$SESSION" \
   --model "$MODEL" \
-  -a alice "$WORKTREES/alice" \
-  -a bob "$WORKTREES/bob"</code></pre>
+  --agents 2</code></pre>
         </div>
 
         <div class="callout info">
@@ -1546,8 +1541,7 @@ bd update &lt;issue-id&gt; --status blocked --json</code></pre>
   --exclude-label on-hold \
   --type bug,task \
   --priority 1 \
-  -a alice "$WORKTREES/alice" \
-  -a bob "$WORKTREES/bob"</code></pre>
+  --agents 2</code></pre>
         </div>
 
         <div class="callout success">

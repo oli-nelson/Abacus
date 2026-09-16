@@ -15,7 +15,7 @@ setup path; you do not need to perform every walkthrough.
 
 - [Path A](#path-a-create-a-new-multi-agent-project): let Abacus generate a new project and worktrees.
 - [Path B](#path-b-use-an-existing-repository): add one agent to an existing repository.
-- [Path C](#path-c-scale-an-existing-repository-to-multiple-agents): prepare multiple worktrees and shared Dolt yourself.
+- [Path C](#path-c-scale-an-existing-repository-to-multiple-agents): configure shared Dolt and choose managed worker capacity.
 - [Path D](#path-d-use-opencode-server-without-tmux): attach directly to an existing OpenCode server.
 
 For a more visual tour, open the [interactive quick-start guide](quick-start.html).
@@ -58,8 +58,10 @@ The examples below assume the resulting `abacus` executable is on `PATH`.
 
 ## 2. Understand the workspace rule
 
-Every agent needs a different Git workspace: the main checkout, a linked
-worktree, or a separate clone. Two agents may never share the same directory.
+Abacus assigns each agent a reusable worktree automatically. Use `--agents N`
+(default 1) to choose capacity; no workspace paths are required. Legacy explicit
+workspaces remain supported, but two agents may never share the same directory.
+See [managed worktrees](worktrees.md) for pool maintenance and migration.
 
 > [!NOTE]
 > Abacus preserves dirty workspaces. When the current branch is
@@ -83,11 +85,7 @@ Abacus refuses an existing `my-project` destination, then creates:
 ```text
 my-project/
 ├── repo/                       # main checkout and Beads project
-├── worktrees/0/                # detached agent worktree
-├── worktrees/1/
-├── worktrees/2/
-├── worktrees/3/
-├── abacus_base.json                  # shared repo, agents, effort
+├── abacus_base.json                  # shared repo, agentCount
 └── abacus_{opencode,codex,claude}.json # baseConfig + mode/model
 ```
 
@@ -101,8 +99,8 @@ The initializer:
    with `enforceTargetBranch: false`, `defaultTarget: "main"`, and `main` allowed,
    and writes `.abacus/reasoning.json` with `enforceLabels: false`.
 5. Commits the initial repository state.
-6. Adds the requested detached worktrees.
-7. Writes `abacus_base.json` with the repository and created worktrees, plus three
+6. Records the requested managed worker count (worktrees are allocated on run).
+7. Writes `abacus_base.json` with the repository and `agentCount`, plus three
    harness/model configs that reference it with `baseConfig` and demonstrate all
    reasoning tiers by mapping each one to the harness's default model; every
    generated model specification explicitly uses the `#high` effort suffix.
@@ -277,7 +275,7 @@ Abacus treats it as user-owned and leaves it running after shutdown.
 
 Multiple agents need both isolated Git workspaces and one shared, server-backed
 Dolt database. This example keeps the primary checkout for administration and
-creates four persistent agent worktrees.
+requests four persistent managed worker slots, allocated on run.
 
 For existing-data migration, backup and recovery procedures, see
 [Managing Shared Dolt for Abacus](shared-dolt.md). Do not switch an embedded
@@ -287,7 +285,6 @@ database to server mode by editing configuration alone.
 
 ```sh
 export REPO=/path/to/your/repository
-export WORKTREES=/path/to/your/repository-worktrees
 export BASE=main
 export BEADS_PREFIX=myproject
 export BEADS_DATABASE=abacus_myproject_20260904
@@ -308,37 +305,22 @@ Review and commit project files changed by `bd init` before assigning worktrees
 to Abacus. Do not separately run `bd init` inside each linked worktree; Beads
 discovers the shared workspace from the repository.
 
-### C2. Create detached worktrees
+### C2. Let Abacus manage worktrees
 
-```sh
-mkdir -p "$WORKTREES"
-git -C "$REPO" worktree add --detach "$WORKTREES/alice" "$BASE"
-git -C "$REPO" worktree add --detach "$WORKTREES/bob" "$BASE"
-git -C "$REPO" worktree add --detach "$WORKTREES/carol" "$BASE"
-git -C "$REPO" worktree add --detach "$WORKTREES/dave" "$BASE"
-git -C "$REPO" worktree list
-```
-
-Detached worktrees are intentional: Abacus creates or checks out the matching
-`abacus/<issue-id>` branch after claiming work.
+No manual worktree creation or path configuration is necessary. `--agents 4`
+allocates or reuses four stable slots outside the checkout. See
+[managed worktrees](worktrees.md) for paths, cache retention, and maintenance.
 
 ### C3. Verify shared identity
 
 ```sh
-for agent in alice bob carol dave; do
-  bd -C "$WORKTREES/$agent" dolt show --json
-done
+bd -C "$REPO" dolt show --json
+abacus health --repo "$REPO"
 ```
 
-Every result must describe a non-embedded database with the same normalized
-host, port, and database. Abacus checks those fields during preflight and
-rejects a pool that does not share one identity.
-
-This requirement follows Beads' concurrency model: embedded mode is
-single-writer, while server mode supports multiple concurrent clients. See the
-[Beads FAQ](https://github.com/gastownhall/beads/blob/main/docs/reference/faq.md),
-[Beads Dolt documentation](https://github.com/gastownhall/beads/blob/main/docs/architecture/dolt.md),
-and the [Abacus shared Dolt operations guide](shared-dolt.md).
+The database must be non-embedded and reachable. Abacus verifies that every
+allocated workspace resolves to the same normalized host, port, and database
+before claiming tickets. See [shared Dolt operations](shared-dolt.md).
 
 ### C4. Start the pool
 
@@ -350,10 +332,7 @@ abacus run \
   --tmux-session abacus-work \
   --tmux-window agents \
   --model gpt-5.6-terra#high \
-  -a alice "$WORKTREES/alice" \
-  -a bob "$WORKTREES/bob" \
-  -a carol "$WORKTREES/carol" \
-  -a dave "$WORKTREES/dave"
+  --agents 4
 ```
 
 Pane-hosted runs use the `tiled` tmux layout by default. Pass

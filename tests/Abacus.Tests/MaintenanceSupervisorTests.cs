@@ -5,6 +5,38 @@ namespace Abacus.Tests;
 
 public sealed class MaintenanceSupervisorTests
 {
+    [Fact]
+    public void ManagedDiagnosticsNeverFallBackToMainCheckoutWhenSnapshotIsMissing()
+    {
+        var worker = new ValidatedAgent("renamed", "/main-checkout", new(true, "test", null, null, true), false);
+        var managed = JsonSerializer.SerializeToElement(MaintenanceSupervisor.BuildDiagnostics([], new Dictionary<string, string>(),
+            [worker], null, managedWorkers: true));
+        Assert.Equal(JsonValueKind.Null, managed.GetProperty("workspaces")[0].GetProperty("WorkspacePath").ValueKind);
+        Assert.Contains("unknown", managed.GetProperty("pool").GetProperty("Error").GetString());
+        var legacy = JsonSerializer.SerializeToElement(MaintenanceSupervisor.BuildDiagnostics([], new Dictionary<string, string>(),
+            [worker], null, managedWorkers: false));
+        Assert.Equal("/main-checkout", legacy.GetProperty("workspaces")[0].GetProperty("WorkspacePath").GetString());
+    }
+
+    [Fact]
+    public void BothSupervisorPromptsRetainPoolSafetyBoundariesAlongsideCustomMergePolicy()
+    {
+        var targets = new TargetRegistry(new Dictionary<string, TargetPolicy>
+            { ["main"] = new("main", "Use the approved integration script.", "test") });
+        var worker = new ValidatedAgent("worker", "/controller", new(true, "test", null, null, true), false, Targets: targets);
+        var maintenance = MaintenanceSupervisor.RenderPrompt("run", "/tmp/done", [], new Dictionary<string, string>(),
+            [worker], "Explicit project policy", managedWorkers: true);
+        var continuation = ContinuationSupervisor.RenderPrompt("run", "/tmp/done", targets, "Create epics autonomously.");
+        foreach (var prompt in new[] { maintenance, continuation })
+        {
+            Assert.Contains(Prompt.PoolSafetyInstructions, prompt);
+            Assert.Contains("Use the approved integration script.", prompt);
+            Assert.Contains("does not kill processes or prove their absence", prompt);
+        }
+        Assert.Contains("scoped standing", continuation);
+        Assert.Contains("Do not borrow a managed pool slot", continuation);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("Merge and push into main after repairs.")]
@@ -29,6 +61,27 @@ public sealed class MaintenanceSupervisorTests
                 > prompt.IndexOf(additive, StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Use the reviewed merge script only.")]
+    [InlineData("")]
+    public void SupervisorLearnsEffectiveTargetMergePolicyIncludingEmptyOverrides(string? policy)
+    {
+        var targets = new TargetRegistry(new Dictionary<string, TargetPolicy>
+            { ["release"] = new("release", policy, "test") }, defaultTarget: "release");
+        var agent = new ValidatedAgent("a", "/tmp/a", new(true, "test", null, null, true), false, Targets: targets);
+        var prompt = MaintenanceSupervisor.RenderPrompt("run", "/tmp/done", [],
+            new Dictionary<string, string>(), [agent], null);
+        Assert.Contains("Destination: refs/heads/release", prompt);
+        if (policy is null) Assert.Contains("merge --ff-only abacus/<issue-id>", prompt);
+        else
+        {
+            Assert.DoesNotContain("merge --ff-only", prompt);
+            if (policy.Length > 0) Assert.Contains(policy, prompt);
+        }
+        Assert.Contains("knowledge, not additional authority", prompt);
+    }
+
     [Fact]
     public void DefaultPromptAllowsReopeningOnlyAfterResolvingThePrimaryAttentionBlocker()
     {
@@ -41,6 +94,48 @@ public sealed class MaintenanceSupervisorTests
         Assert.Contains("bd update <id> --status open --assignee \"\" --json", prompt);
         Assert.Contains("Keep the ticket blocked if another blocker remains", prompt);
         Assert.Contains("does not authorize project or implementation decisions", prompt);
+    }
+
+    [Theory]
+    [InlineData("--maintainer")]
+    [InlineData("--supervisor-model")]
+    public void MaintainerModelOptionAcceptsCanonicalAndLegacySpelling(string option)
+    {
+        var parsed = Options.Parse(["run", "--model", "p/w", option, "p/repair#medium"]).Value!;
+        Assert.Equal("p/repair", parsed.SupervisorModel);
+        Assert.Equal("medium", parsed.SupervisorEffort);
+        Assert.Throws<OptionsException>(() => Options.Parse(["run", "--model", "p/w",
+            "--maintainer", "p/a", "--supervisor-model", "p/b"]));
+    }
+
+    [Fact]
+    public void MaintainerModelInheritanceAndCliOverridesNormalizeLegacyNames()
+    {
+        using var fixture = new Fixture();
+        var basePath = Path.Combine(fixture.Root, "base.json");
+        var childPath = Path.Combine(fixture.Root, "child.json");
+        File.WriteAllText(basePath, """{"version":1,"model":"p/w","supervisorModel":"p/old"}""");
+        File.WriteAllText(childPath, """{"version":1,"baseConfig":"base.json","maintainerModel":"p/new#medium"}""");
+        Assert.Equal("p/new", Options.Parse(["preflight", "--config", childPath]).Value!.SupervisorModel);
+        Assert.Equal("p/cli", Options.Parse(["preflight", "--config", childPath, "--supervisor-model", "p/cli"]).Value!.SupervisorModel);
+        Assert.Equal("p/cli", Options.Parse(["preflight", "--config", childPath, "--maintainer", "p/cli"]).Value!.SupervisorModel);
+        Assert.Contains("supervisorModel", File.ReadAllText(basePath)); // No implicit file rewrite.
+        File.WriteAllText(childPath, """{"version":1,"baseConfig":"base.json","maintainerModel":null}""");
+        Assert.Null(Options.Parse(["preflight", "--config", childPath]).Value!.SupervisorModel);
+        File.WriteAllText(childPath, """{"version":1,"maintainerModel":"p/a","supervisorModel":"p/b"}""");
+        Assert.Throws<OptionsException>(() => RunConfiguration.Load(childPath));
+    }
+
+    [Fact]
+    public void MaintenanceIdentityIsReservedWithoutRenamingConfiguration()
+    {
+        Assert.Equal("maintenance", MaintenanceSupervisor.Name);
+        Assert.Throws<OptionsException>(() => Options.Parse(["run", "--model", "p/w", "--agent-name", "maintenance"]));
+        var options = Options.Parse(["run", "--model", "p/w", "--agent-name", "supervisor",
+            "--supervisor-model", "p/repair"]).Value!;
+        Assert.Equal("supervisor", Assert.Single(options.Agents).Name);
+        Assert.Equal("p/repair", options.SupervisorModel);
+        Assert.Equal("abacus:supervisor-cannot-resolve", MaintenanceSupervisor.CannotResolveLabel);
     }
 
     [Fact]
@@ -254,7 +349,7 @@ public sealed class MaintenanceSupervisorTests
         fixture.Host.OnStart = (_, issue) => fixture.Complete(issue.Id); // Leaves attention unresolved.
         await fixture.Supervisor.RunAsync(() => fixture.Host.Stops > 0, fixture.Token);
         Assert.Equal(expected, fixture.Clips.Count);
-        if (expected > 0) Assert.Equal(new[] { SoundClip.Supervisor, SoundClip.SupervisorFailed }, fixture.Clips);
+        if (expected > 0) Assert.Equal(new[] { SoundClip.MaintenanceStarting, SoundClip.SupervisorFailed }, fixture.Clips);
     }
 
     [Fact]

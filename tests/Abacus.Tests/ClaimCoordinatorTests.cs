@@ -627,7 +627,9 @@ public sealed class ClaimCoordinatorTests
                 elif test "$3" = show-ref; then
                   exit 1
                 elif test "$3" = switch; then
-                  test "$4" = -c && printf '%s' "$5" > "$root/branch" || printf '%s' "$4" > "$root/branch"
+                  shift 3; test "$1" = --no-overwrite-ignore && shift
+                  case "$1" in -c|--no-guess) shift;; esac
+                  printf '%s' "$1" > "$root/branch"
                 elif test "$3" = branch; then
                   cat "$root/branch"
                 else

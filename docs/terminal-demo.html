@@ -124,7 +124,7 @@ function render() {
     if(panel==='agent'||panel==='clean') {
       const a=agents[selected];
       h+=line(` AGENT ACTIONS — ${a.name}`,'bold cyan')+line(`   ${a.state} • ${a.detail}`)+line(`   /Users/onelson/Development/atlas/worktrees/${selected}`,'dim');
-      if(panel==='clean') h+=line('   Permanently discard tracked and untracked workspace changes?','red')+`<div class="line">   ${actionButton('[Y] Clean workspace','clean-confirm')}   ${actionButton('[N/Esc] Cancel','cancel')}</div>`;
+      if(panel==='clean') h+=line('   Discard tracked changes? Untracked files and ignored caches are kept.','red')+`<div class="line">   ${actionButton('[Y] Clean workspace','clean-confirm')}   ${actionButton('[N/Esc] Cancel','cancel')}</div>`;
       else ['[S] Stop agent|stop','[R] Restart agent|restart','[C] Clean workspace|clean','[Esc] Close|close'].forEach(s=>{const [label,action]=s.split('|');h+=`<div class="line">   ${actionButton(label,action)}</div>`;});
     }
     if(!resolved) h+=line(' ! USER ATTENTION (1)','bold red')+`<div class="line">${color('   ! ','red')}${esc('atlas-d3f — Define retention policy for audit events')}</div>`;

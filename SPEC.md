@@ -35,11 +35,11 @@ This standalone operation must reject an existing `<project-name>` destination,
 then create `<project-name>/repo`, initialize its `main` branch, configure a
 unique shared-server Beads database with `no-git-ops=false`, local-only Dolt,
 and a merge slot, install all bundled Abacus skills, and commit the initial
-repository state. It then creates `<agent-count>` detached Git worktrees at
-`<project-name>/worktrees/0` through `worktrees/<agent-count-1>`.
+repository state. Its generated configuration requests `<agent-count>` managed
+workers; detached worktrees are allocated from the reusable pool at first run.
 Beads initialization must be non-interactive and select the maintainer role.
 
-The project root receives `abacus_base.json` with the created named worktrees,
+The project root receives `abacus_base.json` with `agentCount`,
 repository path, `startPaused: true`, `notify: "all"`,
 `notifySound: true`, and `tuiAudio: true`. `abacus_opencode.json`,
 `abacus_codex.json`, and `abacus_claude.json` contain version, baseConfig, mode,
@@ -50,8 +50,8 @@ config directory. Do not generate shell launcher scripts. From the project root,
 execute `abacus run` and select a harness config (not the incomplete shared base).
 For non-interactive use or invocation from elsewhere, pass
 `abacus run --config <path-to-harness-config>`. Edit the base once for all harnesses,
-edit individual harness/model configs, or pass CLI overrides. Worktrees are
-recorded at creation time; new worktrees must be added to the base config.
+edit individual harness/model configs, or pass CLI overrides. Change `agentCount` to resize worker capacity; Abacus allocates missing slots
+and retains unused slots and caches.
 Previously generated scripts are not modified or deleted.
 
 Before running Abacus:
@@ -103,13 +103,71 @@ is a separate health/preflight check, not an initialization prerequisite.
 
 ### Agent workspaces
 
-Each agent is assigned a Git workspace. This can be:
+By default Abacus allocates one managed worker; `--agents <count>` / `agentCount`
+selects 1–256 workers without workspace paths. Pool checkouts live under the
+OS application-data directory in `abacus/worktrees/<local-repository-id>/slot-N`.
+The shared Git directory contains the pool manifest and exclusive controller
+lease, not source checkouts. Reuse stable slots across sessions and capacity
+changes; never automatically remove unused slots or reset interrupted work.
+Preflight remains read-only: validate missing slots against the controller,
+then allocate and revalidate actual worktrees at runtime before any claims.
 
-- The main repository directory
-- A Git worktree
-- A separate clone of the repository
+Legacy `--agent <name> <workspace>` / `agents` configurations remain explicit,
+mutually exclusive with managed counts. Never adopt, move, reset, or delete those
+workspaces as a migration side effect. CLI count overrides a saved legacy list;
+a CLI legacy list overrides a saved count. A derived non-null worker setting
+replaces the other worker-selection setting. An empty legacy list defaults to
+one managed worker. Multiple agents must never share a workspace.
 
-Multiple agents must not use the same workspace directory.
+Maintenance commands: `worktrees list` reports slot paths, state and disk usage;
+`worktrees reclaim <slot-ID>` detaches a clean, inactive slot only when its ticket
+is closed and HEAD is merged into a configured target; `worktrees remove <slot-ID>
+--confirm` additionally removes the checkout and caches without forcing Git;
+`worktrees prune` forgets missing slots whose Git registration was already removed.
+Mutating commands take the controller lease and preserve unsafe work. Missing,
+foreign, or malformed slots are reported for review, never silently recreated.
+User-managed worktrees and branches are never removed by pool maintenance.
+
+Managed worker names are optional display labels (`--agent-name`, repeatable, or
+`agentNames`). Defaults remain agent-N. Without an explicit count, supplied names
+set the worker count; otherwise unnamed workers receive defaults and excess names
+are rejected. Labels must be unique, nonempty, at most 100 characters, and without
+control characters. Names may change between runs without
+changing worktree ownership; unique internal run/worker/assignment IDs fence
+updates. Slots have independent stable IDs (old agent-N slots remain supported).
+Acquire a slot exclusively per assignment, prefer exact-issue recovery across the
+whole pool regardless of worker count, and release only after execution cleanup.
+An unlocked slot can still be reserved or require review. Fresh claims stay atomic
+in Beads; record intent before claiming and prevent duplicate issue reservations.
+Keep the Beads assignee readable and update it when a new worker safely resumes;
+an unexpected external reassignment requires review. Never infer ownership solely
+from matching display names or branches.
+
+Persist launch uncertainty before invoking the harness. A controller crash never
+proves that its children stopped: uncertain slots remain unavailable until the
+operator stops surviving execution and confirms `worktrees recover <slot-ID>
+--confirm`. This command changes only the execution marker, not files or tickets.
+Normal verified cleanup clears uncertainty. Refuse a new controller while any
+execution remains uncertain, so merge-slot reclamation and supervisors cannot race
+an old process still integrating in the main checkout. No time-based stealing or automatic
+reset is allowed. Reconcile claims, branch/binding, status, and merged history on
+recovery; blocked/unknown work, conflicting records, and unmerged closed work are
+not fresh capacity. If none is safe, wait with an alert (or fail finite runs).
+
+Workspace cleanup uses only `git reset --hard`, with an obstruction guard:
+preserve untracked files and ignored caches, refusing reset if it would overwrite
+one. Ordinary untracked leftovers retain the interrupted-workspace safety checks.
+
+Supervisor diagnostics must use a fresh read-only pool assignment snapshot, not
+managed workers' preflight controller paths. Include every retained slot and its
+journal/lease evidence; represent unleased or unknown worker paths as null and
+metadata failures explicitly. Snapshots are not repair authorization. Both roles
+must preserve Abacus locks/journals and leave offline worktree recovery to an
+operator after verified process shutdown. Installable skills must distinguish
+historical assignees from ownership and legitimate pool restrictions from Git bans.
+Planner approval may come from explicit bounded user continuation policy; ordinary
+interactive planning still requires graph approval. Scoped maintenance permission
+may authorize only its stated repairs, never unrequested project decisions.
 
 ### Beads database
 
@@ -121,7 +179,8 @@ Multiple agents must use the same shared Dolt database so task claims are atomic
 
 Operations are bare commands: `version`, `run`, `preflight`, `new`, `init`, `skills install`,
 `health`, `info`, `models`, `branches prune`, `attention list`, `attention resolve`,
-`targets check`, `targets set`, `attention retry-supervisor`, and `config edit`. Bare `abacus` prints help; there is no implicit
+`targets check`, `targets set`, `attention retry-supervisor`, `worktrees list`,
+`worktrees reclaim`, `worktrees remove`, `worktrees recover`, `worktrees prune`, and `config edit`. Bare `abacus` prints help; there is no implicit
 run or compatibility syntax. `abacus help <command>`, `<command> --help`, and
 `<command> -h` provide scoped help without operational prerequisites.
 `--repo` works before or after repository-scoped commands, not `new`, `models`, `version`, or `config edit`.
@@ -161,7 +220,7 @@ baseConfig reference on Save As without flattening inherited fields.
 Use the schema in [run configurations](docs/run-config.md).
 
 For `run` without `--config`, validate supplied CLI arguments first. If required
-values are missing (model, at least one named agent workspace, or server address
+values are missing (model or server address
 for opencode-server), report all missing requirements and offer one config
 selection from the working directory. Discover only top-level JSON files matching
 the run-config schema, including incomplete drafts; sort by filename and require
@@ -287,8 +346,7 @@ abacus run [--tmux-session <session_name>] \
   [--notify <off|attention|all>] [--notify-sound] \
   [--once | --drain] \
   [--verbose] \
-  -a <agent_name> <git_workspace_path> \
-  -a <agent_name> <git_workspace_path>
+  [--agents <count>]
 ```
 
 `--mode` defaults to `opencode`. `--model <model[#effort]>` is required. The
@@ -425,8 +483,7 @@ To connect the agents to an existing OpenCode server:
 abacus run --mode opencode-server --model <provider/model[#effort]> \
   --opencode-server 127.0.0.1:1234 \
   [--once | --drain] \
-  -a <agent_name> <git_workspace_path> \
-  -a <agent_name> <git_workspace_path>
+  [--agents <count>]
 ```
 
 With no tmux-related option, each OpenCode Server agent starts as a directly supervised, non-interactive `opencode run --attach` child process connected to the specified server. Direct processes receive their own workspace, prompt, model, and `BEADS_ACTOR`; Abacus drains their output so it does not corrupt the dashboard and stops them when supervision ends. tmux is not looked up or required in this mode.
@@ -455,7 +512,7 @@ running harnesses retain ownership or queue entries. This single-controller
 version does not preserve claims from other Abacus runs or external agents;
 do not share the merge slot with another controller.
 
-By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, paused, waiting, idle, syncing, preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. For pane-hosted runs, the dashboard also shows the resolved tmux session and window names so the operator can attach from another shell. The dashboard starts with new ticket claims enabled unless `--start-paused` is supplied; in that case its header shows claims paused from the first frame. Pressing Shift-Tab toggles new claims on or off for all agents; pausing does not interrupt tickets that are already active. The header shows the current claim state, and agents waiting for permission display a paused state. Keys 1–4 select Agents, Attention Center, Latest Comments, and Settings; Tab/Right cycles forward and Left cycles backward. Agents is the initial screen. Only the active screen occupies the content viewport. A compact persistent header shows claim state and all four tabs; inactive tabs display a non-color-dependent `!n` count of new or changed current entries since the screen was last viewed. Opening a screen acknowledges its current snapshot, not the underlying attention conditions. Identical polls and elapsed-time ticks do not create unread entries; removed entries cease to count. Updates while an action panel or comment detail is open remain unread until the panel closes. Settings starts acknowledged and shows read-only run model/effort, agent count, tmux target, and claim schedule; Shift-Tab remains the global claim control. Page Up/Down scroll each screen independently, and selection stays within the active screen. The up and down arrows (or j/k) select agent and latest-comment rows or scroll Attention Center and Settings. Enter opens the selected agent's action panel or the selected comment's complete detail view; long comments scroll with the arrow or Page Up and Page Down keys, and Escape returns to the dashboard. Stop interrupts that agent's hosted process, keeps its current ticket reserved, and parks the loop. Restart interrupts an active process when necessary and relaunches the reserved ticket, or resumes a parked or idle loop. Clean Workspace requires explicit confirmation, safely reopens any active ticket, runs `git reset --hard` followed by `git clean -fd`, and leaves the agent parked until Restart. A successful clean clears that agent's persistent recovery alert. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed Latest Comments screen shows the configured number of issue, author, and comment entries. Attention Center contains attention-labelled issues and persistent recovery alerts, followed by one notice row per agent or Abacus source. Alert text wraps to the terminal width rather than being clipped, a source never occupies more than one notice row, a notice that repeats or restates that source's persistent alert does not stack a duplicate row, resolving an alert clears its source's notice, and an unrepeated notice expires after about a minute. Overflow scrolls within the screen's available height, preserving navigation and status instead of pushing comments or controls off-screen. Idle states are visually distinct from failures. `--verbose` (also accepted as `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
+By default, Abacus displays a live terminal dashboard with one row per agent, showing whether each agent is starting, paused, waiting, idle, syncing, preparing a workspace, working on a ticket, finalizing, recovering, retrying, or stopped. Active rows include the ticket ID and title, time in the current state, process or pane location, retry count, and most recently observed exit code when available. For pane-hosted runs, the dashboard also shows the resolved tmux session and window names so the operator can attach from another shell. The dashboard starts with new ticket claims enabled unless `--start-paused` is supplied; in that case its header shows claims paused from the first frame. Pressing Shift-Tab toggles new claims on or off for all agents; pausing does not interrupt tickets that are already active. The header shows the current claim state, and agents waiting for permission display a paused state. Keys 1–4 select Agents, Attention Center, Latest Comments, and Settings; Tab/Right cycles forward and Left cycles backward. Agents is the initial screen. Only the active screen occupies the content viewport. A compact persistent header shows claim state and all four tabs; inactive tabs display a non-color-dependent `!n` count of new or changed current entries since the screen was last viewed. Opening a screen acknowledges its current snapshot, not the underlying attention conditions. Identical polls and elapsed-time ticks do not create unread entries; removed entries cease to count. Updates while an action panel or comment detail is open remain unread until the panel closes. Settings starts acknowledged and shows read-only run model/effort, agent count, tmux target, and claim schedule; Shift-Tab remains the global claim control. Page Up/Down scroll each screen independently, and selection stays within the active screen. The up and down arrows (or j/k) select agent and latest-comment rows or scroll Attention Center and Settings. Enter opens the selected agent's action panel or the selected comment's complete detail view; long comments scroll with the arrow or Page Up and Page Down keys, and Escape returns to the dashboard. Stop interrupts that agent's hosted process, keeps its current ticket reserved, and parks the loop. Restart interrupts an active process when necessary and relaunches the reserved ticket, or resumes a parked or idle loop. Clean Workspace requires explicit confirmation, safely reopens any active ticket, runs only `git reset --hard` (preserving untracked files and ignored caches), and leaves the agent parked until Restart. A successful clean clears that agent's persistent recovery alert. Issues labelled `abacus:needs-user-attention`, including closed issues, appear in a persistent alert containing their IDs and titles until the label is removed. A periodically refreshed Latest Comments screen shows the configured number of issue, author, and comment entries. Attention Center contains attention-labelled issues and persistent recovery alerts, followed by one notice row per agent or Abacus source. Alert text wraps to the terminal width rather than being clipped, a source never occupies more than one notice row, a notice that repeats or restates that source's persistent alert does not stack a duplicate row, resolving an alert clears its source's notice, and an unrepeated notice expires after about a minute. Overflow scrolls within the screen's available height, preserving navigation and status instead of pushing comments or controls off-screen. Idle states are visually distinct from failures. `--verbose` (also accepted as `-v`) replaces the dashboard with timestamped state transitions, warnings, alerts, and every external command Abacus runs. When standard error is redirected, the default mode emits compact state transitions rather than terminal control sequences. Before starting any agent loop, Abacus pulls once when a single configured agent has a Dolt remote, then records the current Dolt `HEAD` with read-only `bd vc status`. Shared multi-agent databases are already live and are not pulled. On shutdown, Abacus prints that initial full Dolt commit in the final summary alongside elapsed time and per-agent counts for closed, reopened, blocked, and interrupted tickets.
 
 ### Event reporting, stdio control, and interactive intro
 
@@ -526,7 +583,8 @@ repository it reports:
 
 Direct OpenCode Server mode does not require tmux, but health does not attempt to
 find or contact a server. Multi-agent readiness requires a reachable shared
-Beads database and more than one referenced Git worktree. Separate clones may
+Beads database and a valid main Git worktree; additional managed worktrees are
+allocated automatically. Separate clones may
 also provide distinct workspaces, but health deliberately does not search for
 them. Merge-slot availability is advisory because repositories may serialize
 merges another way. The command exits zero when at least one single-agent mode is
@@ -817,7 +875,7 @@ never uploads; tag pushes no longer trigger releases. See [releases](docs/releas
 
 ## Optional maintenance supervisor
 
-`--supervisor-model` / `supervisorModel` enables one separate maintenance harness
+`--maintainer` / `maintainerModel` enables one separate maintenance harness
 using the selected mode and host in the selected main checkout, not a worktree.
 The model uses normal native model/effort validation. Separate
 `--supervisor-extra-args` / `supervisorExtraArgs` never inherit worker arguments.
@@ -865,10 +923,11 @@ complete the run. Clean runtime files after use.
 
 Expose a separate supervisor TUI row and state events, showing current state,
 last outcome, active model/location, and persistent unresolved alerts. Reserve
-`supervisor` as an agent name only while enabled. Offer Stop (cancel/disable) and
+`maintenance` and `continuation` as reserved agent names. Offer Stop (cancel/disable) and
 Restart (enable/recheck), never destructive workspace cleanup. Keep supervisor
 runs out of worker capacity and ticket outcome counts. Play the bundled supervisor
-startup/failure clips only with interactive TUI audio enabled. Supervisor clips
+startup/failure clips only with interactive TUI audio enabled. Maintenance and
+continuation use distinct startup clips; maintenance retains its failure clip. Supervisor clips
 stop attention playback and suppress new attention sounds until they finish,
 without queuing suppressed sounds for later. Failure audio waits
 for recovery verification and plays once per failed/unresolved run.
@@ -879,3 +938,48 @@ status, and assignee. Validate IDs before writes; process in order, report each
 success, and stop nonzero on error without rolling back previous updates. This
 standalone command needs no model or agents and does not launch a supervisor.
 See [the supervisor guide](docs/supervisor.md) for operational details.
+
+## Optional empty-backlog continuation supervisor
+
+`--continuation-model` / `continuationModel` independently enables a second role,
+`continuation`, using the selected harness in the main checkout. Its separate
+extra-args, timeout (default 30m), and prompt-file options mirror the maintenance
+role. Repository `.abacus/continuation.md` precedes the custom file; do not inherit
+maintenance or worker additive policies. Without an actionable user policy,
+perform no project planning/implementation decisions. User policy can authorize
+specification writing and new epic/task creation using the existing planner skill.
+New draft epics/tasks must be non-ready from creation while dispatch is active.
+Do not require unsupported `bd create --status` flags: on Beads 1.2.2, stage with
+a verified far-future deferral, set blocked status, and only then clear the
+deferral. Publish explicitly after graph validation and prerequisite integration;
+interrupted drafts remain non-ready rather than becoming claimable on a short timer.
+
+Query all epics with `bd list --type epic --all --limit 0 --json`, independent of
+worker filters. Only no non-closed epics permits launch; blocked/deferred/unknown
+statuses prevent launch and failed/malformed queries fail closed. Keep an initially
+armed empty-backlog trigger only in process memory, consume before launch, and
+rearm after observing unfinished epics or an explicit operator retry. Crashes,
+no-op completions, and timeouts cannot loop an unchanged empty backlog within the
+same process. A new Abacus process starts armed; ignore legacy continuation.json
+files without reading, writing, or deleting them. Continuous runs may launch again
+after newly observed work finishes.
+Finite runs allow at most one automatic attempt per invocation and hold idle
+workers for a subsequent ready check. Honor manual pause and claim schedules for
+new continuation launches, without interrupting active harnesses at a boundary.
+
+Serialize both supervisor harnesses in the main checkout; never share it with a
+configured worker while either role is enabled. Track active supervisors in the
+merge-slot reclaimer. Both roles receive effective controller-snapshotted per-target
+merge instructions (default or custom, including empty overrides). Knowledge of
+merge procedures does not enlarge maintenance authority. Continuation may perform
+local Git integration needed for authorized specification work, preserving user
+changes and active work and obeying repository restrictions; Git pushes require
+explicit policy. Finish Git operations and release slots before signalling completion.
+
+Expose separate supervisor rows/events with Stop/Restart and no cleanup action.
+Both rows offer a read-only, wrapped and scrollable last-run report through L
+and their action menu, retaining the latest result/time/model in process memory
+independently of current status. No prior run displays an explicit empty state.
+There is no offline continuation-retry command. Runtime Restart rearms and rechecks, but
+never bypasses unfinished epics. Use the same unique completion-file validation,
+bounded timeout, and safe harness cleanup contract as maintenance supervision.

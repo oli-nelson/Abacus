@@ -9,13 +9,14 @@ public sealed class SoundPlayerTests
     {
         var assembly = typeof(Program).Assembly;
 
-        foreach (var clip in new[] { SoundClip.Intro, SoundClip.UserAttention, SoundClip.Supervisor, SoundClip.SupervisorFailed })
+        foreach (var clip in new[] { SoundClip.Intro, SoundClip.UserAttention, SoundClip.MaintenanceStarting, SoundClip.ContinuationStarting, SoundClip.SupervisorFailed })
         {
             using var stream = assembly.GetManifestResourceStream(clip.ResourceName);
             Assert.NotNull(stream);
             Assert.True(stream.Length > 0);
         }
 
+        Assert.DoesNotContain("Abacus.Media.abacus_supervisor.mp3", assembly.GetManifestResourceNames());
         Assert.DoesNotContain("Abacus.Media.abacus_jingle.mp3", assembly.GetManifestResourceNames());
         Assert.DoesNotContain("Abacus.Media.abacus_welcome.mp3", assembly.GetManifestResourceNames());
     }
@@ -23,6 +24,9 @@ public sealed class SoundPlayerTests
     [Fact]
     public void ClipsExtractToDistinctTemporaryFileNames()
     {
+        Assert.Equal("abacus_supervisor_maintanence.mp3", SoundClip.MaintenanceStarting.FileName);
+        Assert.Equal("abacus_supervisor_continue.mp3", SoundClip.ContinuationStarting.FileName);
+        Assert.NotEqual(SoundClip.MaintenanceStarting.ResourceName, SoundClip.ContinuationStarting.ResourceName);
         Assert.Equal("abacus_intro.mp3", SoundClip.Intro.FileName);
         Assert.Equal("Abacus.Media.abacus_intro.mp3", SoundClip.Intro.ResourceName);
         Assert.Equal("abacus_attention.mp3", SoundClip.UserAttention.FileName);

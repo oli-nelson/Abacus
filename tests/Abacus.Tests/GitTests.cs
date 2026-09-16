@@ -106,6 +106,25 @@ public sealed class GitTests
     }
 
     [Fact]
+    public async Task BranchSwitchPreservesIgnoredCacheThatConflictsWithTargetFiles()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var repository = await TemporaryGitRepository.CreateAsync();
+        await repository.RunAsync("switch", "-c", "abacus/cache-conflict");
+        await File.WriteAllTextAsync(Path.Combine(repository.Path, "artifact"), "tracked on other branch");
+        await repository.RunAsync("add", "artifact");
+        await repository.RunAsync("commit", "-m", "track artifact");
+        await repository.RunAsync("switch", "main");
+        await File.WriteAllTextAsync(Path.Combine(repository.Path, ".git", "info", "exclude"), "artifact\n");
+        await File.WriteAllTextAsync(Path.Combine(repository.Path, "artifact"), "precious cache");
+        var git = new Git(new CommandRunner(TextWriter.Null), repository.GitExecutable);
+        await Assert.ThrowsAsync<WorkspacePreparationException>(() => git.PrepareIssueBranchAsync(
+            repository.Path, "alice", "cache-conflict", CancellationToken.None));
+        Assert.Equal("precious cache", await File.ReadAllTextAsync(Path.Combine(repository.Path, "artifact")));
+        Assert.Equal("main", await repository.CurrentBranchAsync());
+    }
+
+    [Fact]
     public async Task RefusesIssueBranchCheckedOutInAnotherWorktree()
     {
         if (OperatingSystem.IsWindows())
@@ -239,7 +258,7 @@ public sealed class GitTests
     }
 
     [Fact]
-    public async Task CleanWorkspaceDiscardsTrackedAndUntrackedChanges()
+    public async Task CleanWorkspaceResetsTrackedChangesAndPreservesUntrackedFilesAndIgnoredCaches()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -251,12 +270,36 @@ public sealed class GitTests
         var untrackedDirectory = Directory.CreateDirectory(Path.Combine(repository.Path, "scratch"));
         await File.WriteAllTextAsync(Path.Combine(untrackedDirectory.FullName, "notes.txt"), "temporary\n");
 
+        await File.WriteAllTextAsync(Path.Combine(repository.Path, ".git", "info", "exclude"), "target/\n");
+        Directory.CreateDirectory(Path.Combine(repository.Path, "target"));
+        await File.WriteAllTextAsync(Path.Combine(repository.Path, "target", "artifact"), "cached");
+
         await new Git(new CommandRunner(TextWriter.Null), repository.GitExecutable)
             .CleanWorkspaceAsync(repository.Path, "alice", CancellationToken.None);
 
         Assert.Equal("clean\n", await File.ReadAllTextAsync(Path.Combine(repository.Path, "file.txt")));
-        Assert.False(Directory.Exists(untrackedDirectory.FullName));
+        Assert.Equal("temporary\n", await File.ReadAllTextAsync(Path.Combine(untrackedDirectory.FullName, "notes.txt")));
+        Assert.Equal("cached", await File.ReadAllTextAsync(Path.Combine(repository.Path, "target", "artifact")));
         Assert.Equal(repository.InitialBranch, await repository.CurrentBranchAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResetRefusesUntrackedOrIgnoredObstructionsWithoutChangingFiles(bool ignored)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var repository = await TemporaryGitRepository.CreateAsync();
+        File.Delete(Path.Combine(repository.Path, "file.txt"));
+        Directory.CreateDirectory(Path.Combine(repository.Path, "file.txt"));
+        var obstruction = Path.Combine(repository.Path, "file.txt", "precious");
+        await File.WriteAllTextAsync(obstruction, "keep");
+        if (ignored)
+            await File.WriteAllTextAsync(Path.Combine(repository.Path, ".git", "info", "exclude"), "file.txt/\n");
+        var git = new Git(new CommandRunner(TextWriter.Null), repository.GitExecutable);
+        await Assert.ThrowsAsync<WorkspacePreparationException>(() =>
+            git.CleanWorkspaceAsync(repository.Path, "alice", CancellationToken.None));
+        Assert.Equal("keep", await File.ReadAllTextAsync(obstruction));
     }
 
     [Fact]

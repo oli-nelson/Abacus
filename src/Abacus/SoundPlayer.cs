@@ -6,7 +6,8 @@ namespace Abacus;
 /// <summary>An MP3 clip bundled with the application and played from a temporary file.</summary>
 internal sealed record SoundClip(string ResourceName, string FileName)
 {
-    internal static SoundClip Supervisor { get; } = new("Abacus.Media.abacus_supervisor.mp3", "abacus_supervisor.mp3");
+    internal static SoundClip MaintenanceStarting { get; } = new("Abacus.Media.abacus_supervisor_maintanence.mp3", "abacus_supervisor_maintanence.mp3");
+    internal static SoundClip ContinuationStarting { get; } = new("Abacus.Media.abacus_supervisor_continue.mp3", "abacus_supervisor_continue.mp3");
     internal static SoundClip SupervisorFailed { get; } = new("Abacus.Media.abacus_supervisor_failed.mp3", "abacus_supervisor_failed.mp3");
 
     /// <summary>The entrance mix played behind the interactive ASCII animation.</summary>

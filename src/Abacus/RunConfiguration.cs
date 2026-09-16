@@ -18,10 +18,16 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         new("mode", "--mode", "string", "opencode, codex, claude, opencode-server; default opencode"),
         new("model", "--model", "string", "Required fallback model; OpenCode uses provider/model"),
         new("extraArgs", "--extra-args", "string", "Extra agent CLI arguments for every launch, e.g. -p deepseek"),
-        new("supervisorModel", "--supervisor-model", "string", "Optional supervisor model#effort; enables maintenance supervision"),
+        new("maintainerModel", "--maintainer", "string", "Optional supervisor model#effort; enables maintenance supervision"),
         new("supervisorExtraArgs", "--supervisor-extra-args", "string", "Separate supervisor harness arguments"),
         new("supervisorPromptFile", "--supervisor-prompt-file", "path", "Additional supervisor prompt file, appended after .abacus/supervisor.md"),
         new("supervisorTimeout", "--supervisor-timeout", "string", "Positive s/m/h duration; default 30m"),
+        new("continuationModel", "--continuation-model", "string", "Optional empty-backlog supervisor model#effort"),
+        new("continuationExtraArgs", "--continuation-extra-args", "string", "Separate continuation harness arguments"),
+        new("continuationPromptFile", "--continuation-prompt-file", "path", "Custom continuation policy, after .abacus/continuation.md"),
+        new("continuationTimeout", "--continuation-timeout", "string", "Positive s/m/h duration; default 30m"),
+        new("agentCount", "--agents", "int", "Managed worktree pool capacity; default 1 (no workspace paths needed)"),
+        new("agentNames", "--agent-name", "list", "Optional managed worker display names; independent of pool slots"),
         new("agents", "--agent", "agents", "Named agent workspaces"),
         new("reasoningModels", "--reasoning-model", "models", "Optional high / medium / low model#effort routes"),
         new("reasoningArgs", "--reasoning-args", "args", "Optional high / medium / low extra argument strings"),
@@ -102,6 +108,9 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
                 merged.Document.Remove("once");
                 merged.Document.Remove("drain");
             }
+            if (document["agentCount"] is not null) merged.Document.Remove("agents");
+            if (document["agentNames"] is not null) merged.Document.Remove("agents");
+            if (document["agents"] is not null) { merged.Document.Remove("agentCount"); merged.Document.Remove("agentNames"); }
             foreach (var (name, value) in document)
             {
                 if (name == "baseConfig") continue;
@@ -136,6 +145,14 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
 
     public void ValidateShape()
     {
+        // Normalize the legacy spelling in memory; loading never rewrites the file.
+        if (Document.ContainsKey("supervisorModel"))
+        {
+            if (Document.ContainsKey("maintainerModel"))
+                throw new OptionsException("specify maintainerModel or legacy supervisorModel, not both");
+            Document["maintainerModel"] = Document["supervisorModel"]?.DeepClone();
+            Document.Remove("supervisorModel");
+        }
         if (Document["version"] is not JsonValue version || !version.TryGetValue<int>(out var number) || number != 1)
             throw new OptionsException("run config requires version: 1");
         foreach (var (name, value) in Document)
@@ -189,6 +206,8 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
                 (overridden?.Contains("--once") == true || overridden?.Contains("--drain") == true)) continue;
             // Preflight can inspect a saved run without inheriting its output/lifecycle controls.
             if (command == "preflight" && Options.OptionArity(command, field.Option) < 0) continue;
+            if (field.Name == "agents" && (overridden?.Contains("--agents") == true || overridden?.Contains("--agent-name") == true)) continue;
+            if (field.Name is "agentCount" or "agentNames" && overridden?.Contains("--agent") == true) continue;
             var value = Document[field.Name];
             if (value is null) continue;
             string Text(JsonNode node) => node.GetValue<string>();
@@ -272,7 +291,7 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         var copy = (JsonObject)Document.DeepClone();
         string Rebase(string path) => string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path)
             ? path : Path.GetRelativePath(directory, ResolvePath(path));
-        foreach (var name in new[] { "baseConfig", "repo", "eventLog", "supervisorPromptFile" })
+        foreach (var name in Fields.Where(field => field.Kind == "path").Select(field => field.Name))
             if (copy[name] is JsonValue value) copy[name] = Rebase(value.GetValue<string>());
         if (copy["agents"] is JsonArray agents)
             foreach (var agent in agents)

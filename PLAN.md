@@ -196,7 +196,7 @@ Before building the loop, capture the exact behavior of the locally supported co
     [--opencode-server <host:port>] \
     [--once | --drain] \
     [--verbose] \
-    -a <agent_name> <git_workspace_path> [-a ...]
+    [--agents <count>]
   ```
 
 - Support standalone user-attention resolution: optionally add the exact
@@ -212,7 +212,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   `abacus/<issue-id>` branches, skipping branches checked out in worktrees.
   Neither command runs normal preflight or requires agent options.
 
-- Reject a missing or malformed `--model` value or effort suffix, `--remote-control` outside Claude mode, malformed or duplicate singular dispatch filters, malformed ticket timeouts, invalid mode/server/tmux combinations, other missing values, unknown options, duplicate agent names, duplicate canonical workspace paths, and zero agents. OpenCode model IDs use `provider/model`; Codex and Claude IDs must be nonempty and whitespace-free. Effort suffixes default to `high`; model and effort availability remain the selected CLI's responsibility. Dispatch labels are repeatable, priority is 0 through 4, and ticket timeouts are positive integer seconds, minutes, or hours.
+- Reject a missing or malformed `--model` value or effort suffix, `--remote-control` outside Claude mode, malformed or duplicate singular dispatch filters, malformed ticket timeouts, invalid mode/server/tmux combinations, other missing values, unknown options, duplicate agent names, duplicate canonical workspace paths, and invalid managed worker counts. Absent explicit workspaces default to one managed worker. OpenCode model IDs use `provider/model`; Codex and Claude IDs must be nonempty and whitespace-free. Effort suffixes default to `high`; model and effort availability remain the selected CLI's responsibility. Dispatch labels are repeatable, priority is 0 through 4, and ticket timeouts are positive integer seconds, minutes, or hours.
 - Implement `CommandRunner` around `ProcessStartInfo` with:
   - executable plus argument list;
   - working directory;
@@ -242,7 +242,7 @@ Before building the loop, capture the exact behavior of the locally supported co
   results by harness, and isolate missing-tool or command failures. Report that
   Claude Code requires its interactive `/model` picker because its CLI exposes
   no non-interactive catalog command. Require no repository or agent options.
-- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; for pane-hosted runs also show the resolved tmux session and window names so users can attach from another shell. Distinguish idle polling from failure retries. Start with new claims enabled unless `--start-paused` is set, and let Shift-Tab pause or resume new ticket claims across all agents without interrupting active tickets; show the current claim state in the header and a paused state for agents waiting at the claim boundary. Let the operator select agent and latest-comment rows with the arrow keys. Enter opens an agent action panel or a complete, wrapped comment detail view with vertical scrolling. Support stopping one loop while retaining its active ticket reservation, restarting that loop and ticket, and explicitly confirmed cleanup with `git reset --hard` plus `git clean -fd`. Cleaning must safely reopen an active ticket first and leave the agent stopped. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed Latest Comments screen, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a colored header line, then wrap the uncolored, truncated comment across at most two indented lines beneath it. Color attention-labelled issue headers red, configured-agent headers green, and unrecognized-author headers cyan. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print the initial full Beads Dolt commit plus a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
+- Default to a dependency-free ANSI terminal dashboard with one state row per agent. Include ticket title, elapsed state time, process or pane, retry count, and last observed exit code; for pane-hosted runs also show the resolved tmux session and window names so users can attach from another shell. Distinguish idle polling from failure retries. Start with new claims enabled unless `--start-paused` is set, and let Shift-Tab pause or resume new ticket claims across all agents without interrupting active tickets; show the current claim state in the header and a paused state for agents waiting at the claim boundary. Let the operator select agent and latest-comment rows with the arrow keys. Enter opens an agent action panel or a complete, wrapped comment detail view with vertical scrolling. Support stopping one loop while retaining its active ticket reservation, restarting that loop and ticket, and explicitly confirmed cleanup with only `git reset --hard`, preserving untracked files and ignored caches. Cleaning must safely reopen an active ticket first and leave the agent stopped. Persistently alert with the IDs and titles of issues labelled `abacus:needs-user-attention`, including closed issues, until the label is removed. Show a periodically refreshed Latest Comments screen, defaulting to 8 entries with a validated `--latest-comments` count; put the issue ID, truncated issue title, and author on a colored header line, then wrap the uncolored, truncated comment across at most two indented lines beneath it. Color attention-labelled issue headers red, configured-agent headers green, and unrecognized-author headers cyan. Fall back to compact state-transition and alert lines when stderr is redirected, expose timestamped state, warning, and subprocess diagnostics through `--verbose`, and print the initial full Beads Dolt commit plus a per-agent outcome summary on shutdown. Do not add a general logging framework or configurable log sinks.
 - Keep desktop notifications dependency-free and owned by the orchestrator. `--notify attention` reports new user-attention issues, blocked tickets, and persistent recovery failures; `--notify all` also reports all ticket outcomes and the final run summary. Use `osascript` on macOS and optional `notify-send` on Linux through `ProcessStartInfo.ArgumentList`. When sound is enabled, distinguish successful outcomes from attention or unsuccessful outcomes with positive and negative platform sounds. Treat delivery as best effort, deduplicate polled attention issues, and use a terminal bell fallback only when `--notify-sound` was requested.
 
 ### Exit criteria
@@ -350,7 +350,7 @@ All checks happen before any ticket is claimed or agent run is created.
 - Keep one small agent host boundary so ticket supervision can observe exit and perform idempotent cleanup for either a pane or a direct process. Use one explicit switch-based command builder for the four known modes; this is not a plugin system.
 - Interrupt direct children, wait a short grace period, then terminate the process tree if needed.
 - Do not use tmux control mode or a tmux protocol library. All lifecycle operations are CLI commands using the recorded pane ID.
-- Implement idempotent, best-effort tmux cleanup: send Ctrl-C, allow a short grace period, then force the recorded managed pane into a dead reusable state when necessary. Remove run files and continue finalization regardless of tmux command results. Initialization failures may remove their partially initialized pane. Never target a pane ID that Abacus did not record at launch.
+- Implement idempotent, best-effort tmux cleanup: send Ctrl-C, allow a short grace period, then force the recorded managed pane into a dead reusable state when necessary. Legacy explicit-workspace runs retain best-effort finalization; pooled runs must verify cleanup before clearing their durable execution marker. Initialization failures may remove their partially initialized pane. Never target a pane ID that Abacus did not record at launch.
 - Remove prompt, wrapper, and marker files when their run ends.
 
 ### Exit criteria
@@ -401,7 +401,7 @@ All checks happen before any ticket is claimed or agent run is created.
   - successful close, agent-requested reopen, and blocked completion;
   - unexpected agent CLI exit while `in_progress`;
   - remote pull/push behavior and failures;
-  - per-agent stop and restart preserve an active ticket reservation, while confirmed cleanup reopens the ticket and discards tracked and untracked workspace changes;
+  - per-agent stop and restart preserve an active ticket reservation, while confirmed cleanup reopens the ticket and discards tracked changes while preserving untracked files and ignored caches;
   - selecting a latest-comment row opens its complete wrapped text and supports scrolling without truncation;
   - Ctrl-C cleanup.
   - once, drain, and preflight-only process exit behavior.
@@ -413,9 +413,8 @@ All checks happen before any ticket is claimed or agent run is created.
   cycle for read-only Git snapshots, clear failed snapshots to unknown, and test
   both rendering and real Git status parsing. Label OpenCode TUI effort requested.
 - Add a README containing installation (`dotnet publish`), prerequisites, both usage examples from SPEC.md, how shared Dolt is validated, branch behavior, logs, and shutdown behavior.
-- State explicitly that normal orchestration does not create worktrees or
-  configure Beads/Dolt; the standalone new-repository initializer is the only
-  setup exception. Abacus may create its resolved tmux session/window but does
+- Normal orchestration allocates reusable pool worktrees but never configures
+  Beads/Dolt; the standalone initializer remains the only database setup exception. Abacus may create its resolved tmux session/window but does
   not start OpenCode servers,
   merge branches, or decide ticket outcomes.
 - Document the exact shared agent prompt, its basic default merge process, optional
@@ -481,8 +480,8 @@ All checks happen before any ticket is claimed or agent run is created.
 
 ## Explicit non-goals for the first version
 
-- Creating, deleting, or repairing Git worktrees/clones during orchestration;
-  only the standalone new-repository initializer creates worktrees.
+- Creating or adopting arbitrary user worktrees/clones. Managed pool allocation
+  is part of runtime startup; pool maintenance is explicit and conservative.
 - Setting up or migrating Beads/Dolt databases and remotes outside the
   standalone new-repository initializer.
 - Starting or managing the requested tmux session, tmux window, or OpenCode server.
@@ -645,3 +644,66 @@ All checks happen before any ticket is claimed or agent run is created.
   Ignore identical refreshes and elapsed times; keep modal-background updates unread.
 - Test screen isolation, badge lifecycle, repeated snapshots, empty screens,
   comment detail/selection, scrolling, short terminals, and resizing.
+
+### Managed reusable worktree pool
+
+- Default to one pooled worker; accept `--agents` / `agentCount` without paths.
+  Keep legacy explicit workspaces non-destructively, with mutually exclusive
+  CLI/config selection and documented overrides/migration.
+- Keep only an atomic JSON manifest and OS-held controller lease in the shared
+  Git directory. Store checkouts under the OS application-data directory, keyed
+  by local repository identity. Reuse stable slots; never evict caches on resize.
+- Preserve read-only preflight. Allocate missing slots after validation and the
+  finite schedule gate, then validate real workspaces before claims or harnesses.
+- Provide list/reclaim/remove/prune commands, with controller and workspace locks,
+  clean/closed-ticket/merged-history checks and explicit cache-removal confirmation.
+  Preserve unsafe/missing/foreign slots for review; never adopt user worktrees.
+- Remove git clean entirely. Guard reset against untracked/ignored obstructions;
+  preserve caches and interrupted work. Cover allocation, reuse, locks, migration,
+  ignored caches, and unsafe maintenance with real Git and fake-CLI tests.
+
+### Pool assignment leases and worker display names
+
+- Keep worker capacity and optional agentNames / --agent-name labels separate from
+  stable pool slot IDs. Keep legacy agent-N slot IDs valid; new slots use slot-N.
+- Lease per assignment using existing OS workspace locks and the repository
+  controller lock. Scan the whole pool for exact-issue recovery before choosing
+  general capacity; count reductions and renames never exclude old slots.
+- Journal unique run/worker/assignment IDs and issue intent before Beads claims,
+  then preparation/execution/stop phases. Fence stale updates and duplicate issue
+  reservations. Human-readable assignees change on safe recovery, not by matching
+  the next run's name list. Never steal unexpected manual assignments.
+- Prefer a conservative durable launch-uncertainty marker over a wrapper lock or
+  PID heuristic that can outlive its controller incorrectly. Clear only on verified
+  host cleanup or explicit operator stop confirmation via worktrees recover.
+  Never automatically resume potentially live executions after a crash.
+- Preserve dirty/blocked/unknown/unmerged work, verify records against branches,
+  and retain reservations across interrupted preparations and merges. Test each
+  boundary with real Git plus fake Beads/hosts, name changes and reduced capacity.
+
+- Build fresh supervisor snapshots from current pool lease/journal bookkeeping,
+  with all retained slots, null unleased/unknown worker paths, explicit errors,
+  and preserved legacy explicit paths. Never use managed preflight placeholders.
+- Share pool-safety prompt guidance across supervisor roles. Update all bundled
+  skills for pool ownership and scoped standing authorization, preserve interactive
+  approval defaults, and test the embedded/installed artifacts and live snapshots.
+
+### Independent empty-backlog continuation supervisor
+
+- Add independently optional continuation model/effort, extra arguments, timeout,
+  and additive prompt file settings, plus repository `.abacus/continuation.md`.
+  Keep attention supervision optional and retain its existing retry semantics.
+- Query all epics, independent of ready filters. Any non-closed epic, including
+  blocked work, prevents continuation. Failed/malformed reads cannot trigger it.
+- Keep an initially armed, process-local empty-backlog flag: consume before launch,
+  rearm after observing unfinished epics, and support explicit runtime retrigger.
+  Failures/no-ops cannot loop within a process; a fresh process can plan again.
+  Ignore old trigger files and remove the obsolete offline retry command.
+- Reuse the existing harness completion protocol, bounded timeout and cleanup,
+  separate rows/controls/events, and shared effective target merge renderer.
+  Serialize the two supervisors' access to the main checkout and include live
+  supervisors in merge-slot ownership so the reclaimer never steals their slot.
+- Respect pause/shutdown and finite-run lifetimes; prevent finite workers from
+  exiting before eligible continuation can create new work. Test all combinations
+  of disabled/enabled roles, process-local reset, no-op/failure suppression,
+  unfinished/blocked epics, manual retrigger, merge overrides, and concurrency.

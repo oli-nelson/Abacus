@@ -1,16 +1,22 @@
 # Optional maintenance supervisor
 
+The agent is named `maintenance` in the dashboard, stdio controls, events, and
+Beads actor identity. Use `--maintainer` / `maintainerModel` to select its model. The old
+`--supervisor-model` / `supervisorModel` spellings remain aliases; do not specify
+both spellings at once. Other supervisor settings, `.abacus/supervisor.md`, and
+attention labels/commands remain unchanged.
+
 Enable the supervisor with a separate model for the selected harness:
 
 ```sh
-abacus run --config run.json --supervisor-model 'provider/model#high' \
+abacus run --config run.json --maintainer 'provider/model#high' \
   --supervisor-timeout 30m \
   --supervisor-extra-args '--profile maintenance' \
   --supervisor-prompt-file ./supervisor-policy.md
 ```
 
 Use a model ID native to your selected mode (`provider/model` for OpenCode).
-Only `--supervisor-model` is needed to enable supervision. The timeout defaults
+Only `--maintainer` is needed to enable supervision. The timeout defaults
 to **30 minutes** and accepts positive `s`, `m`, or `h` durations. The supervisor
 uses the normal harness host, mode, server, and tmux session, but **always runs in
 the main checkout selected by `--repo`**, never an agent worktree. It does not
@@ -24,7 +30,7 @@ The same settings work in version-1 JSON, inheritance, preflight, and the config
 {
   "version": 1,
   "baseConfig": "run.json",
-  "supervisorModel": "provider/model#high",
+  "maintainerModel": "provider/model#high",
   "supervisorTimeout": "30m",
   "supervisorExtraArgs": "--profile maintenance",
   "supervisorPromptFile": "supervisor-policy.md"
@@ -123,7 +129,7 @@ For an in-memory suppressed crash without that label, select the supervisor row
 and choose **Restart** to explicitly recheck its triggers. **Stop** cancels the
 current run and disables automatic supervision until Restart. There is no Clean
 Workspace action for the supervisor. The same Stop/Restart controls are available
-through stdio using the reserved name `supervisor`.
+through stdio using the reserved name `maintenance`.
 
 ## Completion, visibility, and audio
 
@@ -135,16 +141,139 @@ host boundary, and independently checks labels and retry outcomes. A clean exit
 without the signal is not success. Partial, stale, or oversized signals are ignored.
 Files are cleaned up afterward; no tracked runtime files are created.
 
+Select either supervisor row and press **L** (or **Enter**, then **L**) to open
+its full last-run report. The read-only view wraps long summaries and supports
+**Up/Down**, **j/k**, **Page Up/Down**, and **Home/End**; **Esc** returns. It shows
+the recorded time and model/effort and preserves the latest report while the next
+run starts or the role is stopped. Reports are in memory for the current process,
+not an archived transcript or a history of every run.
+
 The TUI has a separate supervisor row showing startup, working, recovery checking,
 and the last outcome (completed, unresolved, timeout, crash, cancellation, or
 failure), with model and host location while running. Persistent unresolved alerts
 remain visible. State transitions also appear in verbose logs and `agent.state`
-events, under `supervisor`; worker outcome totals remain separate.
+events, under `maintenance`; worker outcome totals remain separate.
 
-With interactive TUI audio enabled, startup plays `media/abacus_supervisor.mp3`.
+With interactive TUI audio enabled, maintenance startup plays
+`media/abacus_supervisor_maintanence.mp3` and continuation startup plays
+`media/abacus_supervisor_continue.mp3`.
 Supervisor clips stop any playing attention clip and suppress new attention sounds
 until they finish; suppressed attention sounds are not queued for later.
 After recovery verification, unresolved labels/attention, failed retries, or a
 failed harness run play `media/abacus_supervisor_failed.mp3` once. No supervisor
 audio plays when TUI audio is off or output is noninteractive. Playback is best
 effort; missing media/player or playback failure never changes scheduling.
+
+## Independent continuation supervisor
+
+The maintenance role above remains independently optional. A second optional role
+handles **no unfinished epics**, not merely an empty ready queue. Blocked, deferred,
+in-progress, and unknown-status epics all prevent it from running. Dispatch label,
+priority, type, and target filters never narrow this check.
+
+```sh
+abacus run --model provider/worker --agents 4 \
+  --maintainer provider/repair \
+  --continuation-model provider/planner \
+  --continuation-prompt-file ./planning-policy.md
+```
+
+Omit either model to disable that role. Continuation has independent
+`--continuation-extra-args`, `--continuation-timeout` (default `30m`), and
+`--continuation-prompt-file` options; JSON uses `continuationModel`,
+`continuationExtraArgs`, `continuationTimeout`, and `continuationPromptFile`.
+Paths inherit relative to their declaring config and rebase on Save As.
+Repository `.abacus/continuation.md` precedes the custom file; maintenance policy
+is not inherited. No actionable policy means no project decisions or edits.
+
+Example continuation policy:
+
+```text
+Review the approved roadmap and existing specs. If useful approved work remains,
+write the next bounded specification and create one epic with actionable child
+issues, acceptance criteria, dependencies, and valid target/reasoning metadata.
+Do not duplicate existing work or invent scope merely to keep agents busy.
+Integrate authorized specification changes using the configured merge process.
+If the roadmap is complete or a decision is needed, explain that and stop.
+```
+
+### Preventing repeated planning
+
+Each Abacus process starts with an armed, in-memory continuation trigger. It is
+consumed **before launch**, so a no-op, crash, timeout, or missing completion signal
+does not cause repeated automatic attempts in that process. Observing unfinished
+epics rearms it; continuation can run again after all unfinished epics close.
+It queries Beads again after completion rather than trusting the model's summary.
+Restarting Abacus allows a fresh attempt when the backlog is empty and claims are
+enabled. No continuation flag is read from or written to disk. Legacy
+`<git-common-dir>/abacus/continuation.json` files are ignored and need no migration.
+
+Continuous runs can repeat on new nonempty-to-empty transitions. Finite `--once`
+and `--drain` runs permit at most one automatic planning attempt per invocation;
+idle finite workers wait for that attempt and check for newly created work before
+exiting. This preserves finite execution even if the prompt keeps creating epics.
+Continuation follows manual claim pause and configured claim schedules. These
+gates delay new planning but never terminate an in-flight planning session.
+
+Use **Restart** on the `continuation` dashboard row (or stdio `restart`) for an
+explicit recheck/retry. **Stop** disables that role; neither supervisor offers
+workspace cleanup. The obsolete offline `abacus continuation retry` command is
+removed: restart Abacus instead. Neither restart bypasses unfinished epics, manual
+pause, or claim schedules.
+
+### Shared checkout and merge instructions
+
+Both roles use the selected harness, with separate rows, arguments, prompts,
+timeouts, and completion files. Their harnesses are serialized in the main
+checkout; workers continue in their own worktrees. Active supervisors participate
+in merge-slot liveness checks, so their acquired slot is not reclaimed as stale.
+Legacy workers cannot share the main checkout while supervision is enabled.
+
+Both supervisors receive the controller-snapshotted effective instructions for
+every configured target: either the default merge-slot/fast-forward procedure or
+the user override, including an intentionally empty override. This knowledge
+does not expand the maintenance role's authority. Continuation may perform local
+Git work needed for explicitly authorized planning/specification work, preserving
+other work and obeying repository restrictions; it must complete integration and
+release any slot before signalling completion. Git pushes need explicit policy.
+
+## Pool-aware diagnosis and installed skills
+
+Maintenance prompts capture current pool bookkeeping at each launch, including
+all retained slot IDs/paths, whether the current controller holds their assignment,
+and journal run/worker/assignment/execution IDs, issue, phase, and last display name.
+Managed workers are mapped only through current leases, never their preflight main
+checkout placeholder or an old matching assignee name. Unleased/unknown locations
+are null; read failures remain explicit unknowns. Legacy explicit workspaces remain
+labelled as such. Snapshots can age while the supervisor waits; they are not proof
+that a checkout is safe to modify. Recheck current Git, issue, and execution state.
+
+Both supervisor prompts prohibit treating Abacus's pool/workspace locks or journals
+as stale Git metadata. Offline worktree mutations cannot run inside a live controller;
+escalate them to the operator instead of editing runtime files or stopping Abacus.
+`worktrees recover --confirm` requires prior verification that all surviving execution
+has stopped; it is not an automatic cleanup or process-killing command.
+
+The planner accepts explicit, bounded user-authored continuation authorization as
+standing approval for graph creation. Merely enabling continuation is not approval.
+Keep new work blocked and unassigned until the graph and prerequisite specs are ready;
+never borrow an idle-looking pool slot for planning. Doctor and attention skills
+retain interactive approval by default while honoring explicitly scoped maintenance
+repairs in a supervisor session. Git Check recognizes pool protections as legitimate.
+
+Beads 1.2.2 does not support `bd create --status=blocked`. The planner instead
+creates each draft (including epics) with a far-future `--defer`, verifies it is
+not ready, sets its status to blocked, then clears the deferral. Only completed,
+validated drafts with integrated prerequisite specs are explicitly opened. This
+avoids a create-open-then-block race without pausing workers or depending on a
+short timer. Interrupted drafts remain non-ready for deliberate recovery. See the
+bundled planner skill for the exact sequence; verify other Beads versions before use.
+
+After upgrading the executable, refresh bundled skill copies in existing repositories:
+
+```sh
+abacus skills install --repo <main-checkout>
+```
+
+Review and confirm replacement of the bundled skill directories. Existing installed
+copies and user-authored supervisor policy files are not silently rewritten.

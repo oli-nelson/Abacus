@@ -770,7 +770,6 @@ public sealed class OptionsTests
 
     [Theory]
     [InlineData("run")]
-    [InlineData("run", "--tmux-session", "s", "--model", "provider/model")]
     [InlineData("run", "--tmux-session", "s", "--tmux-window", "--model", "provider/model", "-a", "alice", "/tmp/a")]
     [InlineData("run", "--tmux-session", "s", "-a", "alice", "/tmp/a")]
     [InlineData("run", "--tmux-session", "s", "--model", "model", "-a", "alice", "/tmp/a")]

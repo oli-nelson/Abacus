@@ -32,13 +32,12 @@ public sealed partial class MultiAgentRepositoryInitializer(
         }
 
         var repositoryPath = Path.Combine(projectRoot, "repo");
-        var worktreesPath = Path.Combine(projectRoot, "worktrees");
+        var worktreesPath = WorktreePool.DefaultDataDirectory;
         var identifier = CreateIdentifier(options.ProjectName);
         var databaseSuffix = Guid.NewGuid().ToString("N")[..8];
         var database = $"abacus_{identifier.Replace('-', '_')}_{DateTime.UtcNow:yyyyMMddHHmmss}_{Environment.ProcessId}_{databaseSuffix}";
 
         Directory.CreateDirectory(repositoryPath);
-        Directory.CreateDirectory(worktreesPath);
 
         await RunRequiredAsync(
             gitExecutable,
@@ -131,29 +130,13 @@ public sealed partial class MultiAgentRepositoryInitializer(
             "create the initial Git commit",
             cancellationToken);
 
-        for (var index = 0; index < options.AgentCount; index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var worktree = Path.Combine(worktreesPath, index.ToString());
-            await RunRequiredAsync(
-                gitExecutable,
-                ["-C", repositoryPath, "worktree", "add", "--detach", worktree, "main"],
-                projectRoot,
-                $"create worktree {index}",
-                cancellationToken);
-        }
-
         var baseConfiguration = RunConfiguration.Create(projectRoot);
         baseConfiguration.Document["repo"] = "repo";
         baseConfiguration.Document["startPaused"] = true;
         baseConfiguration.Document["notify"] = "all";
         baseConfiguration.Document["notifySound"] = true;
         baseConfiguration.Document["tuiAudio"] = true;
-        baseConfiguration.Document["agents"] = new System.Text.Json.Nodes.JsonArray(
-            Enumerable.Range(0, options.AgentCount).Select(index => (System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject
-            {
-                ["name"] = $"agent-{index}", ["workspace"] = $"worktrees/{index}",
-            }).ToArray());
+        baseConfiguration.Document["agentCount"] = options.AgentCount;
         var basePath = Path.Combine(projectRoot, "abacus_base.json");
         baseConfiguration.Save(basePath, overwrite: false);
 

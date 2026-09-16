@@ -153,13 +153,13 @@ to open its action panel:
   retained by Stop is revalidated for ownership, target, binding, and history
   before relaunch in the same workspace.
 - **Clean Agent Workspace** asks for a second confirmation, stops the agent,
-  safely reopens and releases any active ticket, runs `git reset --hard` and
-  `git clean -fd`, and leaves the agent parked. Choose Restart when the clean
+  safely reopens and releases any active ticket, runs only `git reset --hard`, and leaves the agent parked. Choose Restart when the clean
   workspace should return to service.
 
-Escape closes the action panel. Clean removes tracked modifications and
-untracked files and directories permanently; ignored files are unaffected
-because Abacus uses `git clean -fd` exactly. A cleanup failure remains visible
+Escape closes the action panel. Clean discards tracked modifications but preserves untracked files and ignored
+build caches. If an untracked or ignored path would be overwritten by reset,
+Abacus refuses and preserves it for operator review. Ordinary untracked leftovers
+still require review before fresh dispatch. A reset failure remains visible
 as a persistent alert.
 
 Switch to **3 Latest Comments** to select comment rows. Press **Enter**

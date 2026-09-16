@@ -7,6 +7,20 @@ namespace Abacus.Tests;
 public sealed class EventReportingTests
 {
     [Fact]
+    public async Task MaintenanceStateEventsUseRenamedIdentity()
+    {
+        var writer = new StringWriter();
+        using var events = new EventReporter(writer);
+        using var output = new ConsoleOutput(TextWriter.Null, ["alice"], "p/m", false,
+            interactive: false, events: events);
+        output.EnableSupervisor();
+        await output.SetAgentAsync(MaintenanceSupervisor.Name, AgentActivity.Starting, "Starting maintenance");
+        using var json = JsonDocument.Parse(writer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)[^1]);
+        Assert.Equal("agent.state", json.RootElement.GetProperty("type").GetString());
+        Assert.Equal("maintenance", json.RootElement.GetProperty("data").GetProperty("name").GetString());
+    }
+
+    [Fact]
     public async Task AgentStateEventsIncludeWorkspaceAndResolvedModelSnapshots()
     {
         var writer = new StringWriter();

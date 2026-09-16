@@ -40,7 +40,7 @@ public sealed class HealthTests
             report.AvailableModes);
         Assert.Contains("single-agent only", rendered, StringComparison.Ordinal);
         Assert.Contains("No additional linked worktrees", rendered, StringComparison.Ordinal);
-        Assert.Contains("Separate clones", rendered, StringComparison.Ordinal);
+        Assert.Contains("managed automatically", rendered, StringComparison.Ordinal);
         Assert.Contains("abacus skills install", rendered, StringComparison.Ordinal);
         Assert.Equal(MergeSlotHealthStatus.Missing, report.MergeSlot.Status);
         Assert.Contains("may attempt merges concurrently", rendered, StringComparison.Ordinal);
@@ -121,8 +121,10 @@ public sealed class HealthTests
         Assert.Contains(Beads.DisableNoGitOpsCommand, rendered, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task SharedBeadsWithWorktreesAndInstalledSkillsReportsMultiAgentReady()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task SharedBeadsWithWorktreesAndInstalledSkillsReportsMultiAgentReady(int worktreeCount)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -131,7 +133,7 @@ public sealed class HealthTests
 
         using var environment = await HealthEnvironment.CreateAsync(
             embedded: false,
-            worktreeCount: 2,
+            worktreeCount: worktreeCount,
             tools: new Dictionary<string, string>
             {
                 ["codex"] = "codex-cli 0.152.1",
@@ -149,13 +151,13 @@ public sealed class HealthTests
         Assert.True(report.AreSkillsInstalled);
         Assert.True(report.IsHealthy);
         Assert.True(report.DoltIdentity!.IsShared);
-        Assert.Equal(2, report.Worktrees.Count);
+        Assert.Equal(worktreeCount, report.Worktrees.Count);
         Assert.Contains("codex (tmux-hosted)", report.AvailableModes);
         Assert.Equal(MergeSlotHealthStatus.Held, report.MergeSlot.Status);
         Assert.Equal("merge-agent", report.MergeSlot.Holder);
         Assert.Contains("held by merge-agent", rendered, StringComparison.Ordinal);
         Assert.Contains("Bundled skills readiness: READY", rendered, StringComparison.Ordinal);
-        Assert.Contains("Multi-agent readiness from linked worktrees: READY", rendered, StringComparison.Ordinal);
+        Assert.Contains("Multi-agent readiness with managed worktrees: READY", rendered, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -235,18 +235,21 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
         DispatchFilters filters,
         CancellationToken cancellationToken,
         Func<BeadsIssue, bool>? eligible = null,
-        Func<BeadsIssue, Task<bool>>? canUseWorkspace = null)
+        Func<BeadsIssue, Task<bool>>? canUseWorkspace = null,
+        Func<BeadsIssue, bool>? beforeClaim = null, Action? claimContended = null, bool includeAssigned = true)
     {
         var claim = await TryClaimPreferredReadyAsync(
             workspace,
             agentName,
             filters,
             assignee: null,
-            cancellationToken, eligible, canUseWorkspace);
+            cancellationToken, eligible, canUseWorkspace, beforeClaim, claimContended);
         if (claim is not null)
         {
             return claim;
         }
+
+        if (!includeAssigned) return null;
 
         // Reopened work created by older Abacus versions can remain assigned to
         // this agent. It is excluded by the fresh unassigned lookup, so resume
@@ -256,7 +259,7 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
             agentName,
             filters,
             agentName,
-            cancellationToken, eligible, canUseWorkspace);
+            cancellationToken, eligible, canUseWorkspace, beforeClaim, claimContended);
     }
 
     private async Task<BeadsIssue?> TryClaimPreferredReadyAsync(
@@ -266,7 +269,7 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
         string? assignee,
         CancellationToken cancellationToken,
         Func<BeadsIssue, bool>? eligible,
-        Func<BeadsIssue, Task<bool>>? canUseWorkspace)
+        Func<BeadsIssue, Task<bool>>? canUseWorkspace, Func<BeadsIssue, bool>? beforeClaim, Action? claimContended)
     {
         for (var attempt = 1; ; attempt++)
         {
@@ -332,6 +335,7 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
                 throw new BeadsException($"ready issue '{selected.Issue.Id}' was not open");
             }
 
+            if (beforeClaim is not null && !beforeClaim(selected.Issue)) return null;
             var claimResult = await RunWithActorAsync(
                 workspace,
                 agentName,
@@ -351,6 +355,8 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
             {
                 EnsureCommandSuccess(claimResult, $"claim ready work '{selected.Issue.Id}'");
             }
+
+            claimContended?.Invoke();
 
             // The chosen issue can be claimed by another agent after the ready
             // snapshot. Dolt serialization failures represent the same safe,
@@ -499,6 +505,27 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
         };
     }
 
+    // Caller holds the repository controller lease and an exclusive pool assignment. Display names
+    // are not recovery keys, but a changed assignee is still evidence of external intervention.
+    public async Task<BeadsIssue> ResumePoolIssueAsync(string workspace, string name, string issueId,
+        string? previousName, CancellationToken token)
+    {
+        var current = await GetIssueAsync(workspace, name, issueId, token)
+            ?? throw new BeadsException($"issue '{issueId}' no longer exists");
+        if (current.Status is not (IssueStatus.Open or IssueStatus.InProgress)
+            || (!string.IsNullOrEmpty(current.Assignee) && current.Assignee != previousName && current.Assignee != name))
+            throw new BeadsException($"issue '{issueId}' changed ownership/status; pool workspace preserved");
+        // Updating the existing owned assignment avoids reopening a live reservation merely to rename
+        // its worker. This is not the fresh-claim path; fresh work still uses bd update --claim.
+        var result = await RunWithActorAsync(workspace, name,
+            ["update", issueId, "--status", "in_progress", "--assignee", name, "--json"], token);
+        EnsureCommandSuccess(result, $"resume pool issue '{issueId}'");
+        var verified = await GetIssueAsync(workspace, name, issueId, token);
+        if (verified is null || verified.Status != IssueStatus.InProgress || verified.Assignee != name)
+            throw new BeadsException($"could not verify resumed pool issue '{issueId}'");
+        return verified;
+    }
+
     private static IReadOnlyList<string> ReadyArguments(
         DispatchFilters filters,
         string? assignee = null,
@@ -626,6 +653,15 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
             cancellationToken);
         EnsureCommandSuccess(result, "list supervisor-unresolved issues");
         return ParseIssues(result.StandardOutput, "supervisor-unresolved issue result");
+    }
+
+    public async Task<bool> HasUnfinishedEpicsAsync(string workspace, CancellationToken token)
+    {
+        var result = await RunWithActorAsync(workspace, ContinuationSupervisor.Name,
+            ["list", "--type", "epic", "--all", "--limit", "0", "--json"], token);
+        EnsureCommandSuccess(result, "list all epics for continuation");
+        // Unknown statuses (e.g. deferred) are unfinished, never evidence of an empty backlog.
+        return ParseIssues(result.StandardOutput, "epic backlog").Any(issue => issue.Status != IssueStatus.Closed);
     }
 
     public async Task<IReadOnlyList<BeadsIssue>> GetClosedIssuesAsync(

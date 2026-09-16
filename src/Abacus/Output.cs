@@ -20,6 +20,7 @@ public enum AgentActivity
 internal interface IAgentOutput
 {
     Task SetAgentAsync(string agentName, AgentActivity activity, string detail);
+    Task SetSupervisorLastRunAsync(string agentName, string detail);
     Task SetWorkspaceAsync(string agentName, string? branch, bool? isDirty);
     Task SetModelAsync(string agentName, string model, string effort);
     Task SetTicketAsync(string agentName, string issueId, string? title);
@@ -41,6 +42,9 @@ internal interface IAgentOutput
 
 internal static class OutputExtensions
 {
+    public static Task SetSupervisorLastRunAsync(this TextWriter output, string agentName, string detail) =>
+        output is IAgentOutput agentOutput ? agentOutput.SetSupervisorLastRunAsync(agentName, detail) : Task.CompletedTask;
+
     public static Task SetWorkspaceAsync(this TextWriter output, string agentName, string? branch, bool? isDirty) =>
         output is IAgentOutput agentOutput ? agentOutput.SetWorkspaceAsync(agentName, branch, isDirty) : Task.CompletedTask;
 
@@ -188,9 +192,9 @@ internal static class OutputExtensions
 
 public sealed class ConsoleOutput : TextWriter, IAgentOutput
 {
-    private bool supervisorEnabled;
-    internal void EnableSupervisor() { lock (gate) supervisorEnabled = true; }
-    private bool IsSupervisor(string name) => supervisorEnabled && name == MaintenanceSupervisor.Name;
+    private readonly HashSet<string> supervisorNames = new(StringComparer.Ordinal);
+    internal void EnableSupervisor(string name = MaintenanceSupervisor.Name) { lock (gate) supervisorNames.Add(name); }
+    private bool IsSupervisor(string name) => supervisorNames.Contains(name);
     /// <summary>A notice is only useful while its condition is current; stale rows are noise.</summary>
     private static readonly TimeSpan DefaultAlertLifetime = TimeSpan.FromMinutes(1);
     private const int MaximumTransientAlerts = 3;
@@ -234,6 +238,10 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private int commentScrollOffset;
     private BeadsComment? openComment;
     private DashboardPanel panel;
+    private sealed record SupervisorLastRun(string Detail, DateTimeOffset RecordedAt, string? Model, string? Effort);
+    private readonly Dictionary<string, SupervisorLastRun> supervisorLastRuns = new(StringComparer.Ordinal);
+    private int supervisorRunScrollOffset;
+    private bool supervisorRunFromMenu;
     private enum DashboardScreen { Agents, Attention, Comments, Settings }
     private DashboardScreen screen;
     private readonly HashSet<string>[] seenScreenContent = [[], [], [], []];
@@ -398,6 +406,17 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         key.Key is ConsoleKey.Tab
         && key.Modifiers is ConsoleModifiers.Shift;
 
+    public Task SetSupervisorLastRunAsync(string agentName, string detail)
+    {
+        lock (gate)
+        {
+            agents.TryGetValue(agentName, out var row);
+            supervisorLastRuns[agentName] = new(detail, DateTimeOffset.UtcNow, row?.Model, row?.Effort);
+            if (interactive) RenderDashboard();
+        }
+        return Task.CompletedTask;
+    }
+
     public Task SetAgentAsync(string agentName, AgentActivity activity, string detail)
     {
         lock (gate)
@@ -433,6 +452,9 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
 
         return Task.CompletedTask;
     }
+
+    internal Task SetWorkspacePathAsync(string agentName, string path) =>
+        UpdateRowAsync(agentName, row => row with { WorkspacePath = path });
 
     public Task SetWorkspaceAsync(string agentName, string? branch, bool? isDirty) =>
         UpdateRowAsync(agentName, row => row with { Branch = branch, IsDirty = isDirty });
@@ -894,6 +916,13 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         var screenHeader = builder.ToString();
         builder.Clear();
 
+        if (panel is DashboardPanel.SupervisorRunDetail && SelectedAgent() is { } supervisor)
+        {
+            RenderSupervisorRunDetail(builder, supervisor, width);
+            WriteScreenFrame(screenHeader, builder, width, detail: true);
+            return;
+        }
+
         if (panel is DashboardPanel.CommentDetail && openComment is not null)
         {
             RenderCommentDetail(builder, openComment, width, line);
@@ -979,6 +1008,8 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                     builder.Append("\u001b[K\n");
                 }
 
+                if (IsSupervisor(row.Name) && supervisorLastRuns.ContainsKey(row.Name))
+                    builder.Append(Color(Dim, Truncate($"   {new string(' ', nameWidth)}  ↳ [L] Last run details", width))).Append("\u001b[K\n");
                 rowIndex++;
             }
 
@@ -1000,7 +1031,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 if (panel is DashboardPanel.ConfirmClean)
                 {
                     builder.Append(Color(Red, Truncate(
-                        "   Permanently discard tracked and untracked workspace changes?",
+                        "   Discard tracked changes? Untracked files and ignored caches are kept.",
                         width)));
                     builder.Append("\u001b[K\n");
                     builder.Append(Truncate("   [Y] Clean workspace   [N/Esc] Cancel", width));
@@ -1009,7 +1040,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 else
                 {
                     foreach (var option in IsSupervisor(selected.Name)
-                        ? new[] { "   [S] Cancel / disable supervisor", "   [R] Enable / retry supervisor", "   [Esc] Close" }
+                        ? new[] { "   [L] Last run details", "   [S] Cancel / disable supervisor", "   [R] Enable / retry supervisor", "   [Esc] Close" }
                         : new[] { "   [S] Stop agent", "   [R] Restart agent", "   [C] Clean workspace", "   [Esc] Close" })
                     {
                         builder.Append(Truncate(option, width)).Append("\u001b[K\n");
@@ -1078,7 +1109,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
             {
                 " SETTINGS — current run (read-only)",
                 $" Default model: {model} • effort {effort}{(effortIsRequested ? " (requested)" : "")}",
-                $" Agents: {agents.Count - (supervisorEnabled ? 1 : 0)}",
+                $" Agents: {agents.Count - supervisorNames.Count}",
                 $" tmux session: {tmuxSessionName ?? "none"} • window: {tmuxWindowName ?? "none"}",
                 $" {claimLabel} • Shift-Tab toggles new claims; active tickets continue",
                 schedule?.DescribeAt(TimeProvider.System.GetUtcNow()) ?? " Schedule: not configured",
@@ -1150,6 +1181,33 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 false, false, false);
         selectedAgent = null;
         requestedAction = null;
+        if (panel is DashboardPanel.SupervisorRunDetail)
+        {
+            var maximum = Math.Max(0, SupervisorRunLines(SelectedAgent()!, GetWidth()).Count - SupervisorRunViewportHeight());
+            switch (key.Key)
+            {
+                case ConsoleKey.Escape:
+                    panel = supervisorRunFromMenu ? DashboardPanel.AgentMenu : DashboardPanel.Closed;
+                    return true;
+                case ConsoleKey.Home: supervisorRunScrollOffset = 0; return true;
+                case ConsoleKey.End: supervisorRunScrollOffset = maximum; return true;
+                case ConsoleKey.UpArrow: supervisorRunScrollOffset = Math.Max(0, supervisorRunScrollOffset - 1); return true;
+                case ConsoleKey.DownArrow: supervisorRunScrollOffset = Math.Min(maximum, supervisorRunScrollOffset + 1); return true;
+                case ConsoleKey.PageUp: supervisorRunScrollOffset = Math.Max(0, supervisorRunScrollOffset - SupervisorRunViewportHeight()); return true;
+                case ConsoleKey.PageDown: supervisorRunScrollOffset = Math.Min(maximum, supervisorRunScrollOffset + SupervisorRunViewportHeight()); return true;
+                default: return false; // Read-only: S/R/C never operate on the selected agent here.
+            }
+        }
+        if (key.Key == ConsoleKey.L && key.Modifiers == 0 && screen == DashboardScreen.Agents
+            && panel is DashboardPanel.Closed or DashboardPanel.AgentMenu
+            && SelectedAgent() is { } supervisor && IsSupervisor(supervisor.Name))
+        {
+            supervisorRunFromMenu = panel == DashboardPanel.AgentMenu;
+            supervisorRunScrollOffset = 0;
+            panel = DashboardPanel.SupervisorRunDetail;
+            return true;
+        }
+
         if (panel == DashboardPanel.Closed && key.Modifiers == 0)
         {
             var target = key.Key switch
@@ -1320,6 +1378,28 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
     private AgentRow? SelectedAgent() => selectedAgentIndex >= 0
         ? agents.Values.ElementAt(selectedAgentIndex)
         : null;
+
+    private int SupervisorRunViewportHeight() => Math.Max(1, GetHeight() - 7);
+
+    private IReadOnlyList<string> SupervisorRunLines(AgentRow row, int width)
+    {
+        if (!supervisorLastRuns.TryGetValue(row.Name, out var last))
+            return WrapCommentText("No last-run information yet in this process.", Math.Max(1, width - 2));
+        return WrapCommentText($"Recorded: {last.RecordedAt:u}\nModel: {last.Model ?? "(not recorded)"} • effort {last.Effort ?? "(not recorded)"}\n\n{last.Detail}",
+            Math.Max(1, width - 2));
+    }
+
+    private void RenderSupervisorRunDetail(StringBuilder builder, AgentRow row, int width)
+    {
+        builder.Append(Color(Bold + Cyan, Truncate($" LAST RUN — {row.Name}", width))).Append("\u001b[K\n");
+        var lines = SupervisorRunLines(row, width);
+        var viewport = SupervisorRunViewportHeight();
+        supervisorRunScrollOffset = Math.Clamp(supervisorRunScrollOffset, 0, Math.Max(0, lines.Count - viewport));
+        foreach (var text in lines.Skip(supervisorRunScrollOffset).Take(viewport))
+            builder.Append("  ").Append(text).Append("\u001b[K\n");
+        builder.Append(Color(Dim, Truncate($" ↑↓/jk PgUp/Dn Home/End • Esc back • {supervisorRunScrollOffset + 1}-{Math.Min(lines.Count, supervisorRunScrollOffset + viewport)}/{lines.Count}", width)))
+            .Append("\u001b[K\n");
+    }
 
     private int CommentViewportHeight() => Math.Max(1, GetHeight() - 11);
 
@@ -1792,5 +1872,6 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
         AgentMenu,
         ConfirmClean,
         CommentDetail,
+        SupervisorRunDetail,
     }
 }

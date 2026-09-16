@@ -19,15 +19,16 @@ public sealed class RunConfigurationSelectionTests : IDisposable
         var path = Write("run.json", Complete);
         var output = new StringWriter();
         var calls = 0;
-        var options = Options.Parse(["run", "--model", "provider/cli#low", "--no-intro=false", "--"], missing =>
+        var options = Options.Parse(["run", "--extra-args", "--profile cli", "--no-intro=false", "--"], missing =>
         {
             calls++;
-            Assert.Contains(missing, m => m.Contains("workspace"));
+            Assert.Contains(missing, m => m.Contains("model"));
             return RunConfigurationSelection.Select(root.FullName, missing, new StringReader("1\n"), output);
         }).Value!;
         Assert.Equal(1, calls);
-        Assert.Equal("provider/cli", options.Model);
-        Assert.Equal("low", options.Effort);
+        Assert.Equal("saved", options.Model);
+        Assert.Equal(["--profile", "cli"], options.ExtraArguments);
+        Assert.Equal("high", options.Effort);
         Assert.False(options.NoIntro);
         Assert.Contains("Missing required", output.ToString());
         Assert.Contains("run.json", output.ToString());
@@ -57,9 +58,9 @@ public sealed class RunConfigurationSelectionTests : IDisposable
         var error = Assert.Throws<OptionsException>(() => Options.Parse(["run"], _ => { calls++; return path; }));
         Assert.Equal(1, calls);
         Assert.Contains("--model", error.Message);
-        Assert.Contains("workspace", error.Message);
+        Assert.DoesNotContain("workspace", error.Message);
         Assert.Contains("--opencode-server", error.Message);
-        Assert.Equal(3, error.Missing!.Count);
+        Assert.Equal(2, error.Missing!.Count);
     }
 
     [Fact]

@@ -138,7 +138,8 @@ is not another authority.
 
 During normal orchestration, Abacus does **not**:
 
-- create, delete, or repair Git worktrees or clones;
+- adopt or delete user-managed worktrees or clones; managed pool allocation is automatic,
+  while pool removal/reclamation is explicit maintenance;
 - initialize or migrate Beads/Dolt databases and remotes;
 - delete an explicitly named or pre-existing tmux session or window;
 - start, stop, or directly query an OpenCode server;
@@ -154,7 +155,7 @@ During normal orchestration, Abacus does **not**:
 
 The standalone `new` command is the explicit setup
 exception: it creates a brand-new repository, shared-server Beads configuration,
-skills, worktrees, and JSON run configs (no shell launchers). It still does not create tmux sessions.
+skills and managed-pool JSON run configs (no shell launchers). It still does not create tmux sessions.
 The standalone `init` handles existing Git/Beads repositories: validate setup,
 install bundled skills with confirmation, and create a missing default targets
 and reasoning config without changing Beads settings or Git branches.
@@ -172,3 +173,13 @@ These boundaries keep the first version understandable and auditable:
 
 See the [implementation plan](../PLAN.md) for the full set of simplicity rules
 and the [product specification](../SPEC.md) for normative behavior.
+
+### Managed assignment ownership
+
+Pooled workers lease independent slots per assignment. `PoolAssignment` journals
+issue intent, stable internal IDs, and execution phase in the shared Git directory;
+`PoolAgentHost` marks uncertainty before launch and clears it only after verified
+cleanup. Recovery scans all slots, not names or worker-number prefixes. The
+controller lock serializes runs/maintenance; workspace locks and issue reservations
+prevent concurrent slot/issue use. See [worktrees](worktrees.md) for conservative
+crash acknowledgment and independent worker display names.

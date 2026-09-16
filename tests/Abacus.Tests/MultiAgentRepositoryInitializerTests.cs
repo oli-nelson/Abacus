@@ -67,22 +67,9 @@ public sealed class MultiAgentRepositoryInitializerTests
             Assert.Equal(".abacus/targets.json", await RunGitAsync(result.RepositoryPath, "ls-files", ".abacus/targets.json"));
             Assert.Equal(".abacus/reasoning.json", await RunGitAsync(result.RepositoryPath, "ls-files", ".abacus/reasoning.json"));
 
-            for (var index = 0; index < 3; index++)
-            {
-                var worktree = Path.Combine(result.WorktreesPath, index.ToString());
-                Assert.True(Directory.Exists(worktree));
-                Assert.True(File.Exists(Path.Combine(worktree, ".git")));
-                Assert.Equal(beadsCreatesGitignore, File.Exists(Path.Combine(worktree, ".gitignore")));
-                Assert.Equal(string.Empty, await RunGitAsync(worktree, "status", "--porcelain"));
-                Assert.True(File.Exists(Path.Combine(worktree, ".abacus", "targets.json")));
-                Assert.True(File.Exists(Path.Combine(worktree, ".abacus", "reasoning.json")));
-                Assert.True(File.Exists(Path.Combine(
-                    worktree,
-                    ".agents",
-                    "skills",
-                    "abacus-beads-planner",
-                    "SKILL.md")));
-            }
+            Assert.False(Directory.Exists(Path.Combine(result.ProjectRoot, "worktrees")));
+            Assert.Single((await RunGitAsync(result.RepositoryPath, "worktree", "list", "--porcelain"))
+                .Split('\n'), line => line.StartsWith("worktree ", StringComparison.Ordinal));
 
             var beadsCalls = await File.ReadAllTextAsync(beadsLog);
             Assert.Contains("init --shared-server --setup-exclude --prefix sample-project --database", beadsCalls, StringComparison.Ordinal);
@@ -104,13 +91,13 @@ public sealed class MultiAgentRepositoryInitializerTests
             var basePath = Path.Combine(result.ProjectRoot, "abacus_base.json");
             var baseConfig = RunConfiguration.Load(basePath).Document;
             Assert.Equal(4, Directory.GetFiles(result.ProjectRoot, "abacus_*.json").Length);
-            Assert.Equal(new[] { "agents", "notify", "notifySound", "repo", "startPaused", "tuiAudio", "version" }, baseConfig.Select(p => p.Key).Order());
+            Assert.Equal(new[] { "agentCount", "notify", "notifySound", "repo", "startPaused", "tuiAudio", "version" }, baseConfig.Select(p => p.Key).Order());
             Assert.Equal("repo", baseConfig["repo"]!.GetValue<string>());
             Assert.True(baseConfig["startPaused"]!.GetValue<bool>());
             Assert.Equal("all", baseConfig["notify"]!.GetValue<string>());
             Assert.True(baseConfig["notifySound"]!.GetValue<bool>());
             Assert.True(baseConfig["tuiAudio"]!.GetValue<bool>());
-            Assert.Equal(3, baseConfig["agents"]!.AsArray().Count);
+            Assert.Equal(3, baseConfig["agentCount"]!.GetValue<int>());
             foreach (var (mode, model) in new[]
             {
                 ("opencode", "openai/gpt-5.6-sol"),
@@ -156,8 +143,8 @@ public sealed class MultiAgentRepositoryInitializerTests
                 Assert.True(selected.TuiAudio);
                 Assert.Equal(result.RepositoryPath, selected.RepositoryPath);
                 Assert.Equal(3, selected.Agents.Count);
-                for (var index = 0; index < 3; index++)
-                    Assert.Equal(Path.Combine(result.WorktreesPath, index.ToString()), selected.Agents[index].WorkspacePath);
+                Assert.Equal(3, selected.ManagedAgentCount);
+                Assert.All(selected.Agents, agent => Assert.Empty(agent.WorkspacePath));
                 Assert.Contains($"abacus_{mode}.json", output.ToString());
             }
 

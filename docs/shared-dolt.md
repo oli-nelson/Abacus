@@ -51,7 +51,7 @@ abacus new my-project --agents 4
 
 The initializer creates a unique database name, configures shared-server Beads
 with `no-git-ops=false`, marks the database local-only, creates a merge slot,
-and creates four detached Git worktrees. See
+and requests four managed workers; Abacus allocates their reusable worktrees on run. See
 [Getting started](getting-started.md#path-a-create-a-new-multi-agent-project)
 for the resulting directory layout and run configs.
 

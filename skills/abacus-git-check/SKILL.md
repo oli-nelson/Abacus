@@ -35,6 +35,14 @@ Do **not** flag:
 - a narrow prohibition backed by a concrete repository workflow, such as not committing generated files or not rewriting shared history;
 - statements that accurately describe the current tool or sandbox after verifying that limitation from direct evidence.
 
+Abacus pool ownership is a legitimate safety boundary, not a blanket Git ban.
+Accept rules preserving `pool.lock`, `abacus-workspace.lock`, assignment journals,
+and runtime state; prohibiting git clean/cache deletion or unleased checkout edits;
+and requiring verified execution shutdown before `worktrees recover --confirm`.
+Do not recommend removing these protections or treating Abacus locks as stale
+Git index locks. Worker display names, historical Beads assignees, and branch names
+alone do not establish that a slot is free. Do not test recovery by mutating a slot.
+
 If a restriction might be a legitimate workflow policy but its rationale is unclear, classify it as needing review rather than declaring it wrong. Do not test permissions with a mutating Git command.
 
 ## Report

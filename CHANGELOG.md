@@ -6,8 +6,60 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+### Added
+
+- Add an independently optional empty-backlog continuation supervisor with its
+  own model, arguments, timeout, and custom planning prompts. It can write specs
+  and create epics under user policy when no unfinished epics remain. Process-local
+  one-shot triggers prevent no-op/failure loops until unfinished epics appear and
+  finish. Each new Abacus process allows a fresh attempt; the continuation row's
+  Restart explicitly retries in-process. Legacy continuation.json flags are ignored
+  and the offline `continuation retry` command is removed. Both supervisor
+  roles share the main checkout safely and receive effective per-target merge
+  instructions, including custom and empty overrides, without expanding
+  maintenance authority.
+
 ### Changed
 
+- Add a wrapped, scrollable last-run report for both supervisors: select a row
+  and press L, or choose Last run details from its action menu. The report
+  preserves the latest summary and model while a new run starts.
+
+- Rename the maintenance agent from `supervisor` to `maintenance` in the dashboard,
+  events, stdio controls, and Beads actor identity. Update control clients to target
+  `maintenance`; existing supervisor configuration, policy paths, and labels remain
+  compatible. Prefer `maintainerModel` / `--maintainer` for its model; the old
+  model-setting names remain aliases. `maintenance` is now reserved as a worker name.
+
+- Give maintenance and continuation supervisors distinct startup announcements,
+  replacing the shared supervisor clip while preserving TUI-audio controls and
+  attention-sound preemption.
+
+- Runs now allocate and reuse an external, repository-specific worktree pool;
+  choose capacity with `--agents` / `agentCount` (default one). New project
+  configs no longer require workspace paths. Existing explicit workspaces remain
+  supported and are never automatically adopted or deleted. Manage pooled slots
+  with `worktrees list`, `reclaim`, `remove --confirm`, and `prune`. Workers now
+  lease independent slots per assignment; optional `--agent-name` / `agentNames`
+  labels can change freely between runs. Recovery scans the whole pool even after
+  reducing capacity and updates readable Beads assignees on safe takeover. Durable
+  assignment IDs prevent duplicate issue reservations and stale updates. Uncertain
+  execution after a crash remains quarantined until surviving processes are
+  stopped and `worktrees recover <slot-ID> --confirm` is used. Existing `agent-N`
+  slot paths remain valid; new slots use `slot-N`. Stop old controllers and
+  surviving harnesses before upgrading; pre-upgrade executions have no journal.
+- Maintenance supervision now diagnoses current pooled assignments instead of
+  stale preflight paths. Both supervisor prompts and bundled skills explain pool
+  ownership, historical assignees, protected runtime locks/journals, and operator-only
+  crash confirmation. Planning honors explicit bounded continuation authorization
+  without redundant interactive approval. Refresh existing bundled skill copies
+  with `abacus skills install` after upgrading; replacement remains confirmed.
+- Fix autonomous draft planning with Beads 1.2.2: use supported deferred creation
+  before blocking drafts instead of requiring unsupported `create --status` or
+  pausing dispatch. Incomplete plans stay unclaimable until explicitly published.
+- Workspace cleanup now resets tracked changes only, preserving untracked files
+  and ignored compilation caches. Resets that would overwrite untracked or
+  ignored paths are refused for operator review.
 - Add a linked README feature overview and move supervisor guidance alongside
   ticket recovery so capabilities and maintenance help are easier to find.
 

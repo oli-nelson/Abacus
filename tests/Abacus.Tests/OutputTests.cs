@@ -11,7 +11,7 @@ public sealed class OutputTests
         using var output = new ConsoleOutput(writer, ["alice"], "p/model", false,
             interactive: true, terminalSize: () => (120, 40), color: false);
         output.EnableSupervisor();
-        await output.SetAgentAsync("supervisor", AgentActivity.Stopped, "Last run: timed out; unresolved");
+        await output.SetAgentAsync("maintenance", AgentActivity.Stopped, "Last run: timed out; unresolved");
         var gate = new ClaimGate();
         output.HandleDashboardKey(Key(ConsoleKey.DownArrow), gate);
         output.HandleDashboardKey(Key(ConsoleKey.DownArrow), gate);
@@ -23,7 +23,7 @@ public sealed class OutputTests
         Assert.False(output.HandleDashboardKey(Key(ConsoleKey.C), gate));
         string? requested = null;
         output.HandleDashboardKey(Key(ConsoleKey.R), gate, (name, _) => requested = name);
-        Assert.Equal("supervisor", requested);
+        Assert.Equal("maintenance", requested);
     }
 
     [Theory]
@@ -417,7 +417,7 @@ public sealed class OutputTests
         Assert.Contains("/worktrees/bob", writer.ToString(), StringComparison.Ordinal);
 
         Assert.True(output.HandleDashboardKey(Key(ConsoleKey.C, 'c'), claimGate, Record));
-        Assert.Contains("Permanently discard tracked and untracked", writer.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Discard tracked changes? Untracked files", writer.ToString(), StringComparison.Ordinal);
         Assert.Empty(actions);
 
         Assert.True(output.HandleDashboardKey(Key(ConsoleKey.Y, 'y'), claimGate, Record));

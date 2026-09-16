@@ -74,7 +74,7 @@ correlate results. IDs are echoed, not persisted or deduplicated.
 | `pause` / `resume` | Disable/enable new claims; active tickets continue. |
 | `stop` | Interrupt the named agent, retain its ticket reservation, and park its loop. |
 | `restart` | Interrupt/relaunch the reserved ticket or resume the parked loop. |
-| `clean-workspace` | **Destructive:** requires literal JSON `confirm:true`; safely reopen active work, then discard tracked/untracked workspace changes using the same confirmed TUI cleanup path. Leave the agent parked. |
+| `clean-workspace` | **Destructive:** requires literal JSON `confirm:true`; safely reopen active work, then reset tracked changes while preserving untracked files and ignored caches, using the same confirmed TUI cleanup path. Leave the agent parked. |
 | `shutdown` | Acknowledge, stop accepting input, and gracefully shut down all agents using normal ticket recovery and host cleanup. |
 
 Responses are `control.result` events with `data.id`, `data.command`, and
@@ -164,3 +164,7 @@ the operator's attention, including issues that already carry the label when the
 run starts. The clip never replays for an issue that keeps the label and never
 restarts while it is still playing. Attention audio follows `--tui-audio` in
 every run mode, so `--no-intro` and stdio runs that enable TUI audio keep it.
+
+The optional `maintenance` and `continuation` rows accept `stop` and `restart`,
+never `clean-workspace`. Continuation Restart rearms its in-memory trigger and
+rechecks all epics; it does not bypass unfinished work. See [supervisors](supervisor.md).

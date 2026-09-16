@@ -5,11 +5,12 @@ public sealed class TmuxAgentRun(
     string runDirectory,
     string promptPath,
     string wrapperPath,
-    string markerPath) : IAgentRun
+    string markerPath, bool requireVerifiedCleanup = false) : IAgentRun
 {
     private readonly SemaphoreSlim cleanupLock = new(1, 1);
     private bool cleaned;
 
+    internal bool RequireVerifiedCleanup { get; } = requireVerifiedCleanup;
     public string PaneId { get; } = paneId;
     public string RunDirectory { get; } = runDirectory;
     public string PromptPath { get; } = promptPath;
@@ -113,7 +114,7 @@ public sealed class TmuxAgentHost(
                 wrapperPath,
                 cancellationToken);
 
-            run = new TmuxAgentRun(paneId, runDirectory, promptPath, wrapperPath, markerPath);
+            run = new TmuxAgentRun(paneId, runDirectory, promptPath, wrapperPath, markerPath, agent.PoolAssignment is not null);
             await SetPaneOptionAsync(run.PaneId, ManagedPaneOption, "1", agent.Name, cancellationToken);
             await SetPaneOptionAsync(run.PaneId, ProjectIdOption, projectId, agent.Name, cancellationToken);
             await SetPaneOptionAsync(run.PaneId, "@abacus_agent", agent.Name, agent.Name, cancellationToken);
@@ -253,6 +254,7 @@ public sealed class TmuxAgentHost(
             }
             catch (OperationCanceledException)
             {
+                if (run.RequireVerifiedCleanup) throw;
                 return;
             }
 
@@ -277,9 +279,15 @@ public sealed class TmuxAgentHost(
 
             // Force any process that ignored Ctrl-C to stop, but keep the pane as
             // a dead, tagged slot that a later agent run can respawn.
-            await TryCleanupCommandAsync(
-                ["respawn-pane", "-k", "-t", run.PaneId, "true"],
-                budget.Token);
+            if (run.RequireVerifiedCleanup)
+            {
+                var stopped = await runner.RunAsync(new CommandSpec(tmuxExecutable,
+                    ["respawn-pane", "-k", "-t", run.PaneId, "true"], temporaryRoot), budget.Token);
+                if (!stopped.Succeeded)
+                    throw new TmuxException($"could not confirm pool pane cleanup: {Beads.FailureDetail(stopped)}");
+            }
+            else await TryCleanupCommandAsync(
+                ["respawn-pane", "-k", "-t", run.PaneId, "true"], budget.Token);
 
             CleanupRunFiles(run);
             run.Cleaned = true;

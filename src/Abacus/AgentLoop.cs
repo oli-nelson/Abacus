@@ -81,14 +81,22 @@ public sealed partial class ClaimCoordinator(
             }
 
             bool workspaceIsClean;
-            string? interruptedIssueId = null;
+            string? interruptedIssueId = agent.PoolAssignment?.RecoveryIssueId;
+            var preserveBranch = false;
             try
             {
                 workspaceIsClean = await git.IsWorkspaceCleanAsync(
                     agent.WorkspacePath,
                     agent.Name,
                     cancellationToken);
-                if (!workspaceIsClean)
+                if (agent.PoolAssignment?.RecoveryIssueId is { } recovered)
+                {
+                    var branch = (await git.GetWorkspaceStatusAsync(agent.WorkspacePath, agent.Name, cancellationToken)).Branch;
+                    preserveBranch = branch == $"abacus/{recovered}";
+                    if (!preserveBranch && !workspaceIsClean)
+                        await HaltAsync(agent.Name, "Pool assignment branch changed; workspace preserved");
+                }
+                else if (!workspaceIsClean)
                 {
                     var currentBranch = await git.GetCurrentBranchAsync(
                         agent.WorkspacePath,
@@ -103,6 +111,7 @@ public sealed partial class ClaimCoordinator(
                             $"'{currentBranch}'. The changes were preserved; resolve them before restarting this agent.");
                     }
 
+                    preserveBranch = true;
                     await log.SetAgentAsync(
                         agent.Name,
                         AgentActivity.Recovering,
@@ -153,7 +162,10 @@ public sealed partial class ClaimCoordinator(
                 if (DeferredReason is not null) return null;
                 if (interruptedIssueId is not null)
                 {
-                    issue = await beads.ResumeOpenIssueAsync(
+                    issue = agent.PoolAssignment is { } assignment
+                        ? await beads.ResumePoolIssueAsync(agent.WorkspacePath, agent.Name, interruptedIssueId,
+                            assignment.PreviousAgentName, cancellationToken)
+                        : await beads.ResumeOpenIssueAsync(
                         agent.WorkspacePath,
                         agent.Name,
                         interruptedIssueId,
@@ -172,7 +184,9 @@ public sealed partial class ClaimCoordinator(
                         cancellationToken,
                         agent.Targets is null ? null : candidate => IsTargetEligible(agent, candidate),
                         candidate => git.CanUseIssueBranchAsync(
-                            agent.WorkspacePath, agent.Name, candidate.Id, cancellationToken));
+                            agent.WorkspacePath, agent.Name, candidate.Id, cancellationToken),
+                        candidate => agent.PoolAssignment?.TryClaiming(candidate.Id) ?? true,
+                        () => agent.PoolAssignment?.ClaimContended(), includeAssigned: agent.PoolAssignment is null);
                 }
             }
             catch (Exception exception) when (exception is BeadsException or WorkspacePreparationException or PreflightException)
@@ -187,6 +201,7 @@ public sealed partial class ClaimCoordinator(
                 }
 
                 await WarnAsync(agent.Name, exception.Message);
+                if (agent.PoolAssignment is not null) throw;
                 if (executionMode is not ExecutionMode.Continuous)
                 {
                     throw;
@@ -210,7 +225,7 @@ public sealed partial class ClaimCoordinator(
                     ? "No ready tickets; checking again soon"
                     : "No ready tickets; finite run is complete";
                 await log.SetAgentAsync(agent.Name, AgentActivity.Idle, idleDetail);
-                if (executionMode is not ExecutionMode.Continuous)
+                if (executionMode is not ExecutionMode.Continuous || agent.PoolAssignment is not null)
                 {
                     return null;
                 }
@@ -225,13 +240,13 @@ public sealed partial class ClaimCoordinator(
                 if (agent.Reasoning is not null)
                     modelResolution = await ResolveReasoningAsync(agent, issue, cancellationToken);
                 if (agent.Targets is not null)
-                    issue = await BindTargetAsync(agent, issue, interruptedIssueId is not null, cancellationToken);
+                    issue = await BindTargetAsync(agent, issue, preserveBranch, cancellationToken);
                 await log.SetTicketAsync(agent.Name, issue.Id, issue.Title);
                 await log.SetAgentAsync(
                     agent.Name,
                     AgentActivity.Preparing,
                     $"{issue.Id} • preparing workspace and branch");
-                var branch = interruptedIssueId is not null
+                var branch = preserveBranch
                     ? $"abacus/{interruptedIssueId}"
                     : await git.PrepareIssueBranchAsync(
                         agent.WorkspacePath,
@@ -251,6 +266,7 @@ public sealed partial class ClaimCoordinator(
                         issue.Binding!.StartCommit, branch, cancellationToken);
                     issue = verified;
                 }
+                agent.PoolAssignment?.Prepared();
                 return new PreparedClaim(issue, branch, modelResolution?.Model, modelResolution?.Effort,
                     modelResolution?.ExtraArguments);
             }
@@ -261,7 +277,7 @@ public sealed partial class ClaimCoordinator(
                 if (interruptedIssueId is not null)
                     await HaltAsync(agent.Name, $"{issue.Id}: {exception.Message}. Workspace preserved.");
                 await log.ClearTicketAsync(agent.Name);
-                if (executionMode is ExecutionMode.Once) return null;
+                if (executionMode is ExecutionMode.Once || agent.PoolAssignment is not null) return null;
             }
             catch (TargetException exception)
             {
@@ -269,7 +285,7 @@ public sealed partial class ClaimCoordinator(
                 if (interruptedIssueId is not null)
                     await HaltAsync(agent.Name, $"{issue.Id}: {exception.Message}. Workspace preserved.");
                 await log.ClearTicketAsync(agent.Name);
-                if (executionMode is ExecutionMode.Once) return null;
+                if (executionMode is ExecutionMode.Once || agent.PoolAssignment is not null) return null;
             }
             catch (OperationCanceledException)
             {
@@ -287,6 +303,7 @@ public sealed partial class ClaimCoordinator(
                 await log.SetAgentAsync(agent.Name, AgentActivity.Recovering, $"{issue.Id} • reopening ticket");
                 await WarnAsync(agent.Name, note);
                 await RecoverClaimAsync(agent, issue, note, cancellationToken);
+                if (agent.PoolAssignment is not null) throw;
                 if (executionMode is not ExecutionMode.Continuous)
                 {
                     throw;
@@ -460,7 +477,7 @@ public sealed partial class ClaimCoordinator(
         }
     }
 
-    private async Task WaitForClaimPermissionAsync(
+    internal async Task WaitForClaimPermissionAsync(
         string agentName,
         ExecutionMode executionMode,
         CancellationToken cancellationToken)
@@ -591,8 +608,14 @@ public sealed class AgentLoop(
     AgentRunRegistry? agentRuns = null,
     DesktopNotifier? notifier = null,
     IReadOnlyList<string>? defaultArguments = null,
-    MaintenanceSupervisor? maintenance = null)
+    MaintenanceSupervisor? maintenance = null,
+    ContinuationSupervisor? continuation = null,
+    WorktreePool? pool = null,
+    Beads? poolBeads = null)
 {
+    private ValidatedAgent agent = agent;
+    private readonly string workerId = Guid.NewGuid().ToString("N");
+    private PoolAssignment? assignment;
     private readonly AgentControl control = agentControl;
     private readonly Git workspaceGit = git;
     private readonly AgentRunRegistry runs = agentRuns ?? new AgentRunRegistry();
@@ -649,14 +672,17 @@ public sealed class AgentLoop(
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
+                    if (assignment?.Record.Phase == "execution-uncertain")
+                        throw new SupervisorCleanupException("interrupted pool launch/cleanup may have left execution alive; stop the controller and confirm execution shutdown before retrying");
                     claims.LeaveInitialRecoveryPhase();
+                    if (suspendedIssue is null) ReleaseWorkspace();
                     action = control.TakeRequestedAction() ?? AgentControlAction.Stop;
                 }
             }
         }
         catch (OperationCanceledException)
         {
-            if (suspendedIssue is not null)
+            if (suspendedIssue is not null && assignment?.Record.Phase != "execution-uncertain")
             {
                 await RecoverClaimAsync(
                     suspendedIssue,
@@ -667,6 +693,7 @@ public sealed class AgentLoop(
             await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, "Shutting down");
             throw;
         }
+        finally { ReleaseWorkspace(); }
     }
 
     private async Task RunActiveAsync(CancellationToken cancellationToken)
@@ -676,6 +703,25 @@ public sealed class AgentLoop(
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                if (pool is not null && assignment is null)
+                {
+                    await claims.WaitForClaimPermissionAsync(agent.Name, executionMode, cancellationToken);
+                    if (claims.DeferredReason is not null) return;
+                    assignment = await pool.AcquireAssignmentAsync(agent, poolBeads!, workerId, cancellationToken);
+                    if (assignment is null)
+                    {
+                        claims.LeaveInitialRecoveryPhase();
+                        var message = "No safe available pool slot; inspect abacus worktrees list (unfinished work preserved)";
+                        await log.SetPersistentAlertAsync(agent.Name, message);
+                        if (executionMode is not ExecutionMode.Continuous) throw new StartupInvariantException(message);
+                        await Task.Delay(claims.PollingInterval, cancellationToken);
+                        continue;
+                    }
+                    agent = pool.AssignWorker(agent, assignment);
+                    // Use the preflight-validated policy and identity of the actual leased checkout.
+                    if (log is ConsoleOutput output) await output.SetWorkspacePathAsync(agent.Name, agent.WorkspacePath);
+                    await log.SystemAsync($"{agent.Name} leased {assignment.Slot.Name}: {agent.WorkspacePath}");
+                }
                 var reserved = suspendedIssue;
                 var claim = reserved is not null
                     ? await claims.ResumeReservedClaimAsync(agent, reserved, cancellationToken)
@@ -687,6 +733,12 @@ public sealed class AgentLoop(
                 suspendedIssue = null;
                 if (claim is null)
                 {
+                    ReleaseWorkspace();
+                    if (executionMode is ExecutionMode.Continuous && pool is not null)
+                    {
+                        await Task.Delay(claims.PollingInterval, cancellationToken);
+                        continue;
+                    }
                     if (reserved is not null && executionMode is ExecutionMode.Continuous)
                     {
                         continue;
@@ -695,6 +747,8 @@ public sealed class AgentLoop(
                     maintenance?.Healthy(agent.Name);
                     if (maintenance is not null && claims.DeferredReason is null
                         && await maintenance.CheckFiniteCompletionAsync(agent.Name, cancellationToken)) continue;
+                    if (continuation is not null && claims.DeferredReason is null
+                        && await continuation.CheckFiniteCompletionAsync(agent.Name, cancellationToken)) continue;
                     var detail = claims.DeferredReason
                         ?? (executionMode is ExecutionMode.Once
                             ? "No executable ticket; once complete"
@@ -723,6 +777,17 @@ public sealed class AgentLoop(
                     {
                         MergeInstructionsOverride = agent.Targets.Validate(claim.Issue).MergeInstructions,
                     };
+                    if (assignment?.RecoveryIssueId is not null)
+                        launchAgent = launchAgent with
+                        {
+                            AppendedPrompt = Prompt.CombineAppends(launchAgent.AppendedPrompt,
+                                "This is a recovered pool assignment, possibly previously run by a differently named worker. " +
+                                "Preserve existing work. Inspect the issue history, current Git state, and target ancestry before proceeding. " +
+                                "A previous merge or external step may already have succeeded: verify its result rather than blindly " +
+                                "repeating merge, push, release, or other non-idempotent custom steps. If completion is ambiguous, " +
+                                "request user attention instead of guessing. Apply the effective merge instructions above to remaining work only."),
+                        };
+                    runs.MarkRunning(agent.Name); // Protect merge ownership throughout launch, not only after the host returns.
                     run = await agentHost.StartAgentAsync(
                         launchAgent,
                         claim.Issue,
@@ -734,6 +799,8 @@ public sealed class AgentLoop(
                 }
                 catch (OperationCanceledException)
                 {
+                    if (assignment?.Record.Phase == "execution-uncertain") throw;
+                    runs.MarkStopped(agent.Name);
                     if (control.ShouldPreserveClaimOnInterruption)
                     {
                         suspendedIssue = claim.Issue;
@@ -752,8 +819,10 @@ public sealed class AgentLoop(
                         claim.Issue.Title);
                     throw;
                 }
+                catch (Exception) when (assignment?.Record.Phase == "execution-uncertain") { throw; }
                 catch (Exception exception)
                 {
+                    runs.MarkStopped(agent.Name);
                     await log.SetAgentAsync(
                         agent.Name,
                         AgentActivity.Recovering,
@@ -786,10 +855,9 @@ public sealed class AgentLoop(
                 }
                 finally
                 {
-                    // The hosted agent process is gone once supervision ends, so stop
-                    // advertising its model and effort, and let the merge-slot reclaimer
-                    // free any slot this harness left claimed.
-                    runs.MarkStopped(agent.Name);
+                    // Only verified cleanup permits reclaiming this harness's merge slot.
+                    // Failed cleanup keeps its holder protected until controller shutdown.
+                    if (assignment?.Record.Phase != "execution-uncertain") runs.MarkStopped(agent.Name);
                     await log.ClearRunAsync(agent.Name);
                 }
 
@@ -797,6 +865,7 @@ public sealed class AgentLoop(
                     agent.Name,
                     AgentActivity.Finalizing,
                     $"{claim.Issue.Id} • session finished");
+                ReleaseWorkspace();
                 if (executionMode is ExecutionMode.Once)
                 {
                     await log.SetAgentAsync(
@@ -808,9 +877,12 @@ public sealed class AgentLoop(
             }
             catch (OperationCanceledException) { throw; }
             catch (SupervisorRecoveryFailedException) { throw; }
+            catch (SupervisorCleanupException) { throw; }
+            catch (Exception) when (assignment?.Record.Phase == "execution-uncertain") { throw; }
             catch (Exception exception) when (maintenance is not null)
             {
                 claims.LeaveInitialRecoveryPhase();
+                ReleaseWorkspace();
                 await maintenance.FailedAsync(agent.Name, exception.Message, cancellationToken);
             }
             catch (StartupInvariantException)
@@ -832,6 +904,7 @@ public sealed class AgentLoop(
             }
             catch (Exception exception)
             {
+                ReleaseWorkspace();
                 await log.WarningAsync(agent.Name, $"agent loop failed: {exception.Message}");
                 if (executionMode is not ExecutionMode.Continuous)
                 {
@@ -845,10 +918,19 @@ public sealed class AgentLoop(
         }
     }
 
+    private void ReleaseWorkspace()
+    {
+        assignment?.Dispose();
+        assignment = null;
+        agent = agent with { PoolAssignment = null };
+    }
+
     private async Task<bool> CleanWorkspaceAsync(CancellationToken cancellationToken)
     {
         try
         {
+            if (pool is not null && (assignment is null || assignment.Record.Phase == "execution-uncertain"))
+                throw new WorkspacePreparationException("worker has no safely stopped leased workspace; inspect the pool instead of cleaning a previous assignment");
             if (suspendedIssue is not null)
             {
                 await RecoverClaimAsync(
@@ -864,7 +946,7 @@ public sealed class AgentLoop(
                 cancellationToken);
             await log.ClearTicketAsync(agent.Name);
             await log.ClearPersistentAlertAsync(agent.Name);
-            await log.SystemAsync($"{agent.Name} workspace cleaned with git reset --hard and git clean -fd");
+            await log.SystemAsync($"{agent.Name} tracked workspace changes reset; untracked files and ignored caches preserved");
             return true;
         }
         catch (OperationCanceledException)

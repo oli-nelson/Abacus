@@ -20,6 +20,11 @@ internal static class CliHelp
           version              Print the embedded build version and exit.
           models               List model IDs grouped by installed agent harness.
           branches prune       Delete local Abacus branches for closed tickets.
+          worktrees list       Show managed pool slots, paths, state, and disk usage.
+          worktrees reclaim <slot-ID>  Detach a safely merged, idle pool slot for reuse.
+          worktrees remove <slot-ID> --confirm  Remove a safe idle slot, including caches.
+          worktrees recover <slot-ID> --confirm  Confirm old execution stopped; preserve work.
+          worktrees prune      Forget missing slots whose Git registration has been removed.
           attention list       Print attention-labelled issue IDs, one per line.
           attention retry-supervisor <id> [<id> ...]  Allow another supervisor attempt.
           attention resolve <id> [--message <text>] [--reopen]
@@ -59,7 +64,9 @@ internal static class CliHelp
                                         that block new tickets during recurring provider peak hours.
 
         Agent and model:
-          --agent, -a <name> <workspace>  Required, repeatable; names and workspaces must be unique.
+          --agents <count>              Managed pool workers (default 1); no workspace setup required.
+          --agent-name <name>           Optional managed worker label (repeatable); names do not own slots.
+          --agent, -a <name> <workspace>  Legacy explicit workspaces; cannot combine with --agents.
           --mode <opencode|codex|claude|opencode-server>  Default: opencode.
           --model <model[#effort]>       Required fallback; effort defaults to high.
                                         OpenCode uses provider/model IDs.
@@ -67,7 +74,7 @@ internal static class CliHelp
                                         Repeatable model[#effort] mapping for high, medium, or low.
                                         A missing suffix inherits the fallback model's effort.
                                         Interactive OpenCode uses its configured variant.
-          --supervisor-model <model[#effort]>
+          --maintainer <model[#effort]>
                                         Enable optional maintenance supervisor in the main checkout.
           --supervisor-extra-args <string>
                                         Separate supervisor harness arguments (no agent args inherited).
@@ -75,6 +82,11 @@ internal static class CliHelp
                                         Append this file after the repo's .abacus/supervisor.md.
           --supervisor-timeout <duration>
                                         Positive s/m/h runtime limit; default 30m.
+          --continuation-model <model[#effort]>
+                                        Enable independent empty-backlog continuation supervisor.
+          --continuation-extra-args <string>  Separate continuation harness arguments.
+          --continuation-prompt-file <path>   Policy after .abacus/continuation.md.
+          --continuation-timeout <duration>  Positive s/m/h limit; default 30m.
           --extra-args <string>          Extra CLI arguments for every agent launch, e.g. -p deepseek.
                                         Split on whitespace; quote values that contain spaces.
           --reasoning-args <tier> <string>
@@ -122,8 +134,8 @@ internal static class CliHelp
     {
         "" => Overview,
         "run" => """
-            Usage: abacus run [options] --model <model[#effort]> --agent <name> <workspace> [--agent ...]
-            Without --config, missing required model/agents/server values offer a one-time config
+            Usage: abacus run [options] --model <model[#effort]> [--agents <count>]
+            Without --config, missing required model/server values offer a one-time config
             selection from JSON files in cwd, only on an interactive terminal. If still incomplete,
             report all missing arguments and exit. No picker for --stdio, --verbose, or redirected I/O.
             Invalid CLI options fail directly. Fully specified runs never search for configs.
@@ -148,7 +160,7 @@ internal static class CliHelp
 
             """ + Environment.NewLine + RunOptions,
         "preflight" => """
-            Usage: abacus preflight [options] --model <model[#effort]> --agent <name> <workspace> [--agent ...]
+            Usage: abacus preflight [options] --model <model[#effort]> [--agents <count>]
             Uses the same configuration and prerequisites as run. Read-only: no ticket claims,
             workspace changes, panes, processes, cleanup, or run summary. Exits after validation.
             Run-only --once and --drain are not accepted.
@@ -166,8 +178,8 @@ internal static class CliHelp
         "new" => """
             Usage: abacus new <name> --agents <count>
             Requires a new single directory name and a positive agent count. Creates <name>/repo,
-            a main branch, shared-server Beads database, bundled skills, an initial commit, detached
-            worktrees, and JSON run configs only (no launcher scripts).
+            a main branch, shared-server Beads database, bundled skills, an initial commit, and managed-pool
+            JSON run configs only (no launcher scripts).
             Writes abacus_base.json (shared settings) plus abacus_<mode>.json (baseConfig/mode/model).
             Generated runs start paused, with --notify all, notification sound, and TUI audio enabled.
             Run abacus run from <name> and select a harness config. Non-interactive use requires
@@ -221,6 +233,22 @@ internal static class CliHelp
             Force-deletes only local abacus/<issue-id> branches whose Beads tickets are closed.
             Skips and reports branches checked out in any worktree. Never deletes remote refs
             or non-Abacus branches. Does not run agent preflight.
+            """,
+        "worktrees recover" or "worktrees" or "worktrees list" or "worktrees reclaim" or "worktrees remove" or "worktrees prune" => """
+            Usage: abacus worktrees list [--repo <path>]
+                   abacus worktrees reclaim <slot-ID> [--repo <path>]
+                   abacus worktrees remove <slot-ID> --confirm [--repo <path>]
+                   abacus worktrees recover <slot-ID> --confirm [--repo <path>]
+                   abacus worktrees prune [--repo <path>]
+
+            Abacus stores reusable checkouts in its application-data directory, with bookkeeping
+            in the shared Git directory. list is read-only; all mutations require an idle controller.
+            reclaim preserves caches, refuses dirty or unfinished/unmerged work, and detaches HEAD.
+            remove additionally deletes the slot and its caches; no forced removal is performed.
+            prune forgets missing pool slots only after their Git registrations have been removed.
+            recover records your confirmation that all surviving agent processes have stopped.
+            It never resets files or changes issues. Never confirm while any old execution is alive.
+            User-managed worktrees are never adopted or removed by these commands.
             """,
         "attention" => "Usage: abacus attention <list|resolve|retry-supervisor> [options]\nUse 'abacus help attention resolve' for resolution options.",
         "attention list" => """

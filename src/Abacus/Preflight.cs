@@ -12,7 +12,8 @@ public sealed record ValidatedAgent(
     TargetRegistry? Targets = null,
     IReadOnlyList<string>? TargetBranches = null,
     ReasoningPolicy? Reasoning = null,
-    string? HarnessPromptOverride = null);
+    string? HarnessPromptOverride = null,
+    PoolAssignment? PoolAssignment = null);
 
 public sealed record PreflightResult(
     Options Options,
@@ -47,19 +48,32 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
         if (options.SupervisorModel is not null)
             await MaintenanceSupervisor.ReadAdditivePromptAsync(controllerRoot, options.SupervisorPromptFile, cancellationToken);
 
-        var beads = new Beads(runner, tools.Bd);
-        var existingAgents = options.Agents
-            .Select(static agent => new AgentOptions(agent.Name, ResolveWorkspace(agent.WorkspacePath)))
-            .ToArray();
-        var resolvedAgents = new List<AgentOptions>(existingAgents.Length);
-        foreach (var agent in existingAgents)
-        {
-            resolvedAgents.Add(new AgentOptions(
-                agent.Name,
-                await git.ResolveWorkspaceRootAsync(agent.WorkspacePath, agent.Name, cancellationToken)));
-        }
+        if (options.ContinuationModel is not null)
+            await ContinuationSupervisor.ReadAdditivePromptAsync(controllerRoot, options.ContinuationPromptFile, cancellationToken);
 
-        RejectDuplicateResolvedWorkspaces(resolvedAgents);
+        var beads = new Beads(runner, tools.Bd);
+        var resolvedAgents = new List<AgentOptions>();
+        if (options.ManagedAgentCount is not null)
+        {
+            // Missing slots use the controller only for read-only tool/database/target validation.
+            // Runtime allocates under the pool lease, then revalidates the real worktrees.
+            var pool = await WorktreePool.OpenAsync(runner, controllerRoot, cancellationToken, tools.Git);
+            // Validate every retained slot read-only, independently of this run's worker names/count.
+            foreach (var slot in pool.ReadManifest()?.Slots ?? [])
+            {
+                await pool.VerifySlotAsync(slot, cancellationToken);
+                pool.ReadAssignment(slot.Name);
+            }
+            foreach (var agent in options.Agents)
+                resolvedAgents.Add(new(agent.Name, controllerRoot));
+        }
+        else
+        {
+            foreach (var agent in options.Agents)
+                resolvedAgents.Add(new(agent.Name, await git.ResolveWorkspaceRootAsync(
+                    ResolveWorkspace(agent.WorkspacePath), agent.Name, cancellationToken)));
+            RejectDuplicateResolvedWorkspaces(resolvedAgents);
+        }
 
         var validated = new List<ValidatedAgent>(options.Agents.Count);
         foreach (var agent in resolvedAgents)
@@ -98,7 +112,7 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
         }
 
         ValidateDoltSafety(validated);
-        if (options.SupervisorModel is not null)
+        if (options.HasSupervisors)
         {
             if (await beads.IsNoGitOpsEnabledAsync(controllerRoot, cancellationToken))
                 throw new PreflightException($"Supervisor main checkout has no-git-ops enabled. {Beads.DisableNoGitOpsCommand}");
@@ -116,6 +130,10 @@ public sealed class Preflight(CommandRunner runner, string? executablePath = nul
                 throw new PreflightException("Supervisor main checkout and agent must use the same Beads project (check bd where --json)");
             }
         }
+
+        if (options.HasSupervisors && options.ManagedAgentCount is null
+            && validated.Any(agent => agent.WorkspacePath == controllerRoot))
+            throw new PreflightException("Supervisors need the main checkout exclusively; use managed workers or separate worker worktrees");
 
         var targets = await TargetRegistry.LoadAsync(
             Path.Combine(controllerRoot, ".abacus", "targets.json"), cancellationToken);

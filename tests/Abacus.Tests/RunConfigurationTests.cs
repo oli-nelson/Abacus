@@ -92,7 +92,7 @@ public sealed class RunConfigurationTests : IDisposable
     {
         var config = RunConfiguration.Create(root.FullName);
         Assert.Contains(config.Warnings(), w => w.Contains("model"));
-        Assert.Contains(config.Warnings(), w => w.Contains("workspace"));
+        Assert.DoesNotContain(config.Warnings(), w => w.Contains("workspace"));
         var path = Path.Combine(root.FullName, "draft.json");
         config.Save(path, false);
         Assert.NotEmpty(RunConfiguration.Load(path).Warnings());
@@ -281,7 +281,7 @@ public sealed class RunConfigurationTests : IDisposable
         Assert.Equal("xhigh", options.EffectiveReasoningEfforts[ReasoningPolicy.HighLabel]);
         Assert.Equal(new[] { "cli-label" }, options.DispatchFilters!.Labels);
         var third = Child(second, """{"version":1,"agents":[],"reasoningModels":null}""", "third.json");
-        Assert.Throws<OptionsException>(() => Options.Parse(["run", "--config", third]));
+        Assert.Equal(1, Options.Parse(["run", "--config", third]).Value!.ManagedAgentCount);
         options = Options.Parse(["run", "--config", third, "-a", "cli", "/tmp/cli"]).Value!;
         Assert.Empty(options.EffectiveReasoningModels);
         Assert.Empty(options.EffectiveReasoningEfforts);

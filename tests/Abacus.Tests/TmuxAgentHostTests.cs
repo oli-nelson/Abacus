@@ -12,7 +12,7 @@ public sealed class TmuxAgentHostTests
         using var fixture = await TmuxFixture.CreateAsync();
         var workspace = Directory.CreateDirectory(Path.Combine(fixture.Root, "main")).FullName;
         var host = fixture.CreateTmux(mode: AgentMode.OpenCodeServer);
-        var run = await host.StartAgentAsync(Agent("supervisor", workspace) with { HarnessPromptOverride = "maintenance-only" },
+        var run = await host.StartAgentAsync(Agent("maintenance", workspace) with { HarnessPromptOverride = "maintenance-only" },
             new BeadsIssue("run-id", IssueStatus.Open), "provider/supervisor", "low", "http://127.0.0.1:1234", CancellationToken.None);
         Assert.Equal("maintenance-only", await File.ReadAllTextAsync(run.PromptPath));
         await host.StopAndCleanupAsync(run, CancellationToken.None);

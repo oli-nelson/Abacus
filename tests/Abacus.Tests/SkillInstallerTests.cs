@@ -44,6 +44,16 @@ public sealed class SkillInstallerTests
                 ],
                 installed.InstalledSkills);
             var installedRoot = installed.SkillsRoot;
+            // Assert the distributable, not just source text: every installable skill carries the
+            // pool safety update and is installed byte-for-byte from the embedded resource.
+            foreach (var name in SkillInstaller.InstallableSkillNames)
+            {
+                using var resource = typeof(SkillInstaller).Assembly.GetManifestResourceStream($"Abacus.Skills.{name}.SKILL.md")!;
+                using var reader = new StreamReader(resource);
+                var bundled = await reader.ReadToEndAsync();
+                Assert.Equal(bundled, await File.ReadAllTextAsync(Path.Combine(installedRoot, name, "SKILL.md")));
+                Assert.Contains("pool.lock", bundled);
+            }
             Assert.Equal(Path.Combine(root.FullName, ".agents", "skills"), installedRoot);
             var planner = Path.Combine(installedRoot, "abacus-beads-planner", "SKILL.md");
             var doctor = Path.Combine(installedRoot, "abacus-beads-doctor", "SKILL.md");
@@ -96,6 +106,10 @@ public sealed class SkillInstallerTests
                 requestedSkills);
             Assert.Contains("name: abacus-beads-planner", await File.ReadAllTextAsync(planner));
             Assert.False(File.Exists(obsolete));
+            Assert.Contains("scoped standing approval", await File.ReadAllTextAsync(planner));
+            Assert.Contains("display/history", await File.ReadAllTextAsync(doctor));
+            Assert.Contains("last worker", await File.ReadAllTextAsync(attention));
+            Assert.Contains("legitimate safety boundary", await File.ReadAllTextAsync(gitCheck));
         }
         finally
         {

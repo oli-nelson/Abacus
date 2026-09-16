@@ -58,3 +58,5 @@ When documents differ, use this order:
 
 Update all affected pages when a behavior change makes the guides and
 implementation disagree.
+
+- [Managed worktrees](worktrees.md): automatic pool allocation, cache reuse, maintenance, and migration.
