@@ -81,12 +81,12 @@ internal static class CliHelp
           --supervisor-prompt-file <path>
                                         Append this file after the repo's .abacus/supervisor.md.
           --supervisor-timeout <duration>
-                                        Positive s/m/h runtime limit; default 30m.
+                                        Positive s/m/h runtime limit; default 90m.
           --continuation-model <model[#effort]>
                                         Enable independent empty-backlog continuation supervisor.
           --continuation-extra-args <string>  Separate continuation harness arguments.
           --continuation-prompt-file <path>   Policy after .abacus/continuation.md.
-          --continuation-timeout <duration>  Positive s/m/h limit; default 30m.
+          --continuation-timeout <duration>  Positive s/m/h limit; default 90m.
           --extra-args <string>          Extra CLI arguments for every agent launch, e.g. -p deepseek.
                                         Split on whitespace; quote values that contain spaces.
           --reasoning-args <tier> <string>

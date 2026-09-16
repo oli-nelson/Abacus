@@ -528,7 +528,7 @@ See [releases](releases.md) for version selection and publishing.
 | --- | --- |
 | `--maintainer <model[#effort]>` | Enable maintenance supervision using the selected harness in the main checkout. |
 | `--supervisor-extra-args "<arguments>"` | Separate supervisor harness arguments; worker arguments are not inherited. |
-| `--supervisor-timeout <duration>` | Positive `s`/`m`/`h` duration, default `30m`. |
+| `--supervisor-timeout <duration>` | Positive `s`/`m`/`h` duration, default `90m`. |
 | `--supervisor-prompt-file <path>` | Append this file after `.abacus/supervisor.md`; CLI paths are cwd-relative. |
 
 These options are accepted by `run` and `preflight` and have JSON equivalents.

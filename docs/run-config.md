@@ -223,7 +223,7 @@ fields remain required to run. Semantics/defaults match the [CLI reference](cli-
 | `continuationModel` | model specification; enables empty-backlog planning | `--continuation-model` |
 | `continuationExtraArgs` | separate argument string | `--continuation-extra-args` |
 | `continuationPromptFile` | config-relative policy path | `--continuation-prompt-file` |
-| `continuationTimeout` | positive duration (default `30m`) | `--continuation-timeout` |
+| `continuationTimeout` | positive duration (default `90m`) | `--continuation-timeout` |
 | `agentNames` | optional array of worker display names (not slot IDs) | repeatable `--agent-name` |
 | `agentCount` | integer 1–256 (default 1) | `--agents` |
 | `agents` | array of `{ "name": "...", "workspace": "..." }` | `--agent` |
@@ -304,6 +304,6 @@ not modified or deleted.
 
 Set `maintainerModel` to enable the [maintenance supervisor](supervisor.md).
 `supervisorExtraArgs` configures its separate harness arguments;
-`supervisorTimeout` defaults to `"30m"`. `supervisorPromptFile` is a config-relative
+`supervisorTimeout` defaults to `"90m"`. `supervisorPromptFile` is a config-relative
 path appended after the main checkout's optional `.abacus/supervisor.md`.
 All four fields support inheritance, null clearing, CLI overrides, and editing.

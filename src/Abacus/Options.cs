@@ -81,10 +81,10 @@ public sealed record Options(
     TimeSpan? ContinuationTimeout = null,
     string? ContinuationPromptFile = null)
 {
-    public TimeSpan EffectiveContinuationTimeout => ContinuationTimeout ?? TimeSpan.FromMinutes(30);
+    public TimeSpan EffectiveContinuationTimeout => ContinuationTimeout ?? TimeSpan.FromMinutes(90);
     public bool HasSupervisors => SupervisorModel is not null || ContinuationModel is not null;
 
-    public TimeSpan EffectiveSupervisorTimeout => SupervisorTimeout ?? TimeSpan.FromMinutes(30);
+    public TimeSpan EffectiveSupervisorTimeout => SupervisorTimeout ?? TimeSpan.FromMinutes(90);
 
     public const string DefaultTmuxLayout = "tiled";
 

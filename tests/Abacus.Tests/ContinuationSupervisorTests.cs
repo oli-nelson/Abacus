@@ -31,7 +31,7 @@ public sealed class ContinuationSupervisorTests
             "--continuation-extra-args", "--profile 'planning only'", "--supervisor-model", "p/repair"]).Value!;
         Assert.Equal("p/planner", options.ContinuationModel);
         Assert.Equal("low", options.ContinuationEffort);
-        Assert.Equal(TimeSpan.FromMinutes(30), options.EffectiveContinuationTimeout);
+        Assert.Equal(TimeSpan.FromMinutes(90), options.EffectiveContinuationTimeout);
         Assert.Equal(["--profile", "planning only"], options.ContinuationExtraArguments);
         Assert.Null(options.SupervisorExtraArguments);
         Assert.Equal("p/repair", options.SupervisorModel);

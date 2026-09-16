@@ -10,14 +10,14 @@ Enable the supervisor with a separate model for the selected harness:
 
 ```sh
 abacus run --config run.json --maintainer 'provider/model#high' \
-  --supervisor-timeout 30m \
+  --supervisor-timeout 90m \
   --supervisor-extra-args '--profile maintenance' \
   --supervisor-prompt-file ./supervisor-policy.md
 ```
 
 Use a model ID native to your selected mode (`provider/model` for OpenCode).
 Only `--maintainer` is needed to enable supervision. The timeout defaults
-to **30 minutes** and accepts positive `s`, `m`, or `h` durations. The supervisor
+to **90 minutes (1.5 hours)** and accepts positive `s`, `m`, or `h` durations. The supervisor
 uses the normal harness host, mode, server, and tmux session, but **always runs in
 the main checkout selected by `--repo`**, never an agent worktree. It does not
 consume an agent slot or claim normal tickets. Preflight requires the main checkout
@@ -31,7 +31,7 @@ The same settings work in version-1 JSON, inheritance, preflight, and the config
   "version": 1,
   "baseConfig": "run.json",
   "maintainerModel": "provider/model#high",
-  "supervisorTimeout": "30m",
+  "supervisorTimeout": "90m",
   "supervisorExtraArgs": "--profile maintenance",
   "supervisorPromptFile": "supervisor-policy.md"
 }
@@ -179,7 +179,7 @@ abacus run --model provider/worker --agents 4 \
 ```
 
 Omit either model to disable that role. Continuation has independent
-`--continuation-extra-args`, `--continuation-timeout` (default `30m`), and
+`--continuation-extra-args`, `--continuation-timeout` (default `90m`), and
 `--continuation-prompt-file` options; JSON uses `continuationModel`,
 `continuationExtraArgs`, `continuationTimeout`, and `continuationPromptFile`.
 Paths inherit relative to their declaring config and rebase on Save As.

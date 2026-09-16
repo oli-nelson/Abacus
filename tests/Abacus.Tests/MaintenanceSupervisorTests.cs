@@ -139,14 +139,14 @@ public sealed class MaintenanceSupervisorTests
     }
 
     [Fact]
-    public void OptionsAreIndependentAndTimeoutDefaultsToThirtyMinutes()
+    public void OptionsAreIndependentAndTimeoutDefaultsToNinetyMinutes()
     {
         var options = Options.Parse(["run", "--model", "p/worker", "-a", "alice", "/tmp/a",
             "--supervisor-model", "p/super#low", "--extra-args", "--worker-only",
             "--supervisor-extra-args", "--profile 'maintenance profile'"]).Value!;
         Assert.Equal("p/super", options.SupervisorModel);
         Assert.Equal("low", options.SupervisorEffort);
-        Assert.Equal(TimeSpan.FromMinutes(30), options.EffectiveSupervisorTimeout);
+        Assert.Equal(TimeSpan.FromMinutes(90), options.EffectiveSupervisorTimeout);
         Assert.Equal(new[] { "--profile", "maintenance profile" }, options.SupervisorExtraArguments);
         Assert.Equal(new[] { "--worker-only" }, options.ExtraArguments);
     }

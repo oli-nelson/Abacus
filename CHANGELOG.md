@@ -21,6 +21,9 @@ Unreleased section. Released versions are listed newest first.
 
 ### Changed
 
+- Increase the default maintenance and continuation supervisor timeouts to
+  90 minutes (1.5 hours) per run; explicit timeout overrides remain unchanged.
+
 - Add a wrapped, scrollable last-run report for both supervisors: select a row
   and press L, or choose Last run details from its action menu. The report
   preserves the latest summary and model while a new run starts.

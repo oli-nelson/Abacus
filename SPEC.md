@@ -879,7 +879,7 @@ never uploads; tag pushes no longer trigger releases. See [releases](docs/releas
 using the selected mode and host in the selected main checkout, not a worktree.
 The model uses normal native model/effort validation. Separate
 `--supervisor-extra-args` / `supervisorExtraArgs` never inherit worker arguments.
-`--supervisor-timeout` / `supervisorTimeout` defaults to 30 minutes.
+`--supervisor-timeout` / `supervisorTimeout` defaults to 90 minutes.
 `--supervisor-prompt-file` / `supervisorPromptFile` appends a user-authored file
 **after** the optional `<repo>/.abacus/supervisor.md`. Config paths retain their
 source directory and rebase on Save As. Unreadable explicit files fail preflight
@@ -943,7 +943,7 @@ See [the supervisor guide](docs/supervisor.md) for operational details.
 
 `--continuation-model` / `continuationModel` independently enables a second role,
 `continuation`, using the selected harness in the main checkout. Its separate
-extra-args, timeout (default 30m), and prompt-file options mirror the maintenance
+extra-args, timeout (default 90m), and prompt-file options mirror the maintenance
 role. Repository `.abacus/continuation.md` precedes the custom file; do not inherit
 maintenance or worker additive policies. Without an actionable user policy,
 perform no project planning/implementation decisions. User policy can authorize
