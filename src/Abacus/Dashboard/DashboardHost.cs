@@ -454,7 +454,7 @@ internal sealed class DashboardHost : IAsyncDisposable
     private static Dictionary<string, (string Type, byte[] Bytes)> LoadAssets()
     {
         var assets = new Dictionary<string, (string, byte[])>(StringComparer.Ordinal);
-        foreach (var (name, type) in new[] { ("index.html", "text/html; charset=utf-8"), ("dashboard.css", "text/css; charset=utf-8"), ("dashboard.js", "text/javascript; charset=utf-8"), ("timeline.js", "text/javascript; charset=utf-8"), ("inspector-resize.js", "text/javascript; charset=utf-8"), ("issue-relations.js", "text/javascript; charset=utf-8"), ("issue-table.js", "text/javascript; charset=utf-8"), ("issue-filters.js", "text/javascript; charset=utf-8"), ("timeline-model.js", "text/javascript; charset=utf-8"), ("timeline-gl.js", "text/javascript; charset=utf-8") })
+        foreach (var (name, type) in new[] { ("index.html", "text/html; charset=utf-8"), ("dashboard.css", "text/css; charset=utf-8"), ("dashboard.js", "text/javascript; charset=utf-8"), ("dependency-tree.js", "text/javascript; charset=utf-8"), ("timeline.js", "text/javascript; charset=utf-8"), ("inspector-resize.js", "text/javascript; charset=utf-8"), ("issue-relations.js", "text/javascript; charset=utf-8"), ("issue-table.js", "text/javascript; charset=utf-8"), ("issue-filters.js", "text/javascript; charset=utf-8"), ("timeline-model.js", "text/javascript; charset=utf-8"), ("timeline-gl.js", "text/javascript; charset=utf-8") })
         {
             using var source = Assembly.GetExecutingAssembly().GetManifestResourceStream("Abacus.Dashboard." + name)
                 ?? throw new InvalidOperationException("Bundled dashboard asset missing.");

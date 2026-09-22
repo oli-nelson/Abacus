@@ -149,7 +149,10 @@ internal sealed class IssueProjection
                 type.Length > 100 || type.Any(char.IsControl)) return null;
             if (!edges.Add(new(owner, target, type))) return null;
         }
-        if (count.HasValue && count.Value != edges.Count) return null;
+        // Beads exports every relationship here, but dependency_count is the
+        // number of blocking prerequisites only. Parent-child and related links
+        // do not contribute to that count (including for an epic's children).
+        if (count.HasValue && count.Value != edges.Count(edge => edge.Type == "blocks")) return null;
         return edges.OrderBy(x => x.DependsOnId, StringComparer.Ordinal).ThenBy(x => x.Type, StringComparer.Ordinal).ToImmutableArray();
     }
 

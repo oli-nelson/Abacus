@@ -6,6 +6,15 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+- Add a selectable Dependency Tree dashboard tab. It lays out current Beads issues
+  from blocking prerequisites to dependents, groups connected work, separates issue cards,
+  and uses distinct at-a-glance colors and labels for open, in-progress, blocked,
+  and closed states. Drag-to-pan, Ctrl/⌘ wheel zoom, focused arrow-key pan,
+  `+`/`-` zoom, fit-view, focus-selected, and search/status dimming keep large
+  graphs navigable without hiding their dependencies. Beads' all-link export
+  no longer gets rejected when its blocking-only dependency count omits
+  parent-child links.
+
 - Read recorded issue history for the whole project in one query instead of one
   bounded batch of 64 issues at a time. Beads keeps a row per issue per database
   commit, so a long-lived issue answered with a full copy of itself per commit:

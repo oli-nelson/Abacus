@@ -27,6 +27,21 @@ response may be lost during disconnection. Accepted stop dispatch is exactly onc
 same ID only in the same session. The listener closes with the owning run; check
 its terminal result and logs rather than treating disconnection as success.
 
+### Dependency Tree
+
+The **Dependency Tree** tab shows the current Beads issue graph as a left-to-right
+tech tree: blocking prerequisites lead to dependent issues. Hierarchical
+parent-child and non-blocking related links do not become dependency lines. Each card opens the existing
+issue inspector and displays its current state. Connected groups are laid out
+separately; issues without recorded links remain visible below them. Search and
+status selection dim nonmatches rather than removing graph context. Drag empty
+space to pan. As in the timeline, unmodified wheel scrolls, Ctrl/⌘ wheel or a
+trackpad pinch zooms at the pointer, and with the tree focused arrow keys pan,
+`+`/`-` zoom, and `F` fits the view. Use the Zoom slider, Fit view, or Focus
+selected as alternatives. Unknown or out-of-snapshot
+relationships are counted rather than inferred, and this view is current-only,
+not timeline playback.
+
 ### Timeline and inspector navigation
 
 - Drag to orbit; Shift-drag (or Pan mode) to pan. Wheel/pinch zooms. Focus the

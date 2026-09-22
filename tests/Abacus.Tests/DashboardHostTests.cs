@@ -59,7 +59,7 @@ public sealed class DashboardHostTests
         Assert.DoesNotContain("onerror", await page.Content.ReadAsStringAsync());
         var js = await client.GetStringAsync("/dashboard.js");
         Assert.DoesNotContain("innerHTML", js);
-        foreach (var asset in new[] { "timeline.js", "inspector-resize.js", "timeline-gl.js", "timeline-model.js", "issue-table.js", "issue-filters.js", "issue-relations.js" })
+        foreach (var asset in new[] { "timeline.js", "inspector-resize.js", "timeline-gl.js", "timeline-model.js", "issue-table.js", "issue-filters.js", "issue-relations.js", "dependency-tree.js" })
         {
             var module = await client.GetAsync("/" + asset);
             Assert.Equal(HttpStatusCode.OK, module.StatusCode);

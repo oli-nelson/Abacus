@@ -5,6 +5,7 @@ import {Timeline} from './timeline.js';
 import {eventKindLabel,prioritizeTimelineHistory} from './timeline-model.js';
 import {issuePage} from './issue-table.js';
 import {IssueRelations} from './issue-relations.js';
+import {DependencyTree} from './dependency-tree.js';
 const relations=new IssueRelations();
 let relationsKey=null;
 const tableUrl=new URL(location.href);
@@ -274,7 +275,7 @@ function updateHistory(state) {
   }
   if(reload)loadActivity();else resetActivity();
 }
-let view = ['branches','issues','workers','worktrees'].includes(new URL(location.href).searchParams.get('view')) ? new URL(location.href).searchParams.get('view') : 'timeline';
+let view = ['dependency','branches','issues','workers','worktrees'].includes(new URL(location.href).searchParams.get('view')) ? new URL(location.href).searchParams.get('view') : 'timeline';
 let gitState = null, branch = new URL(location.href).searchParams.get('branch'), gitRenderKey = null, comparisonRequest, comparisonKey = null;
 let gitHistoryRequest=null,gitHistoryKey=null;
 const metadataFields=['assignee','label','priority','attention','type','target'];
@@ -590,6 +591,12 @@ function select(id,event=null) {
   history.replaceState(null,'',url);
   render();
 }
+const dependencyTree=new DependencyTree({pane:$('dependency-pane'),scroll:$('dependency-scroll'),sizer:$('dependency-sizer'),surface:$('dependency-surface'),
+  lines:$('dependency-lines'),nodes:$('dependency-nodes'),summary:$('dependency-summary'),
+  zoom:$('dependency-zoom'),zoomValue:$('dependency-zoom-value'),onSelect:select});
+$('dependency-focus').addEventListener('click',()=>dependencyTree.focus(selected));
+$('dependency-fit').addEventListener('click',()=>dependencyTree.fit());
+$('dependency-reset').addEventListener('click',()=>dependencyTree.setScale(1));
 function render() {
   if(document.body.dataset.view!==view)$('workspace-tools').open=view!=='timeline'||$('source').classList.contains('stale');
   document.body.dataset.view=view;
@@ -602,20 +609,26 @@ function render() {
   $('inspector').hidden=['workers','worktrees'].includes(view);
   $('inspector-resizer').hidden=['workers','worktrees'].includes(view);
   $('timeline-pane').hidden=view!=='timeline';timeline.show(view==='timeline');scheduleTimelineHistory();
+  $('dependency-pane').hidden=view!=='dependency';
   timeline.setData([...issues.values()],selected,$('search').value,$('status').value,metadataFilters());
   $('issue-pane').hidden = view !== 'issues'; $('branch-pane').hidden = view !== 'branches';
   $('issue-inspector').hidden = view === 'branches'; $('branch-inspector').hidden = view !== 'branches';
-  $('issues-title').textContent = view === 'branches' ? 'Branches' : view==='timeline'?'Issue timeline':'Issues';
+  $('issues-title').textContent = view === 'branches' ? 'Branches' : view==='timeline'?'Issue timeline':view==='dependency'?'Dependency Tree':'Issues';
   $('status').parentElement.hidden = view === 'branches';
   $('source').hidden = view === 'branches';
   $('search-coverage').hidden=view==='branches';timeline.updateSearchCoverage();
   $('issue-filters').hidden=view==='branches';
   $('search').placeholder = view === 'branches' ? 'Search local branches…' : 'Search issues…';
   $('inspector').setAttribute('aria-labelledby',view === 'branches' ? 'branch-title' : 'selected-title');
-  for (const name of ['timeline','issues','branches','workers','worktrees']) { if(view === name) $(name+'-view').setAttribute('aria-current','page'); else $(name+'-view').removeAttribute('aria-current'); }
+  for (const name of ['timeline','dependency','issues','branches','workers','worktrees']) { if(view === name) $(name+'-view').setAttribute('aria-current','page'); else $(name+'-view').removeAttribute('aria-current'); }
   if(view === 'branches'||view==='worktrees') { renderBranches(); return; }
   if(view==='workers')return;
   if(view==='timeline'){$('count').textContent=issues.size+' issues';inspect();return;}
+  if(view==='dependency'){
+    $('count').textContent=issues.size+' issues';
+    dependencyTree.render([...issues.values()],selected,$('search').value,$('status').value);
+    inspect();return;
+  }
   if(!issuesLoaded){$('count').textContent='Loading issues…';inspect();return;}
   const query = $('search').value.toLowerCase(), status = $('status').value;
   const projected=issuePage([...issues.values()],{...tableState,query,status,metadata:metadataFilters(),searchMatches:issue=>timeline.matchesSearch(issue.id,true)});
@@ -798,11 +811,12 @@ for(const button of document.querySelectorAll('[data-issue-sort]'))button.addEve
 for(const [id,delta] of [['issues-prev',-1],['issues-next',1]])$(id).addEventListener('click',()=>{tableState.page+=delta;render();updateTableUrl();});
 $('issues-page-size').addEventListener('change',()=>{tableState.pageSize=Number($('issues-page-size').value);tableState.page=0;render();updateTableUrl();});
 $('search').addEventListener('input',()=>{tableState.page=0;render();}); $('status').addEventListener('change',()=>{tableState.page=0;render();});
-window.addEventListener('popstate',() => { showInspectorTab(readInspectorTab());restoreMetadataFilters();const url=new URL(location.href);tableState={sort:url.searchParams.get('sort')||'id',direction:url.searchParams.get('order')||'asc',page:Number(url.searchParams.get('page'))||0,pageSize:Number(url.searchParams.get('size'))||50}; view = ['branches','issues','workers','worktrees'].includes(new URL(location.href).searchParams.get('view')) ? new URL(location.href).searchParams.get('view') : 'timeline'; branch = new URL(location.href).searchParams.get('branch'); selected = url.searchParams.get('issue');selectedEvent=null;currentInspectorRevision=null;timeline.restoreLocation(url); render(); });
+window.addEventListener('popstate',() => { showInspectorTab(readInspectorTab());restoreMetadataFilters();const url=new URL(location.href);tableState={sort:url.searchParams.get('sort')||'id',direction:url.searchParams.get('order')||'asc',page:Number(url.searchParams.get('page'))||0,pageSize:Number(url.searchParams.get('size'))||50}; view = ['dependency','branches','issues','workers','worktrees'].includes(new URL(location.href).searchParams.get('view')) ? new URL(location.href).searchParams.get('view') : 'timeline'; branch = new URL(location.href).searchParams.get('branch'); selected = url.searchParams.get('issue');selectedEvent=null;currentInspectorRevision=null;timeline.restoreLocation(url); render(); });
 function changeView(next) {
   view = next; currentInspectorRevision=null;const url = new URL(location.href); url.searchParams.set('view',view); history.replaceState(null,'',url); render();
 }
 $('timeline-view').addEventListener('click',() => changeView('timeline'));
+$('dependency-view').addEventListener('click',() => changeView('dependency'));
 $('issues-view').addEventListener('click',() => changeView('issues'));
 $('branches-view').addEventListener('click',() => changeView('branches'));
 $('workers-view').addEventListener('click',()=>changeView('workers'));

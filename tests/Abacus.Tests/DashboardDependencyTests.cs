@@ -15,12 +15,25 @@ public sealed class DashboardDependencyTests
         Assert.Empty(projection.Current.Issues["web-0kh"].Dependencies!.Value);
     }
 
+    [Fact]
+    public void BlockingCountDoesNotRejectParentChildOrRelatedLinks()
+    {
+        var projection = new IssueProjection();
+        projection.Apply(IssueExport.Parse("""
+            {"id":"child","dependency_count":1,"dependencies":[{"issue_id":"child","depends_on_id":"prereq","type":"blocks"},{"issue_id":"child","depends_on_id":"epic","type":"parent-child"},{"issue_id":"child","depends_on_id":"sibling","type":"relates-to"}]}
+            {"id":"only-child","dependency_count":0,"dependencies":[{"issue_id":"only-child","depends_on_id":"epic","type":"parent-child"}]}
+            """));
+        Assert.Equal(3, projection.Current.Issues["child"].Dependencies!.Value.Length);
+        Assert.Equal("parent-child", Assert.Single(projection.Current.Issues["only-child"].Dependencies!.Value).Type);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData(",\"dependency_count\":1")]
     [InlineData(",\"dependencies\":null")]
     [InlineData(",\"dependencies\":[{\"issue_id\":\"other\",\"depends_on_id\":\"b\",\"type\":\"blocks\"}]")]
     [InlineData(",\"dependency_count\":2,\"dependencies\":[]")]
+    [InlineData(",\"dependency_count\":1,\"dependencies\":[{\"issue_id\":\"a\",\"depends_on_id\":\"b\",\"type\":\"parent-child\"}]")]
     [InlineData(",\"dependencies\":[{\"issue_id\":\"a\",\"depends_on_id\":\"b\"}]")]
     public void IncompleteOrInvalidRelationshipsAreUnknownNotEmpty(string fields)
     {
