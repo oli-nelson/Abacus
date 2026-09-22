@@ -99,10 +99,49 @@ public sealed class DashboardActivityTests
         Assert.Equal(1, reads);
         foreach (var query in new[] { "limit=0", "limit=101", "limit=2&limit=3", "extra=1", "after=bad" })
             Assert.Equal(HttpStatusCode.BadRequest, (await http.GetAsync("/api/v1/issues/web-a/activity?" + query)).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync("/api/v1/issues/activity")).StatusCode);
+        // Whole-project history is a separate capability: a source that cannot answer it
+        // says so instead of being mistaken for an issue named "activity".
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await http.GetAsync("/api/v1/issues/activity")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync("/api/v1/issues/missing/activity")).StatusCode);
         head = "b";await activity.RefreshAsync(default);
         Assert.Equal(HttpStatusCode.Conflict, (await http.GetAsync("/api/v1/issues/web-a/activity?after=" + Uri.EscapeDataString(page.Continuation))).StatusCode);
+    }
+
+    [Fact]
+    public async Task WholeProjectHistoryIsOneFencedReadCoveringEveryIssue()
+    {
+        var head = "a"; var reads = 0;
+        var project = new ProjectHistory("a", ImmutableDictionary<string, ImmutableArray<IssueVersion>>.Empty
+            .Add("web-a", History(new("web-a", "r", "a", 5)).Versions), new(false, false, "Committed snapshots only.", null, null));
+        var activity = new IssueActivity(_ => Task.FromResult(head), (key, _) => Task.FromResult(History(key)), default,
+            (_, _) => { Interlocked.Increment(ref reads); return Task.FromResult(project); });
+        await activity.RefreshAsync(default);
+        Assert.True(activity.ProjectHistoryEnabled);
+        var collector = new IssueCollector(_ => Task.FromResult("{\"id\":\"web-a\",\"title\":\"A\"}\n{\"id\":\"web-b\",\"title\":\"B\"}"), default);
+        var stream = new DashboardStream();stream.Publish(await collector.RefreshAsync());stream.PublishHistory(activity.State);
+        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));var port = ((IPEndPoint)socket.LocalEndPoint!).Port;socket.Close();
+        await using var host = await DashboardHost.StartAsync(new([IPAddress.Loopback], new() { "127.0.0.1" }, port),
+            stream, "fixture", "actor", default, activity: activity);
+        using var http = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        var page = await http.GetFromJsonAsync<ProjectActivityPage>("/api/v1/issues/activity", DashboardStream.Json);
+        // Every issue is present, including one with no recorded history: an absent issue
+        // would be indistinguishable from an issue the timeline must not draw.
+        Assert.NotNull(page);
+        Assert.Equal(["web-a", "web-b"], page.Issues.Select(x => x.IssueId));
+        Assert.Equal(5, page.Issues[0].Versions.Length);
+        Assert.Empty(page.Issues[1].Versions);
+        Assert.All(page.Issues, x => Assert.Equal(stream.Issue(x.IssueId)!.Revision, x.IssueRevision));
+        Assert.Equal("a", page.HistoryRevision);
+        // Ten clients and a hundred issues are still one read of the recorded source.
+        await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => http.GetAsync("/api/v1/issues/activity")));
+        Assert.Equal(1, reads);
+        foreach (var query in new[] { "limit=2", "after=x" })
+            Assert.Equal(HttpStatusCode.BadRequest, (await http.GetAsync("/api/v1/issues/activity?" + query)).StatusCode);
+        // History labelled with a revision other than the one it was fenced against is
+        // refused rather than shown against the wrong source.
+        head = "b";await activity.RefreshAsync(default);
+        Assert.Equal(HttpStatusCode.Conflict, (await http.GetAsync("/api/v1/issues/activity")).StatusCode);
     }
 
     [Fact]

@@ -18,6 +18,34 @@ test('recorded snapshots preserve provenance; equal-time conflicts remain unknow
   const conflict=eventsFor(issue,[...versions,{...versions[0],id:'v2',status:'open'}]);
   assert.equal(stateAt(issue,conflict,Date.parse('2026-09-21T11:00:00Z')).status,'unknown');
 });
+test('a closure recorded after the closing snapshot keeps the recorded fields',()=>{
+  // closed_at has second precision; Dolt commit times have milliseconds, so the
+  // synthesized closure routinely lands a few ms after the snapshot that closed the
+  // issue. That must not blank out the title and every other recorded field.
+  const closed={...issue,status:'closed',closedAt:'2026-09-21T11:00:00Z'};
+  const versions=[{id:'v1',recordedAt:'2026-09-21T10:59:59.975Z',status:'closed',title:'Then',assignee:'bob',priority:3,labels:['a'],issueType:'bug',target:'release'}];
+  const state=stateAt(closed,eventsFor(closed,versions),Date.parse('2026-09-21T12:00:00Z'));
+  assert.equal(state.title,'Then');assert.equal(state.assignee,'bob');assert.equal(state.priority,3);
+  assert.deepEqual(state.labels,['a']);assert.equal(state.issueType,'bug');assert.equal(state.target,'release');
+  assert.equal(state.status,'closed');
+  assert.equal(state.recordedAt,Date.parse('2026-09-21T10:59:59.975Z'));
+  assert.match(state.certainty,/status from a later recorded change/);
+});
+test('fields still come from the newest snapshot, never from a stale one or current data',()=>{
+  const closed={...issue,status:'closed',closedAt:'2026-09-21T11:00:00Z'};
+  const versions=[
+    {id:'old',recordedAt:'2026-09-21T09:30:00Z',status:'open',title:'Old',assignee:'alice'},
+    {id:'new',recordedAt:'2026-09-21T10:30:00Z',status:'in_progress',title:'Newer',assignee:'bob'}];
+  const state=stateAt(closed,eventsFor(closed,versions),Date.parse('2026-09-21T12:00:00Z'));
+  assert.equal(state.title,'Newer');assert.equal(state.assignee,'bob');assert.equal(state.status,'closed');
+  // Seeking before any snapshot still reports nothing recorded rather than current fields.
+  const early=stateAt(closed,eventsFor(closed,versions),Date.parse('2026-09-21T09:15:00Z'));
+  assert.equal(early.title,'a');assert.equal(early.assignee,undefined);assert.equal(early.status,'unknown');assert.equal(early.recordedAt,null);
+  // A closure with no snapshot at all before it stays honestly unknown.
+  const only=stateAt(closed,eventsFor(closed,[]),Date.parse('2026-09-21T12:00:00Z'));
+  assert.equal(only.title,'a');assert.equal(only.recordedAt,null);
+  assert.match(only.certainty,/no recorded snapshot at this time/);
+});
 test('closed field is not a merge and reopened issues retain committed closure snapshots',()=>{
   const closed={...issue,status:'closed',closedAt:'2026-09-21T11:00:00Z'};
   assert.match(eventsFor(closed).at(-1).text,/integration unverified/);
@@ -145,6 +173,14 @@ test('saved cameras reject malformed, nonfinite, out-of-range and mismatched pro
   const camera={yaw:.3,pitch:.4,distance:20,perspective:1,target:[-2,-3,0]};
   assert.deepEqual(savedTimelineCamera(JSON.stringify(camera),'3d'),camera);
   for(const value of ['invalid','null','{}',JSON.stringify({...camera,target:[0,0]}),JSON.stringify({...camera,distance:0}),JSON.stringify({...camera,yaw:8}),JSON.stringify({...camera,target:[0,'1',0]})])assert.equal(savedTimelineCamera(value,'3d'),null);
+  // A stretched scene is viewed from further out; the saved camera must survive it.
+  const far={...camera,distance:900};
+  assert.equal(savedTimelineCamera(JSON.stringify(far),'3d'),null);
+  assert.deepEqual(savedTimelineCamera(JSON.stringify(far),'3d',10000),far);
+  assert.equal(savedTimelineCamera(JSON.stringify(far),'3d',800),null);
+  // The bound itself is validated: a missing or shrunken limit never widens it.
+  assert.equal(savedTimelineCamera(JSON.stringify(far),'3d',NaN),null);
+  assert.equal(savedTimelineCamera(JSON.stringify({...camera,distance:4}),'3d',10000),null);
   assert.equal(savedTimelineCamera(JSON.stringify(camera),'2d'),null);
 });
 

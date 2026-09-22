@@ -15,12 +15,15 @@ internal sealed class ActivityConflictException : Exception;
 internal sealed class IssueActivity(
     Func<CancellationToken, Task<string>> revision,
     Func<HistoryKey, CancellationToken, Task<IssueHistory>> history,
-    CancellationToken lifetime)
+    CancellationToken lifetime,
+    Func<string, CancellationToken, Task<ProjectHistory>>? project = null)
 {
     private readonly DetailCache<HistoryKey, IssueHistory> cache = new(64, lifetime);
+    private readonly DetailCache<string, ProjectHistory> projects = new(4, lifetime);
     private readonly SemaphoreSlim refresh = new(1);
     private HistorySourceState state = new(null, true, "History not collected.");
     public HistorySourceState State => Volatile.Read(ref state);
+    public bool ProjectHistoryEnabled => project is not null;
 
     public static IssueActivity ForRepository(CommandRunner runner, string repository, CancellationToken lifetime)
     {
@@ -32,13 +35,22 @@ internal sealed class IssueActivity(
             return ParseRevision(result.StandardOutput);
         }
         var reader = new IssueHistoryReader(runner, repository, lifetime);
+        var bulk = new ProjectHistoryReader(runner, repository, lifetime);
         return new(Revision, async (key, token) =>
         {
             if (await Revision(token) != key.HistoryRevision) throw new ActivityConflictException();
             var result = await reader.ReadAsync(key, token);
             if (await Revision(token) != key.HistoryRevision) throw new ActivityConflictException();
             return result;
-        }, lifetime);
+        }, lifetime, async (historyRevision, token) =>
+        {
+            // One fence for the whole project rather than one per issue: the read that
+            // used to cost three processes per issue now costs three in total.
+            if (await Revision(token) != historyRevision) throw new ActivityConflictException();
+            var result = await bulk.ReadAsync(historyRevision, token);
+            if (await Revision(token) != historyRevision) throw new ActivityConflictException();
+            return result;
+        });
     }
 
     internal static string ParseRevision(string json)
@@ -67,6 +79,20 @@ internal sealed class IssueActivity(
             if (next != State) Volatile.Write(ref state, next);
         }
         finally { refresh.Release(); }
+    }
+
+    /// <summary>Recorded history for every issue at once, fenced by the same Dolt revision.</summary>
+    public async Task<ProjectHistory> ReadProjectAsync(CancellationToken token)
+    {
+        if (project is null) throw new InvalidDataException("Project history is unavailable.");
+        var source = State;
+        if (source.Stale || source.Revision is null) throw new InvalidDataException("History unavailable.");
+        var loaded = await projects.GetAsync(source.Revision, ct => project(source.Revision, ct), token);
+        // The payload must be labelled with the revision it was fenced against, or the
+        // client cannot tell which recorded source its timeline is actually showing.
+        if (State.Stale || State.Revision != source.Revision || loaded.HistoryRevision != source.Revision)
+            throw new ActivityConflictException();
+        return loaded;
     }
 
     public async Task<ActivityPage> ReadAsync(IssueSummary issue, int limit, string? continuation, CancellationToken token)

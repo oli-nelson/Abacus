@@ -16,13 +16,13 @@ const history=new Map(issues.map((issue,i)=>[issue.id,[
 ]]));
 const draftRequests=[],draftReceipts=new Map();let draftRevision='a'.repeat(64),draftDropped=false;
 const worktreeClients=new Set();
-const clients=new Set(),requests=[],results=new Map();let revision=1,dropped=false,gitBound=false,gitContained=false,gitBranchSuffix='',referenceMode=false,worktreeMode=false,worktreeReads=0,historyFailure=false,historyRevision='fixture';
+const clients=new Set(),requests=[],results=new Map();let revision=1,dropped=false,gitBound=false,gitContained=false,gitBranchSuffix='',referenceMode=false,worktreeMode=false,worktreeReads=0,historyFailure=false,historyRevision='fixture',projectHistoryMode='off';
 function publish(stale=false){revision++;for(const client of clients)client.write('event: change\ndata: '+JSON.stringify({revision,upserts:issues,removals:[],beads:{stale,error:stale?'Synthetic source read failure':null}})+'\n\n');}
 const server=http.createServer(async(req,res)=>{
  res.setHeader('Date',new Date(at('12:00')).toUTCString());
  const url=new URL(req.url,'http://127.0.0.1'),path=url.pathname;
  function json(value){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));}
- if(path==='/api/v1/project')return json({name:'abacus / visualiser fixture',actor:'fixture operator',capabilities:{editIssues:true,history:true,createDrafts:true}});
+ if(path==='/api/v1/project')return json({name:'abacus / visualiser fixture',actor:'fixture operator',capabilities:{editIssues:true,history:true,projectHistory:projectHistoryMode!=='off',createDrafts:true}});
  if(path==='/api/v1/snapshot')return json({revision,cursor:'fixture:'+revision,issues,beads:{stale:false},history:{revision:historyRevision,stale:false},git:worktreeMode?{revision:1,stale:false,targets:['main'],defaultTarget:'main',facts:{branches:[],worktrees:[{id:'f'.repeat(64),path:'/fixture/worktree',head:'a'.repeat(40),branch:'refs/heads/main',dirty:true}]}}:null});
  if(path==='/api/v1/events'){res.setHeader('Content-Type','text/event-stream');res.write(': connected\n\n');clients.add(res);req.on('close',()=>clients.delete(res));return;}
  if(path==='/api/v1/issues/drafts/context')return json({session:'fixture-session',serverUnixMilliseconds:Date.now(),revision:draftRevision,targets:['main','release'],defaultTarget:'main',requireReasoning:true,reasoningLabels:['abacus:low_reasoning','abacus:high_reasoning'],issueTypes:['task','bug','epic'],publicationAvailable:false});
@@ -51,6 +51,20 @@ const server=http.createServer(async(req,res)=>{
    history.set(issue.id,[{id:issue.id+':start',sourceRevision:'fixture',recordedAt:at('09:30'),title:issue.title,status:'in_progress'},{id:issue.id+':end',sourceRevision:'fixture',recordedAt:at('11:30'),title:issue.title,status:'closed'}]);
   }return json({ok:true});
  }
+ // Earlier work with late-sorting IDs and later work with early-sorting IDs. In
+ // issue-ID order the later work inserts ahead of lanes already drawn and pushes
+ // them off the 24-lane page as the playhead reaches it.
+ if(path==='/fixture/staggered-work'){
+  const add=(id,title,startAt,endAt)=>{
+   issues.push({...issues[0],id,title,revision:id,status:'closed',createdAt:at('09:00'),closedAt:endAt,comments:[],labels:[]});
+   history.set(id,[{id:id+':start',sourceRevision:'fixture',recordedAt:startAt,title,status:'in_progress'},
+    {id:id+':end',sourceRevision:'fixture',recordedAt:endAt,title,status:'closed'}]);
+  };
+  const early=Number(url.searchParams.get('early')||30),late=Number(url.searchParams.get('late')||20);
+  for(let i=0;i<early;i++)add('zzz-'+String(i).padStart(3,'0'),'Early work '+i,at('09:30'),at('11:50'));
+  for(let i=0;i<late;i++)add('aaa-'+String(i).padStart(3,'0'),'Later work '+i,at('10:30'),at('11:50'));
+  publish();return json({ok:true});
+ }
  if(path==='/fixture/entry-event'){
   const issue=issues[0],rows=history.get(issue.id);rows.unshift({id:'entry-baseline',recordedAt:at('09:10'),status:'open',title:issue.title,notes:null,labels:[]});
   issue.comments.push({id:'entry-comment',author:'Ollie',text:'Comment at first entry',createdAt:at('09:20')});
@@ -74,6 +88,16 @@ const server=http.createServer(async(req,res)=>{
   return json({ok:true});
  }
  if(path==='/fixture/history-failure'){historyFailure=url.searchParams.get('enabled')!=='false';return json({ok:true});}
+ // Whole-project history: 'on' serves it, 'unsupported' advertises it and then
+ // refuses, standing in for a source whose bd/storage cannot answer the query.
+ // Set either before the page loads; capabilities are read once.
+ if(path==='/fixture/project-history'){projectHistoryMode='on';return json({ok:true});}
+ if(path==='/fixture/project-history-unsupported'){projectHistoryMode='unsupported';return json({ok:true});}
+ if(path==='/api/v1/issues/activity'){
+  if(projectHistoryMode!=='on'){res.statusCode=503;return json({error:'Whole-project history is unavailable from this fixture'});}
+  return json({historyRevision,coverage:{complete:false,limitReached:false,explanation:'Fixture committed snapshots only; intervening working-set changes unknown.'},
+   issues:issues.map(i=>({issueId:i.id,issueRevision:i.revision,versions:history.get(i.id)||[]}))});
+ }
  if(path==='/fixture/runtime'){for(const client of clients)client.write('event: runtime\ndata: '+JSON.stringify({workers:[{name:'Fixture worker',activity:'Working',issueId:'bd-a1f',exitCode:null,runActive:true}],workerControlsAvailable:true})+'\n\n');return json({ok:true});}
  if(path==='/fixture/worktree'){worktreeMode=true;return json({ok:true});}
  if(path==='/api/v1/worktrees/events'){

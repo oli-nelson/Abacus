@@ -15,7 +15,12 @@ await call('Network.enable');await call('Runtime.enable');await call('Emulation.
 await call('Page.navigate',{url:'http://127.0.0.1:18081/?from=2026-09-21T09%3A00%3A00Z'});
 await until("document.querySelectorAll('.lane-card').length===3&&document.getElementById('timeline-stage').dataset.frames");
 const requests=apiCalls;
-const point=await evaluate("(()=>{const r=document.getElementById('timeline-minimap').getBoundingClientRect();return {x:r.left+r.width*2/3,y:r.top+r.height*(8+.5*38/3)/54}})()");
+// Rows follow the drawn lane order, so find bd-a1f's row rather than assuming it is first.
+const point=await evaluate(`(()=>{
+ const lanes=[...document.querySelectorAll('#timeline-event-list>li>button:first-child')].map(n=>n.textContent.split(' \u00b7 ')[0]);
+ const i=lanes.indexOf('bd-a1f'),r=document.getElementById('timeline-minimap').getBoundingClientRect();
+ return {x:r.left+r.width*2/3,y:r.top+r.height*(8+(i+.5)*38/lanes.length)/54};
+})()`);
 await call('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});
 await call('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
 await until("document.getElementById('selected-event').textContent.includes('Confirmed: drag')");

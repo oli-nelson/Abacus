@@ -115,9 +115,15 @@ explained in [Microsoft's endpoint documentation](https://learn.microsoft.com/en
 - `/api/v1/project`: self-declared actor, hosting mode and actual capabilities.
 - `/api/v1/snapshot`: shared cached snapshot, ETag, source health and stream cursor.
 - `/api/v1/issues/{id}`: current public fields and resource ETag, or 404.
+- `/api/v1/issues/activity`: committed snapshots for every current issue in one
+  read, each stamped with the issue revision it was fenced against, plus the
+  shared history revision and coverage. Takes no query fields. Requires the
+  `projectHistory` capability (503 otherwise); a history revision that moves
+  during the read, or a payload labelled with another revision, is refused (409).
 - `/api/v1/issues/{id}/activity?limit=50&after=<cursor>`: committed snapshots,
-  coverage caveats and continuation. Page size 1–100, default 50; at most 1,000
-  snapshots / 4 Mi characters loaded per issue revision. Unknown/duplicate query
+  coverage caveats and continuation for one issue. Page size 1–100, default 50;
+  at most 1,000 source rows loaded per issue revision, collapsed to distinct
+  recorded states. Unknown/duplicate query
   fields are rejected. A changed issue/history revision invalidates pagination
   (409); restart at the first page rather than merging mismatched histories.
 - `/api/v1/branches`: shared Git refs/worktrees, target choices and source/policy health.
@@ -327,8 +333,20 @@ during playback, with an issue-update count rather than a forced viewport jump.
 The transport includes local date/timezone, playback speed, minimap, scrubber,
 explicit range inputs and fullscreen. Range/playhead links use UTC ISO timestamps.
 Filters/search operate on loaded data only. Dense markers cluster within each
-lane/time bucket; 24 lanes render per page and the event list shows at most 100
-events per lane (narrow the range for older events). Undated comments stay in the
+lane/time bucket; 120 lanes render per page and the event list shows at most 100
+events per lane (narrow the range for older events). Lanes are ordered by when
+their work starts, so moving the playhead forward only appends later work to the
+end of the list: a lane already on the page stays there, and newly revealed work
+appears on a later page rather than displacing history already drawn. The lane
+count beside the pager grows as the playhead reveals more work.
+
+The page is deliberately larger than the scene's vertical spread needs, because
+that spread follows peak simultaneous work rather than the number of lanes: lanes
+that do not overlap in time share an offset. A small page combined with
+start ordering would crowd every drawn lane into the earliest part of the range
+and leave the rest of the width looking empty. Branch paths are sampled by their
+on-screen length, so a short episode does not carry the point count of one
+spanning the whole range. Undated comments stay in the
 inspector. This bounded preview is not the final 1,000-issue performance result.
 
 Fit/focus and projection changes use interruptible 450 ms easing; dragging takes
@@ -518,8 +536,16 @@ existing status/search controls, reset table paging, and persist in shareable
 `filter-*` URL parameters. Clearing them never changes dispatch configuration.
 Priority and attention offer explicit Unknown choices.
 
+During playback the status comes from the newest recorded change at the playhead,
+while every other field comes from the newest recorded *snapshot* at or before it.
+Those can differ: a closure is recorded from second-precision `closed_at` and often
+lands a moment after the millisecond-precision snapshot that closed the issue. The
+inspector names the snapshot time under **Fields recorded at**, and the coverage
+line says when the status is newer than the fields.
+
 Historical snapshots project assignee, priority, labels, type and declared target
-only when the source records them. Missing/null labels are unknown, not evidence
+only when the source records them. Recorded labels are not available from the
+issue-history source at all, so they read as unknown during playback. Missing/null labels are unknown, not evidence
 that attention was clear; an explicit empty label list is distinct. The installed
 history fixture records priority/type but omits related labels and assignee. Filters
 use loaded snapshots at the playhead, never today's values. Conflicting equal-time
@@ -755,6 +781,23 @@ older unloaded history has been fetched.
 On touch screens, swipe vertically over the timeline to scroll the page without
 moving the camera. Horizontal drags remain available for camera interaction.
 
+### Lane captions
+
+Lane captions report what is happening at the playhead needle, not every lane in
+the scene. With an issue selected, only that issue is captioned. With nothing
+selected, every work episode open at the needle is captioned — all of them, so
+parallel work stays legible instead of one arbitrary lane winning the space. When
+no work is open at the needle, the most recently ended episode is captioned.
+
+Every lane keeps its card in the accessible event list and in the DOM regardless,
+so keyboard and screen-reader access to uncaptioned lanes is unaffected.
+
+Playing the timeline does not change the selection: a pinned event stays in the
+inspector, the callout and the URL, and reappears as the needle reaches it. A
+caption holding keyboard focus stays readable even once the needle has moved past
+that lane's work. **Return to live**, seeking and browser navigation do clear a
+pinned event, because they change which events are reachable at all.
+
 ### Status-history work episodes
 
 Timeline loads recorded status history automatically. Work starts at a recorded
@@ -763,17 +806,27 @@ to the activity spine. A later restart creates a separate episode. These are
 status curves, not assertions of Git integration. Unknown restart times are
 explicitly marked rather than invented.
 
-For projects with more than 64 issues, **Previous histories / Next histories**
-select a bounded batch; the coverage label names the issue range. Lane paging
-operates within that batch. **Retry timeline history** retries unavailable reads.
+Recorded history for every issue is read in one request, so no lane is hidden
+behind a batch that has not loaded. The coverage label reports how many issues
+are loaded; **Retry timeline history** retries an unavailable read.
 
-History reads prioritize likely matches for the selected time range before
-splitting into batches: closures within the range and currently working/blocked
-issues come first, followed by potentially overlapping closed histories. Issues
-created after the range or closed before it load later, not never. These are
-scheduling hints, not proof of historical status; recorded history still controls
-the curves. Changing the range returns to the first prioritized batch. Two reads
-remain in flight at most; changing range does not restart useful in-flight reads.
+Beads keeps one row per issue per database commit, so an untouched issue repeats
+its whole body once per commit. Repeated identical states are collapsed to the
+earliest commit that records them — the earliest time the state is known to have
+existed, never a guessed edit time. A state that is left and later returned to
+stays two recorded changes. Recorded label history is not available from this
+source, so historical labels read as unknown rather than as an empty list.
+
+Sources that cannot answer a whole-project query fall back to reading one issue
+at a time, in **Previous histories / Next histories** batches of 64 in stable
+issue-ID order, with lane paging inside the current batch. That fallback
+prioritizes likely matches for the selected time range: closures within the
+range and currently working/blocked issues come first, followed by potentially
+overlapping closed histories. Issues created after the range or closed before it
+load later, not never. These are scheduling hints, not proof of historical
+status; recorded history still controls the curves. Changing the range returns to
+the first prioritized batch. Two reads remain in flight at most; changing range
+does not restart useful in-flight reads.
 
 **Live · last N hours** accepts fractional hours and follows now. Applying a
 manual historical range freezes its bounds; **First event → now** clears the
@@ -786,17 +839,28 @@ an event or time. The date/time form remains available for keyboard entry;
 **First event → now** expands back out after selecting a narrower range.
 
 **Time width** and **Vertical spacing** independently stretch the timeline's time
-axis (0.25×–10×) and lane spacing (0.25×–10×) in both 2D and 3D. They change the view,
+axis (0.25×–40×) and lane spacing (0.25×–40×) in both 2D and 3D. They change the view,
 not the selected dates or playback time. Preferences are remembered in this
 browser; **Reset stretch** restores both to 1×. **Fit view** fits the stretched
 scene without resetting these settings. The sliders also support keyboard arrows.
+Zooming out is bounded in proportion to the stretch, so a high-stretch **Fit view**
+stays reachable by zoom and is remembered; lowering the stretch pulls a far camera
+back to the smaller scene's limit.
 
 Vertical placement follows concurrent work among the displayed episodes, not
 issue IDs: one issue uses +X, two use +X/−X, and additional issues alternate
-outwards. Continuing issues smoothly settle into freed spacing on their existing
-side as other episodes end; they never switch sides mid-episode. A lone survivor
-can therefore remain below the spine, and existing same-side survivors are not
-forced apart across it. Blocked work keeps its place until its work episode ends. Line
+outwards. A work episode keeps the side **and** the distance it was first given
+until it ends: it never switches sides and never slides inwards when a neighbour
+finishes, so the only vertical movement on a branch is its own fork and return.
+A finished inner branch therefore leaves a visible gap until a later episode
+reuses that slot, which is why a busy range sits further from the spine. A lone
+survivor can remain below the spine. Blocked work keeps its place until its work
+episode ends.
+
+Placement is computed from the episodes currently displayed, so changing the time
+range, the filters or the lane page can place the same issue differently. It is
+also per work episode: an issue that closes and starts new work later is a new
+branch and may be placed elsewhere. Line
 thickness and round event-node proportions no longer stretch with the axes;
 nodes are larger in both WebGL and fallback views. Existing saved cameras refit
 once for this layout migration; subsequent camera preferences remain saved.

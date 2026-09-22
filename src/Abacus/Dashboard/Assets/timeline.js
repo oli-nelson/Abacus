@@ -1,5 +1,5 @@
 import {matchesIssueMetadata,matchesIssueText} from './issue-filters.js';
-import {timelineAnnotations,isInitialWorkEntry,eventAwareEpisodePosition,concurrentEpisodeLayout,commentPreview,eventKindLabel,brushTimeRange,issueWorkEpisodes,workEpisodes,episodePosition,eventArrivalStart,eventBubblePlacement,TimelineProjection,eventsFor,authorInitials,timelineLocation,savedTimelineCamera,clusterEvents,stateAt,statusColors,stamp,clamp,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,branchCurvePosition} from './timeline-model.js';
+import {needleLabels,timelineAnnotations,isInitialWorkEntry,eventAwareEpisodePosition,concurrentEpisodeLayout,commentPreview,eventKindLabel,brushTimeRange,issueWorkEpisodes,workEpisodes,episodePosition,eventArrivalStart,eventBubblePlacement,TimelineProjection,eventsFor,authorInitials,timelineLocation,savedTimelineCamera,clusterEvents,stateAt,statusColors,stamp,clamp,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,branchCurvePosition} from './timeline-model.js';
 import {TimelineRenderer,projectPoint,rgb} from './timeline-gl.js';
 const $=id=>document.getElementById(id);
 const node=(tag,value,className)=>{const n=document.createElement(tag);n.textContent=value ?? '';if(className)n.className=className;return n;};
@@ -7,12 +7,20 @@ const localInput=t=>{const d=new Date(t);return new Date(t-d.getTimezoneOffset()
 const display=t=>new Date(t).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 const readPreference=(key,fallback)=>{try{return localStorage.getItem(key)||fallback;}catch{return fallback;}};
 const savePreference=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
+// Axis stretch bounds, shared by the range inputs in index.html.
+const MAXIMUM_STRETCH=40,BASE_MAXIMUM_DISTANCE=250;
+// Lanes drawn at once. Vertical spread follows peak simultaneous work, not this
+// number, because lanes that do not overlap in time share an offset; the cost of a
+// larger page is geometry, not height. A small page combined with start ordering
+// would otherwise crowd every drawn lane into the earliest part of the range and
+// leave the rest of the width looking empty.
+const LANE_PAGE=120;
 export class Timeline {
   constructor({onSelect,onPlayback}) {
     this.onSelect=onSelect;this.onPlayback=onPlayback;this.projection=new TimelineProjection();this.connectorArrivals=new Map();this.topologyObservations=new Map();this.laneArrivals=new Map();this.statusChanges=new Map();this.arrivals=new Map();this.histories=new Map();this.gitEvidence=new Map();this.gitHistories=new Map();this.lanes=[];this.selected=null;this.visible=false;
     this.clock={server:Date.now(),local:performance.now()};this.frame=null;this.transition=null;this.playing=false;this.lastPlayback=0;this.newEvents=0;this.offset=0;
     Object.assign(this,timelineLocation(new URL(location.href),this.now()));
-    this.axisScale=['time','vertical'].map(axis=>{const n=Number(readPreference('abacus.timeline.scale.'+axis,'1'));return Number.isFinite(n)&&n>=.25&&n<=10?n:1;});this.axisScale.push(1);
+    this.axisScale=['time','vertical'].map(axis=>{const n=Number(readPreference('abacus.timeline.scale.'+axis,'1'));return Number.isFinite(n)&&n>=.25&&n<=MAXIMUM_STRETCH?n:1;});this.axisScale.push(1);
     this.camera={yaw:.15,pitch:.28,distance:30,target:[0,0,0],perspective:1};
     const urlMode=new URL(location.href).searchParams.get('camera');
     this.mode=['2d','3d'].includes(urlMode)?urlMode:readPreference('abacus.timeline.mode','3d');
@@ -31,7 +39,7 @@ export class Timeline {
     this.renderer.glow=readPreference('abacus.timeline.glow','on')!=='off';
     $('timeline-glow').setAttribute('aria-pressed',String(this.renderer.glow));document.documentElement.dataset.glow=this.renderer.glow?'on':'off';
     this.applyMode(false);
-    const saved=savedTimelineCamera(readPreference('abacus.timeline.camera',''),this.mode);
+    const saved=savedTimelineCamera(readPreference('abacus.timeline.camera',''),this.mode,this.maxDistance());
     if(saved&&readPreference('abacus.timeline.layout','')==='concurrent-v1'){this.camera=saved;this.fitted=true;}
     savePreference('abacus.timeline.layout','concurrent-v1');
     $('timeline-camera').value=readPreference('abacus.timeline.control','orbit')==='pan'?'pan':'orbit';
@@ -173,7 +181,9 @@ export class Timeline {
     const previous=this.histories.get(id),same=previous?.revision===data.historyRevision && previous?.issueRevision===data.issueRevision;
     const versions=append&&same?[...previous.versions,...data.versions]:data.versions;
     const unique=[...new Map(versions.map(v=>[v.id,v])).values()];
-    if(!this.histories.has(id)&&this.histories.size>=64)this.histories.delete(this.histories.keys().next().value);
+    // A whole-project read holds one collapsed entry per issue, so the bound is on
+    // issue count rather than on a page of them. Versions are already deduplicated.
+    if(!this.histories.has(id)&&this.histories.size>=1024)this.histories.delete(this.histories.keys().next().value);
     this.histories.set(id,{versions:unique,revision:data.historyRevision,issueRevision:data.issueRevision,key:data.historyRevision+':'+unique.map(v=>v.id).join(',')});
     this.dataKey=null;
   }
@@ -192,14 +202,26 @@ export class Timeline {
   timeX(time){return -12+24*(time-this.from)/Math.max(1,this.to-this.from);}
   episodes(lane){return issueWorkEpisodes(lane.issue,lane.events,Math.min(this.now(),this.to,this.live?Infinity:this.playhead),this.live);}
   episodeEvents(lane){const episodes=this.episodes(lane);return lane.displayEvents.filter(e=>episodes.some(p=>e.time>=p.start&&e.time<=(p.end??this.now())));}
+  // Lanes are ordered by when their work starts, not by issue ID. A bounded page is
+  // drawn at a time, and advancing the playhead reveals later work: in ID order a
+  // newly revealed lane could insert itself ahead of lanes already on the page and
+  // push one off it, which reads as recorded history vanishing from the past. Work
+  // revealed later always starts later, so in start order it can only be appended.
   filteredLanes(){
-    return this.lanes.filter(l=>{
-      if(this.historyScope&&!this.historyScope.has(l.issue.id))return false;
-      const state=stateAt(l.issue,l.events,this.playhead,this.live),q=(this.query||'').toLowerCase();
-      const hasWork=this.episodes(l).some(e=>e.start<=Math.min(this.to,this.playhead)&&(e.end??this.now())>=this.from);
-      if(!hasWork&&!(this.live&&l.issue.status==='in_progress'))return false;
-      return matchesIssueMetadata(state,this.metadata) && (!this.status||state.status===this.status) && matchesIssueText(l.issue,l.events,q,{from:this.from,to:this.to,playhead:this.playhead,live:this.live,title:state.title});
-    });
+    const until=Math.min(this.to,this.playhead),now=this.now(),q=(this.query||'').toLowerCase();
+    const rows=[];
+    for(const lane of this.lanes){
+      if(this.historyScope&&!this.historyScope.has(lane.issue.id))continue;
+      const episodes=this.episodes(lane).filter(e=>e.start<=until&&(e.end??now)>=this.from);
+      if(!episodes.length&&!(this.live&&lane.issue.status==='in_progress'))continue;
+      const state=stateAt(lane.issue,lane.events,this.playhead,this.live);
+      if(!matchesIssueMetadata(state,this.metadata))continue;
+      if(this.status&&state.status!==this.status)continue;
+      if(!matchesIssueText(lane.issue,lane.events,q,{from:this.from,to:this.to,playhead:this.playhead,live:this.live,title:state.title}))continue;
+      // Episodes are already ascending, so the first is the earliest recorded start.
+      rows.push({lane,start:episodes.length?episodes[0].start:Infinity});
+    }
+    return rows.sort((a,b)=>a.start-b.start||a.lane.issue.id.localeCompare(b.lane.issue.id)).map(row=>row.lane);
   }
   rebuild(){
     if(!this.lanes)return;
@@ -208,7 +230,7 @@ export class Timeline {
     this.nextEpisodeBoundary=this.lanes.reduce((next,lane)=>lane.events.reduce((n,e)=>['snapshot','closure'].includes(e.kind)&&e.time>this.playhead?Math.min(n,e.time):n,next),Infinity);
     const visible=this.filteredLanes();this.filteredCount=visible.length;
     this.offset=clamp(this.offset,0,Math.max(0,visible.length-1));
-    this.visibleLanes=visible.slice(this.offset,this.offset+24);
+    this.visibleLanes=visible.slice(this.offset,this.offset+LANE_PAGE);
     const visibleIds=new Set(this.visibleLanes.map(l=>l.issue.id));
     for(const map of [this.laneArrivals,this.connectorArrivals])for(const id of map.keys())if(!visibleIds.has(id))map.delete(id);
     const paths=[],markers=[],labels=[],targetLabels=[];
@@ -239,8 +261,12 @@ export class Timeline {
           return eventAwareEpisodePosition(x,start,end,y,episode.endStatus==='closed',first,last);
         };
         positions.set(key(lane,episode),position);
-        const left=Math.max(-12,start),right=Math.min(12,end),points=[];
-        const samples=[...new Set([...Array.from({length:101},(_,i)=>left+(right-left)*i/100),...layout.sampleTimes.map(t=>this.timeX(t)).filter(x=>x>left&&x<right),...eventXs.filter(x=>x>=left&&x<=right),...([first,last].filter(Number.isFinite).filter(x=>x>=left&&x<=right))])].sort((a,b)=>a-b);
+        const left=Math.max(-12,start),right=Math.min(12,end),points=[],span=right-left;
+        // Sample by on-screen length, not a fixed count: a few-minute episode drawn a
+        // few pixels wide needed as many points as one spanning the whole range. The
+        // floor still resolves its fork and return curves. Full width keeps ~100.
+        const steps=clamp(Math.round(span*4.2),16,100);
+        const samples=[...new Set([...Array.from({length:steps+1},(_,i)=>left+span*i/steps),...layout.sampleTimes.map(t=>this.timeX(t)).filter(x=>x>left&&x<right),...eventXs.filter(x=>x>=left&&x<=right),...([first,last].filter(Number.isFinite).filter(x=>x>=left&&x<=right))])].sort((a,b)=>a-b);
         if(left===start&&Math.abs(position(start)[1])>.001)points.push([start,spineY,0]);
         for(const x of samples)points.push(position(x));
         if(right===end&&episode.endStatus==='closed'&&Math.abs(position(end)[1])>.001)points.push([end,spineY,0]);
@@ -282,10 +308,18 @@ export class Timeline {
     const guides=markers.filter(m=>m.selected&&['comment','status','labels','notes'].includes(m.event.kind)).slice(-6).map(m=>({pos:m.pos,color:m.color}));
     this.scene={paths,markers,guides,floor,ceiling,nowX:Math.abs(now-this.to)<1000?clamp(this.timeX(now),-12,12):this.timeX(now)};
     this.labels=labels;this.renderer.setScene(this.scene);this.buildLabels();this.updateTransport();
-    $('timeline-page').textContent=visible.length?`${this.offset+1}–${Math.min(this.offset+24,visible.length)} / ${visible.length} lanes`:'No matching lanes in this range';
-    $('timeline-prev').disabled=this.offset===0;$('timeline-next').disabled=this.offset+24>=visible.length;
+    $('timeline-page').textContent=visible.length?`${this.offset+1}–${Math.min(this.offset+LANE_PAGE,visible.length)} / ${visible.length} lanes`:'No matching lanes in this range';
+    $('timeline-prev').disabled=this.offset===0;$('timeline-next').disabled=this.offset+LANE_PAGE>=visible.length;
     if(!this.fitted && this.visibleLanes.length){this.fitted=true;this.fit(false);}
     this.invalidate();
+  }
+  // A card with no episode is work in flight whose start was never recorded, so it
+  // is open at the needle by definition rather than by a timestamp it does not have.
+  featuredLabels(){
+    const needle=Math.min(this.playhead,this.to);
+    return needleLabels((this.labels||[]).map(entry=>({entry,id:entry.lane.issue.id,
+      start:entry.episode?entry.episode.start:needle,
+      end:entry.episode?(entry.episode.end??Infinity):Infinity})),needle,this.selected);
   }
   buildLabels(){
     const focused=document.activeElement;
@@ -294,7 +328,9 @@ export class Timeline {
     const focusTargets=new Map();
     const remember=(element,key)=>{element.dataset.timelineFocus=key;focusTargets.set(key,element);};
     const overlay=$('timeline-labels');overlay.replaceChildren();this.labelNodes=[];
-    for(const {lane,pos,end,episode} of this.labels){
+    const featured=this.featuredLabels();
+    for(const entry of this.labels){
+      const {lane,pos,episode}=entry;
       const card=node('button','', 'lane-card');card.style.setProperty('--lane-color',lane.color);
       remember(card,JSON.stringify(['lane',lane.issue.id,episode?.start??'current']));
       const state=stateAt(lane.issue,lane.events,this.playhead,this.live);
@@ -302,7 +338,7 @@ export class Timeline {
       card.dataset.issueId=lane.issue.id;card.setAttribute('aria-label',state.title+' · '+lane.issue.id);
       card.append(node('strong',state.title===lane.issue.id?'Title unavailable':state.title),node('span',episode?'Work episode · '+display(episode.start):'Working now · start unknown'),node('small',episode?.endUnknown?episode.currentStatus+' now · end time unknown; last recorded working state':episode?.end!==null&&episode?.end!==undefined?'Ended '+display(episode.end)+' · '+episode.endStatus:(this.live?lane.issue.status+' · current state':state.status+' · as of playhead')));
       if(git){card.append(node('small',git.changes),node('small',git.integration));card.title=git.basis;card.dataset.gitEvidence='validated';}
-      card.addEventListener('click',()=>this.onSelect(lane.issue.id,null));card.addEventListener('focus',()=>this.invalidate());overlay.append(card);this.labelNodes.push({node:card,issueId:lane.issue.id,pos:[Math.max(-12,pos[0]),pos[1]+.5,pos[2]],time:Math.max(this.from,stamp(lane.issue.createdAt)??this.from)});
+      card.addEventListener('click',()=>this.onSelect(lane.issue.id,null));card.addEventListener('focus',()=>this.invalidate());overlay.append(card);this.labelNodes.push({node:card,issueId:lane.issue.id,featured:featured.has(entry),pos:[Math.max(-12,pos[0]),pos[1]+.5,pos[2]],time:Math.max(this.from,stamp(lane.issue.createdAt)??this.from)});
     }
     // A small selected-lane annotation budget keeps the reference-style captions
     // informative without filling dense scenes with overlapping text.
@@ -365,8 +401,12 @@ export class Timeline {
     if(!event||!Number.isFinite(event.time)||event.time>this.now())return false;
     this.playing=false;
     this.from=Math.min(this.from,event.time-60000);this.to=Math.max(this.to,event.time+60000);
-    this.offset=Math.floor(this.lanes.findIndex(l=>l.issue.id===id)/24)*24;
-    this.selected=id;this.seek(event.time);this.syncTimeInputs();this.pick(id,event);this.fit(true,true);
+    this.selected=id;this.seek(event.time);
+    // Page to the lane by its place in the displayed order, which seek() has just
+    // settled: an unfiltered ID-order index would point at a different lane.
+    const order=this.filteredLanes().findIndex(l=>l.issue.id===id);
+    if(order>=0&&Math.floor(order/LANE_PAGE)*LANE_PAGE!==this.offset){this.offset=Math.floor(order/LANE_PAGE)*LANE_PAGE;this.rebuild();}
+    this.syncTimeInputs();this.pick(id,event);this.fit(true,true);
     $('timeline-stage').focus({preventScroll:true});return true;
   }
   pick(id,event){
@@ -454,13 +494,16 @@ export class Timeline {
     }
     this.syncTimeInputs();this.fit();if(changed)this.fadeFilteredScene();
   }
+  // Stretching multiplies world size, so the reachable camera distance stretches with
+  // it. At 1x this is the original bound, and Fit view at full stretch stays inside it.
+  maxDistance(){return BASE_MAXIMUM_DISTANCE*Math.max(1,this.axisScale[0],this.axisScale[1]);}
   viewCamera(){return {...this.camera,...(this.renderer.gl?{}:{yaw:0,pitch:0,perspective:0}),axisScale:this.axisScale};}
   saveCamera(){
     const value=JSON.stringify(this.camera);
     if(value===this.cameraSaveValue)return;
     this.cameraSaveValue=value;clearTimeout(this.cameraSaveTimer);
     this.cameraSaveTimer=setTimeout(()=>{
-      if(savedTimelineCamera(value,this.mode))savePreference('abacus.timeline.camera',value);
+      if(savedTimelineCamera(value,this.mode,this.maxDistance()))savePreference('abacus.timeline.camera',value);
     },250);
   }
   shareMode(){
@@ -508,9 +551,11 @@ export class Timeline {
         this.lastTransport=time;
         const filtered=this.filteredLanes(),offset=clamp(this.offset,0,Math.max(0,filtered.length-1));
         const ids=lanes=>lanes.map(l=>l.issue.id).join('|');
-        if(this.playhead>=this.nextEpisodeBoundary||filtered.length!==this.filteredCount||ids(filtered.slice(offset,offset+24))!==ids(this.visibleLanes))this.rebuild();
+        if(this.playhead>=this.nextEpisodeBoundary||filtered.length!==this.filteredCount||ids(filtered.slice(offset,offset+LANE_PAGE))!==ids(this.visibleLanes))this.rebuild();
         else{this.updateTransport();this.buildLabels();}
-        this.onPlayback();if(!this.playing)this.saveRange();
+        // Advancing the playhead is not a change of playback context: the pinned
+        // event and its URL survive so a selected node can be watched through it.
+        this.onPlayback(false,false,true);if(!this.playing)this.saveRange();
       }
     }
     const camera=this.viewCamera();
@@ -534,12 +579,20 @@ export class Timeline {
     // culled dimensions measurable after resizing without per-frame layout churn.
     const candidates=[];
     for(const label of this.labelNodes||[]){
+      // A lane caption the needle is not reporting on never competes for space,
+      // unless it holds keyboard focus: culling the focused card would move focus
+      // off it, so a needle that drifts past a lane would silently steal focus.
+      const focused=label.node===document.activeElement;
+      if(!focused&&label.featured===false)continue;
       const p=projectPoint(label.pos,camera,rect.width,rect.height);
       if(!p||p.x<0||p.x>rect.width||p.y<0||p.y>rect.height||(label.time!==null&&label.time>this.playhead))continue;
       const width=label.node.offsetWidth,height=label.node.offsetHeight;
       const x=clamp(p.x-(label.issueId?width+18:0),8,Math.max(8,rect.width-width-8)),y=clamp(p.y-(label.issueId?height/2:0),0,Math.max(0,rect.height-height));
       const alternatives=label.annotation?[[p.x-width-12,y],[p.x,p.y+22],[p.x-width-12,p.y+22],[p.x,p.y-height-14],[p.x-width-12,p.y-height-14]].map(([ax,ay])=>({x:clamp(ax,8,Math.max(8,rect.width-width-8)),y:clamp(ay,0,Math.max(0,rect.height-height))})):[];
-      candidates.push({label,x,y,width,height,alternatives,priority:label.node===document.activeElement?5:label.issueId===this.selected?2:label.priority??(label.issueId?1:0)});
+      // A captioned lane is already a deliberate, scarce choice, so it outranks the
+      // event annotations on its own branch; those have alternative placements and
+      // it does not. Otherwise selecting an issue could caption nothing at all.
+      candidates.push({label,x,y,width,height,alternatives,priority:focused?5:label.featured?4.5:label.priority??0});
     }
     const placed=new Map(nonOverlappingLabels(candidates).map(c=>[c.label,c]));
     for(const label of this.labelNodes||[]){
@@ -579,12 +632,15 @@ export class Timeline {
     syncScale();
     ['time','vertical'].forEach((axis,i)=>$('timeline-scale-'+axis).addEventListener('input',()=>{
       const value=Number($('timeline-scale-'+axis).value);
-      if(!Number.isFinite(value)||value<.25||value>10)return;
+      if(!Number.isFinite(value)||value<.25||value>MAXIMUM_STRETCH)return;
       this.finishCameraTransition();this.axisScale[i]=value;
+      // Shrinking the scene must not strand the camera beyond its new reach.
+      this.camera.distance=clamp(this.camera.distance,5,this.maxDistance());
       savePreference('abacus.timeline.scale.'+axis,String(value));syncScale();this.invalidate();
     }));
     $('timeline-scale-reset').addEventListener('click',()=>{
       this.finishCameraTransition();this.axisScale=[1,1,1];
+      this.camera.distance=clamp(this.camera.distance,5,this.maxDistance());
       ['time','vertical'].forEach(axis=>savePreference('abacus.timeline.scale.'+axis,'1'));
       syncScale();this.invalidate();
     });
@@ -592,8 +648,8 @@ export class Timeline {
     $('timeline-fit').addEventListener('click',()=>this.fit());$('timeline-focus').addEventListener('click',()=>this.fit(true,true));
     $('timeline-motion').addEventListener('change',()=>{this.motion=$('timeline-motion').value;document.documentElement.dataset.motion=this.motion;savePreference('abacus.motion',this.motion);if(this.reduced()){this.finishCameraTransition();this.calloutAnimation?.cancel();this.cancelFilterMotion();}this.invalidate();});
     $('timeline-kind').addEventListener('change',()=>{const kind=$('timeline-kind').value;if(kind===this.lastEventKind)return;this.lastEventKind=kind;this.rebuild();this.fadeFilteredScene();});
-    $('timeline-prev').addEventListener('click',()=>{this.offset=Math.max(0,this.offset-24);this.rebuild();this.fit();});
-    $('timeline-next').addEventListener('click',()=>{this.offset+=24;this.rebuild();this.fit();});
+    $('timeline-prev').addEventListener('click',()=>{this.offset=Math.max(0,this.offset-LANE_PAGE);this.rebuild();this.fit();});
+    $('timeline-next').addEventListener('click',()=>{this.offset+=LANE_PAGE;this.rebuild();this.fit();});
     $('timeline-live').addEventListener('click',()=>this.returnLive());
     $('timeline-play').addEventListener('click',()=>{if(this.playing)this.pausePlayback();else{if(this.live||this.playhead>=this.to)this.seek(this.from);this.playing=true;this.lastPlayback=performance.now();}this.updateTransport();this.invalidate();});
     $('timeline-scrub').addEventListener('input',()=>{this.playing=false;this.seek(this.from+(this.to-this.from)*Number($('timeline-scrub').value)/1000);});
@@ -653,7 +709,7 @@ export class Timeline {
     stage.addEventListener('pointermove',e=>{
       if(!pointers.has(e.pointerId)){if(!e.target.closest('#timeline-callout'))this.hover(e);return;}
       const old=[...pointers.values()];pointers.set(e.pointerId,[e.clientX,e.clientY]);
-      if(pointers.size===2){const next=[...pointers.values()],distance=a=>Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1]);this.camera.distance=clamp(this.camera.distance*distance(old)/Math.max(1,distance(next)),5,250);drag.moved=true;this.invalidate();return;}
+      if(pointers.size===2){const next=[...pointers.values()],distance=a=>Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1]);this.camera.distance=clamp(this.camera.distance*distance(old)/Math.max(1,distance(next)),5,this.maxDistance());drag.moved=true;this.invalidate();return;}
       if(!drag)return;
       // Let the browser own vertical touch scrolling without tilting the camera first.
       if(e.pointerType==='touch'&&Math.abs(e.clientY-drag.startY)>=Math.abs(e.clientX-drag.startX))return;
@@ -665,7 +721,7 @@ export class Timeline {
     });
     const release=e=>{pointers.delete(e.pointerId);if(drag&&!drag.moved){const pick=this.hit(e);if(pick)this.pick(pick.issueId,pick.event);}drag=null;};
     stage.addEventListener('pointerup',release);stage.addEventListener('pointercancel',()=>{pointers.clear();drag=null;});
-    stage.addEventListener('wheel',e=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();this.transition=null;this.camera.distance=clamp(this.camera.distance*Math.exp(clamp(e.deltaY,-200,200)*.002),5,250);this.invalidate();},{passive:false});
+    stage.addEventListener('wheel',e=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();this.transition=null;this.camera.distance=clamp(this.camera.distance*Math.exp(clamp(e.deltaY,-200,200)*.002),5,this.maxDistance());this.invalidate();},{passive:false});
     stage.addEventListener('keydown',e=>{
       if(e.target!==stage)return;
       if(e.key==='Escape'){$('timeline-tooltip').hidden=true;return;}
@@ -673,7 +729,7 @@ export class Timeline {
       if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','-','='].includes(e.key))return;
       e.preventDefault();this.transition=null;
       const direction=e.key==='ArrowLeft'||e.key==='ArrowDown'?-1:1;
-      if(['+','-','='].includes(e.key))this.camera.distance=clamp(this.camera.distance*(e.key==='-'?1.1:.9),5,250);
+      if(['+','-','='].includes(e.key))this.camera.distance=clamp(this.camera.distance*(e.key==='-'?1.1:.9),5,this.maxDistance());
       else if(e.shiftKey||this.mode==='2d')this.camera.target[e.key==='ArrowLeft'||e.key==='ArrowRight'?0:1]+=direction*.6;
       else if(e.key==='ArrowLeft'||e.key==='ArrowRight')this.camera.yaw=clamp(this.camera.yaw+direction*.06,-1.2,1.2);
       else this.camera.pitch=clamp(this.camera.pitch+direction*.06,-1.15,1.15);

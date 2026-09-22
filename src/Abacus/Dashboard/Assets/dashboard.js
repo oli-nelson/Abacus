@@ -93,12 +93,62 @@ $('create-form').addEventListener('submit',async event=>{
     creation.result=creation.request?'Result unavailable. Creation may already have succeeded. Retry only this SAME request or inspect current issues before starting a different draft.':'Could not obtain a mutation session; no creation request was sent. Your input is preserved.';
   }finally{creation.pending=false;creationFeedback();}
 });
-let canReadHistory=false, historyState=null, activityRequest=null, activityKey=null, activityCursor=null, activityLoaded=false;
+let canReadHistory=false, canReadProjectHistory=false, historyState=null, activityRequest=null, activityKey=null, activityCursor=null, activityLoaded=false;
 const timelineHistoryRequests=new Map(),timelineHistoryAttempts=new Map();
 let timelineHistoryGeneration='',timelineHistoryPage=0,timelineHistoryRange='';
+let projectHistoryRequest=null,projectHistoryAttempt=null,projectHistoryResult=null,projectHistoryFailed=false;
+// One read covers every issue, so no lane is hidden behind a batch it has not
+// loaded yet. The paged reader below stays as the fallback for sources that
+// cannot answer a whole-project query.
+function scheduleProjectHistory(generation){
+  timeline.historyScope=null;
+  $('timeline-history-pages').hidden=true;
+  for(const r of timelineHistoryRequests.values())r.abort();
+  const ordered=[...issues.values()].sort((a,b)=>a.id.localeCompare(b.id));
+  // Both revisions matter: the recorded history and the issue snapshot it is fenced
+  // against. If either has moved this is a different read; if neither has, a finished
+  // read must not be requested again, or a failure would retry in a tight loop.
+  const attempt=generation+':'+issueRevision;
+  const describe=()=>{
+    const loaded=ordered.filter(i=>{const c=timeline.histories.get(i.id);return c?.revision===generation&&c.issueRevision===i.revision;}).length;
+    $('timeline-history-state').textContent=`Status history: ${loaded}/${ordered.length} issues loaded${projectHistoryRequest?' · loading…':''}${projectHistoryResult?' · '+projectHistoryResult:''}. Every issue is read together; overlap is confirmed by history. Missing transitions are not invented.`;
+    $('timeline-history-retry').hidden=!projectHistoryFailed;
+  };
+  if(projectHistoryRequest||projectHistoryAttempt===attempt){describe();return;}
+  const request=new AbortController();projectHistoryRequest=request;projectHistoryResult=null;projectHistoryFailed=false;
+  describe();
+  (async()=>{
+    try{
+      const response=await fetch('/api/v1/issues/activity',{signal:request.signal});
+      // 503 means this source cannot answer a whole-project query at all (older bd,
+      // other storage, schema drift). Fall back to the per-issue reader rather than
+      // leaving the timeline with no recorded history.
+      if(response.status===503){canReadProjectHistory=false;return;}
+      if(!response.ok)throw new Error('history could not be read');
+      const page=await response.json();
+      if(request.signal.aborted||historyState?.revision!==generation)return;
+      if(page.historyRevision!==generation)throw new Error('history changed while loading');
+      let stale=0;
+      for(const entry of page.issues){
+        // An issue edited since the read is left for the next read, never merged
+        // against the revision it no longer matches.
+        if(issues.get(entry.issueId)?.revision!==entry.issueRevision){stale++;continue;}
+        timeline.setHistory(entry.issueId,{historyRevision:page.historyRevision,issueRevision:entry.issueRevision,versions:entry.versions});
+      }
+      projectHistoryAttempt=attempt;
+      projectHistoryResult=page.coverage?.limitReached?'older history beyond the read limit is missing':stale?stale+' issues changed during the read; they reload shortly':null;
+      timeline.setData([...issues.values()],selected,$('search').value,$('status').value,metadataFilters());
+    }catch(error){
+      if(error.name==='AbortError')return;
+      projectHistoryAttempt=attempt;projectHistoryResult=error.message;projectHistoryFailed=true;
+    }
+    finally{if(projectHistoryRequest===request){projectHistoryRequest=null;scheduleTimelineHistory();}}
+  })();
+}
 function scheduleTimelineHistory(){
   const allowed=view==='timeline'&&!document.hidden&&canReadHistory&&!historyState?.stale&&!!historyState?.revision;
-  if(!allowed){for(const r of timelineHistoryRequests.values())r.abort();if(view==='timeline')$('timeline-history-state').textContent=historyState?.stale?'Status history unavailable; recorded transitions cannot be refreshed.':'Status history is not connected yet.';return;}
+  if(!allowed){projectHistoryRequest?.abort();for(const r of timelineHistoryRequests.values())r.abort();if(view==='timeline')$('timeline-history-state').textContent=historyState?.stale?'Status history unavailable; recorded transitions cannot be refreshed.':'Status history is not connected yet.';return;}
+  if(canReadProjectHistory){scheduleProjectHistory(historyState.revision);return;}
   const generation=historyState.revision;
   if(timelineHistoryGeneration!==generation){
     for(const r of timelineHistoryRequests.values())r.abort();
@@ -156,7 +206,7 @@ for(const [id,delta] of [['timeline-history-prev',-1],['timeline-history-next',1
   timelineHistoryAttempts.clear();timeline.offset=0;timeline.dataKey=null;
   scheduleTimelineHistory();render();timeline.fit();
 });
-$('timeline-history-retry').addEventListener('click',()=>{for(const [key,state] of timelineHistoryAttempts)if(state==='failed')timelineHistoryAttempts.delete(key);scheduleTimelineHistory();});
+$('timeline-history-retry').addEventListener('click',()=>{projectHistoryAttempt=null;projectHistoryResult=null;projectHistoryFailed=false;for(const [key,state] of timelineHistoryAttempts)if(state==='failed')timelineHistoryAttempts.delete(key);scheduleTimelineHistory();});
 document.addEventListener('visibilitychange',scheduleTimelineHistory);
 document.addEventListener('timeline-range-change',()=>queueMicrotask(()=>{
   scheduleTimelineHistory();timeline.dataKey=null;
@@ -332,11 +382,18 @@ $('issue-browse-branches').addEventListener('click',()=>changeView('branches'));
 
 const timeline=new Timeline({
   onSelect:(id,event)=>{currentInspectorRevision=null;select(id,event);},
-  onPlayback:(returnedLive=false,restoringLocation=false)=>{
-    selectedEvent=null;currentInspectorRevision=null;
-    if(!restoringLocation)timeline.pendingEvent=null;
-    timeline.pinnedEvent=null;timeline.calloutAnimation?.cancel();$('timeline-callout').hidden=true;
-    if(!restoringLocation){const url=new URL(location.href);url.searchParams.delete('event');history.replaceState(null,'',url);}
+  // `advancing` is a playhead step inside a running playback. Returning to live,
+  // seeking elsewhere and restoring a location all change which events are even
+  // reachable, so those drop the pinned event; simply moving the playhead does not,
+  // or a selected node would be dropped several times a second while it plays.
+  onPlayback:(returnedLive=false,restoringLocation=false,advancing=false)=>{
+    currentInspectorRevision=null;
+    if(!advancing){
+      selectedEvent=null;
+      if(!restoringLocation)timeline.pendingEvent=null;
+      timeline.pinnedEvent=null;timeline.calloutAnimation?.cancel();$('timeline-callout').hidden=true;
+      if(!restoringLocation){const url=new URL(location.href);url.searchParams.delete('event');history.replaceState(null,'',url);}
+    }
     if(returnedLive && selected){
       const id=selected;liveReadPending=true;liveReadError=false;
       fetch('/api/v1/issues/'+encodeURIComponent(id)).then(r=>{if(!r.ok)throw new Error();return r.json();})
@@ -461,8 +518,12 @@ function inspect() {
     const state=timeline.historicalState(issue.id);
     $('selected-title').textContent=state?.title || issue.id;
     $('details').append(text('dt','As of playhead'),text('dd',new Date(timeline.playhead).toLocaleString()),
-      text('dt','Last recorded status'),text('dd',state?.status||'unknown'),text('dt','Coverage'),text('dd',state?.certainty||'Unknown'),
-      text('dt','Other fields'),text('dd','Unknown at this time. Return to live to inspect and edit current data.'));
+      text('dt','Last recorded status'),text('dd',state?.status||'unknown'),
+      // The fields below are as of the last snapshot, which can be older than the
+      // status. Naming that time explains why they may lag the playhead.
+      text('dt','Fields recorded at'),text('dd',state?.recordedAt?new Date(state.recordedAt).toLocaleString():'No recorded snapshot at this time'),
+      text('dt','Coverage'),text('dd',state?.certainty||'Unknown'),
+      text('dt','Other fields'),text('dd','Not recorded in history. Return to live to inspect and edit current data.'));
     for(const [label,value] of [['Last recorded assignee',state?.assignee==null?'Unknown':state.assignee||'Unassigned'],['Last recorded priority',Number.isInteger(state?.priority)?`P${state.priority}`:'Unknown'],['Last recorded labels',Array.isArray(state?.labels)?state.labels.join(' · ')||'None':'Unknown'],['Last recorded type',state?.issueType||'Unknown'],['Last recorded declared target',state?.target||'Unknown']])$('details').append(text('dt',label),text('dd',value));
     $('issue-form').hidden=true;return;
   }
@@ -920,7 +981,7 @@ $('issue-form').addEventListener('submit',async event => {
   } catch {draft.result='Result unavailable. Do not create another append blindly. Retry the SAME request, or review current content first.';}
   finally {draft.pending=false;if(editorId===id)editorFeedback(draft);}
 });
-fetch('/api/v1/project').then(r => { if(!r.ok) throw new Error(); return r.json(); }).then(p => { runtimeSession=p.runtimeSession;canControlClaims=!!p.capabilities.claimControl;renderClaimControls();for(const option of $('write-action').options)if(option.value.startsWith('attention-'))option.disabled=!p.capabilities.attention;canReadHistory=p.capabilities.history;canEdit=p.capabilities.editIssues;$('create-issue').hidden=!p.capabilities.createDrafts;operator=p.actor;currentInspectorRevision=null;inspectorSourceKey=null;render();$('project').textContent=p.name;$('runtime-status').textContent=p.runtimeExplanation||'Runtime state unavailable'; $('actor').textContent=`Operator attribution: ${p.actor} (self-declared, not signed in)`; }).catch(() => $('project').textContent='Project unavailable');
+fetch('/api/v1/project').then(r => { if(!r.ok) throw new Error(); return r.json(); }).then(p => { runtimeSession=p.runtimeSession;canControlClaims=!!p.capabilities.claimControl;renderClaimControls();for(const option of $('write-action').options)if(option.value.startsWith('attention-'))option.disabled=!p.capabilities.attention;canReadHistory=p.capabilities.history;canReadProjectHistory=!!p.capabilities.projectHistory;canEdit=p.capabilities.editIssues;$('create-issue').hidden=!p.capabilities.createDrafts;operator=p.actor;currentInspectorRevision=null;inspectorSourceKey=null;render();$('project').textContent=p.name;$('runtime-status').textContent=p.runtimeExplanation||'Runtime state unavailable'; $('actor').textContent=`Operator attribution: ${p.actor} (self-declared, not signed in)`; }).catch(() => $('project').textContent='Project unavailable');
 connect();
 
 $('load-git-history').addEventListener('click',async()=>{

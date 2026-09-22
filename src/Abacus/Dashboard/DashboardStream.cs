@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Threading.Channels;
 
@@ -141,6 +142,12 @@ internal sealed class DashboardStream
     public IssueSummary? Issue(string id)
     {
         lock (sync) return current?.View.Issues.GetValueOrDefault(id);
+    }
+
+    /// <summary>One coherent view of every issue, so a bulk read fences against a single snapshot.</summary>
+    public ImmutableDictionary<string, IssueSummary>? Issues
+    {
+        get { lock (sync) return current?.View.Issues; }
     }
 
     public DashboardSubscription Subscribe(string? after)

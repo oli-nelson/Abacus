@@ -15,11 +15,14 @@ export function timelineLocation(url,now) {
   if(live&&liveHours!==null){from=now-liveHours*3600000;to=now;}
   return {from,to,live,liveHours,playhead:clamp(stamp(url.searchParams.get('at'))??now,from,to),pendingEvent:url.searchParams.get('event')};
 }
-export function savedTimelineCamera(value,mode){
+// maxDistance rises with the axis stretch: a stretched scene is legitimately viewed
+// from further out, and a camera saved at that distance must still be restorable.
+export function savedTimelineCamera(value,mode,maxDistance=250){
   try {
     const c=JSON.parse(value);
     if(!c||!['yaw','pitch','distance','perspective'].every(k=>Number.isFinite(c[k]))||
-      Math.abs(c.yaw)>1.2||Math.abs(c.pitch)>1.15||c.distance<5||c.distance>250||
+      !(Number.isFinite(maxDistance)&&maxDistance>=250)||
+      Math.abs(c.yaw)>1.2||Math.abs(c.pitch)>1.15||c.distance<5||c.distance>maxDistance||
       c.perspective!==(mode==='2d'?0:1)||!Array.isArray(c.target)||c.target.length!==3||
       !c.target.every(n=>Number.isFinite(n)&&Math.abs(n)<=100000))return null;
     return {yaw:c.yaw,pitch:c.pitch,distance:c.distance,perspective:c.perspective,target:[...c.target]};
@@ -86,9 +89,16 @@ export function stateAt(issue,events,time,live=false) {
   if(live)return {status:issue.status,title:issue.title,assignee:issue.assignee,priority:issue.priority,labels:issue.labels,issueType:issue.issueType,target:issue.target,certainty:'current',at:null};
   const known=events.filter(e=>e.time<=time && (e.kind==='snapshot'||e.kind==='closure'));
   const last=known.at(-1);
-  if(!last)return {status:'unknown',title:issue.id,certainty:'no recorded state at this time',at:null};
+  if(!last)return {status:'unknown',title:issue.id,recordedAt:null,certainty:'no recorded state at this time',at:null};
   const simultaneous=known.filter(e=>e.time===last.time);
-  const snapshots=simultaneous.filter(e=>e.kind==='snapshot');
+  // Status comes from the newest recorded event. Every other field exists only on
+  // snapshots, so those come from the newest snapshot at or before this time rather
+  // than only from one simultaneous with the newest event. A closure carries a status
+  // and nothing else, and is routinely recorded a moment after the snapshot that
+  // closed the issue — second-precision closed_at against millisecond commit times —
+  // so requiring simultaneity discards every field the source did record.
+  const recorded=known.findLast(e=>e.kind==='snapshot')?.time;
+  const snapshots=recorded===undefined?[]:known.filter(e=>e.kind==='snapshot'&&e.time===recorded);
   let ambiguous=false;
   function consensus(rows,key){
     const values=rows.map(e=>e[key]??null);
@@ -97,8 +107,11 @@ export function stateAt(issue,events,time,live=false) {
   }
   const status=consensus(simultaneous,'status')||'unknown';
   const metadata=Object.fromEntries(['title','assignee','priority','labels','issueType','target'].map(key=>[key,consensus(snapshots,key)]));
-  return {...metadata,status,title:metadata.title||issue.id,
-    certainty:ambiguous?'ambiguous equal-time snapshots; conflicting fields unknown':'last recorded snapshot; intervening changes unknown',at:last.time};
+  return {...metadata,status,title:metadata.title||issue.id,recordedAt:recorded??null,
+    certainty:ambiguous?'ambiguous equal-time snapshots; conflicting fields unknown'
+      :recorded===undefined?'no recorded snapshot at this time; only a recorded status'
+      :recorded===last.time?'last recorded snapshot; intervening changes unknown'
+      :'status from a later recorded change; other fields from the last snapshot before it',at:last.time};
 }
 export function clusterEvents(events,from,to,buckets=100) {
   const groups=new Map(),span=Math.max(1,to-from);
@@ -305,6 +318,22 @@ export function prioritizeTimelineHistory(issues,from,to) {
   return [...issues].sort((a,b)=>rank(a)-rank(b)||a.id.localeCompare(b.id));
 }
 
+// Lane captions answer "what is happening at the needle", not "name every lane".
+// A selection narrows that to the selected issue. With nothing selected the work
+// open at the needle is captioned — all of it, because parallel work is the point
+// and picking one arbitrary winner would hide the others. When nothing is open,
+// the most recently ended work is the closest thing the needle has to report.
+// Entries are opaque: only their span matters, so callers keep their own shape.
+export function needleLabels(entries,needle,selected){
+  const spans=entries.filter(s=>s.start<=needle);
+  const scoped=selected!==null&&selected!==undefined&&spans.some(s=>s.id===selected)?spans.filter(s=>s.id===selected):spans;
+  const open=scoped.filter(s=>s.end>=needle);
+  if(open.length)return new Set(open.map(s=>s.entry));
+  if(!scoped.length)return new Set();
+  const latest=Math.max(...scoped.map(s=>s.end));
+  return new Set(scoped.filter(s=>s.end===latest).map(s=>s.entry));
+}
+
 export function commentPreview(text,limit=240){
   const characters=Array.from(text??'');
   return characters.length>limit?characters.slice(0,limit).join('')+'…':characters.join('');
@@ -312,24 +341,28 @@ export function commentPreview(text,limit=240){
 
 // Deterministic, range-local spacing by simultaneous work, never by issue ID slot.
 // A lone issue is +gap; two are +gap/-gap; further issues alternate outwards.
+// A branch keeps the side AND the distance it was first given for its whole
+// lifetime. Repacking survivors inward when a neighbour ends made every outer
+// branch slide sideways mid-flight, which reads as movement the source never
+// recorded; it could also drag a closing branch back through the spine.
+// The cost is deliberate: a finished inner branch leaves a visible gap until a
+// new branch reuses that slot, so a busy range sits further from the spine.
 export function concurrentEpisodeLayout(rows,gap=2.4) {
   const boundaries=[...new Set(rows.flatMap(r=>[r.start,r.end]))].sort((a,b)=>a-b),tracks=new Map(rows.map(r=>[r.key,[]]));
   for(let i=0;i<boundaries.length-1;i++){
     const start=boundaries[i],end=boundaries[i+1];
     const active=rows.filter(r=>r.start<=start&&r.end>start).sort((a,b)=>a.start-b.start||a.key.localeCompare(b.key));
-    const assigned=new Map(),counts={positive:0,negative:0};
-    // Keep an episode on its established side for its entire lifetime. Repacking
-    // to a symmetric set after departures can otherwise drag a live branch
-    // through the spine and make its closing curve overshoot and double back.
-    for(const sign of [1,-1]){
-      const continuing=active.filter(r=>Math.sign(tracks.get(r.key).at(-1)?.y||0)===sign)
-        .sort((a,b)=>Math.abs(tracks.get(a.key).at(-1).y)-Math.abs(tracks.get(b.key).at(-1).y)||a.key.localeCompare(b.key));
-      continuing.forEach((row,index)=>assigned.set(row.key,sign*(index+1)*gap));
-      counts[sign===1?'positive':'negative']=continuing.length;
-    }
+    const assigned=new Map();
+    for(const row of active){const previous=tracks.get(row.key).at(-1);if(previous)assigned.set(row.key,previous.y);}
+    const taken=new Set([...assigned.values()].map(y=>Math.round(y/gap)));
     for(const row of active)if(!assigned.has(row.key)){
-      const side=counts.positive<=counts.negative?'positive':'negative',sign=side==='positive'?1:-1;
-      assigned.set(row.key,sign*(++counts[side])*gap);
+      // Balance by occupied slots so the first branches still alternate outwards,
+      // then take the innermost free slot on that side: without reuse a long range
+      // of sequential work would march away from the spine forever.
+      const positive=[...taken].filter(slot=>slot>0).length,negative=taken.size-positive;
+      const sign=positive<=negative?1:-1;
+      let slot=1;while(taken.has(sign*slot))slot++;
+      taken.add(sign*slot);assigned.set(row.key,sign*slot*gap);
     }
     active.forEach(row=>{
       const y=assigned.get(row.key),list=tracks.get(row.key),previous=list.at(-1);

@@ -18,25 +18,44 @@ await until("document.readyState==='complete'&&document.getElementById('timeline
 
 await evaluate("document.getElementById('timeline-motion').value='reduce';document.getElementById('timeline-motion').dispatchEvent(new Event('change'))");
 const requests=apiCalls;
-const change=async(axis,value)=>{await evaluate(`document.getElementById('timeline-scale-${axis}').value='${value}';document.getElementById('timeline-scale-${axis}').dispatchEvent(new Event('input',{bubbles:true}))`);await delay(100);};
+const scaleIs=(t,v)=>`(()=>{const s=JSON.parse(document.getElementById('timeline-stage').dataset.camera).axisScale;return s[0]===${t}&&s[1]===${v};})()`;
+// Software rendering can miss a fixed delay, so wait for the scene to publish the
+// new scale rather than assuming a frame has landed.
+const change=async(axis,value)=>{await evaluate(`document.getElementById('timeline-scale-${axis}').value='${value}';document.getElementById('timeline-scale-${axis}').dispatchEvent(new Event('input',{bubbles:true}))`);await until(`JSON.parse(document.getElementById('timeline-stage').dataset.camera).axisScale[${axis==='time'?0:1}]===${value}`);};
 const camera=()=>evaluate("JSON.parse(document.getElementById('timeline-stage').dataset.camera)");
 const beforeUrl=await evaluate('location.href');
 await change('time',10);await change('vertical',10);
 assert.deepEqual((await camera()).axisScale,[10,10,1]);
 assert.equal(await evaluate('location.href'),beforeUrl);
-await evaluate("document.getElementById('timeline-2d').click()");await delay(150);
-assert.deepEqual((await camera()).axisScale,[10,10,1]);assert.equal((await camera()).perspective,0);
-await evaluate("document.getElementById('timeline-fit').click()");await delay(100);
+await evaluate("document.getElementById('timeline-2d').click()");
+await until("JSON.parse(document.getElementById('timeline-stage').dataset.camera).perspective===0");
 assert.deepEqual((await camera()).axisScale,[10,10,1]);
-await evaluate("document.getElementById('timeline-3d').click()");await delay(150);
-assert.deepEqual((await camera()).axisScale,[10,10,1]);assert.equal((await camera()).perspective,1);
+await evaluate("document.getElementById('timeline-fit').click()");await delay(300);
+assert.deepEqual((await camera()).axisScale,[10,10,1]);
+await evaluate("document.getElementById('timeline-3d').click()");
+await until("JSON.parse(document.getElementById('timeline-stage').dataset.camera).perspective===1");
+assert.deepEqual((await camera()).axisScale,[10,10,1]);
 assert.equal(apiCalls,requests,'Stretching must not fetch sources');
 await call('Page.reload');
 await until("document.readyState==='complete'&&document.getElementById('timeline-stage')?.dataset.camera");
-await delay(300);
+await until(scaleIs(10,10));
 assert.deepEqual((await camera()).axisScale,[10,10,1]);
-await evaluate("document.getElementById('timeline-scale-reset').click()");await delay(100);
+// Full stretch: the slider accepts it and the camera can actually reach the scene.
+await change('time',40);await change('vertical',40);
+assert.deepEqual((await camera()).axisScale,[40,40,1]);
+await evaluate("document.getElementById('timeline-fit').click()");await delay(300);
+const stretched=(await camera()).distance;
+assert.ok(stretched>250,'Fitting a 40x scene needs more distance than the 1x limit');
+await evaluate("document.getElementById('timeline-stage').focus();");
+await call('Input.dispatchKeyEvent',{type:'keyDown',key:'-',code:'Minus',windowsVirtualKeyCode:189});
+await call('Input.dispatchKeyEvent',{type:'keyUp',key:'-',code:'Minus',windowsVirtualKeyCode:189});
+await delay(150);
+assert.ok((await camera()).distance>=stretched,'Zooming out at 40x is not clamped back to the 1x limit');
+// Reducing the stretch pulls a far camera back instead of stranding it outside the scene.
+await evaluate("document.getElementById('timeline-scale-reset').click()");
+await until(scaleIs(1,1));
 assert.deepEqual((await camera()).axisScale,[1,1,1]);
+assert.ok((await camera()).distance<=250,'Reset brings the camera back within the 1x limit');
 // Exercise the same projection through canvas fallback.
 await evaluate("document.getElementById('timeline-canvas').getContext('webgl').getExtension('WEBGL_lose_context').loseContext()");
 await delay(300);await change('vertical',2);

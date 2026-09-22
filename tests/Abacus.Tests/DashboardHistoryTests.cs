@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Abacus.Dashboard;
 
 namespace Abacus.Tests;
@@ -7,6 +8,60 @@ public sealed class DashboardHistoryTests
     private static string Fixture(string name) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory,
         "Fixtures", "Beads", "Dashboard-1.2.2", name));
     private static HistoryKey Key(int limit = 2) => new("web-cuh", "issue-revision", "dolt-revision", limit);
+
+    private static string Row(string id, string commit, string date, string status, string title = "T", string notes = "n") =>
+        $"{{\"id\":\"{id}\",\"commit_hash\":\"{commit}\",\"committer\":\"beads\",\"commit_date\":\"{date}\"," +
+        $"\"title\":\"{title}\",\"status\":\"{status}\",\"priority\":1,\"issue_type\":\"task\",\"assignee\":null," +
+        $"\"notes\":\"{notes}\",\"declared_target\":null}}";
+
+    [Fact]
+    public void RepeatedStatesCollapseToTheEarliestCommitThatRecordsThem()
+    {
+        // Dolt keeps a row per commit, so an untouched issue repeats itself. Newest first.
+        var versions = new[] { ("c", "open"), ("b", "open"), ("a", "open") }
+            .Select((x, i) => new IssueVersion($"v{x.Item1}", x.Item1, DateTimeOffset.UnixEpoch.AddHours(3 - i),
+                "committer", "T", x.Item2, "n")).ToImmutableArray();
+        var collapsed = IssueVersionSequence.Collapse(versions);
+        Assert.Single(collapsed);
+        // The oldest commit of the run: the earliest time the state is known to have existed.
+        Assert.Equal("a", collapsed[0].SourceRevision);
+        // A state that is left and returned to is two recorded changes, not one.
+        var reopened = new[] { ("d", "open"), ("c", "closed"), ("b", "open"), ("a", "open") }
+            .Select((x, i) => new IssueVersion($"v{x.Item1}", x.Item1, DateTimeOffset.UnixEpoch.AddHours(4 - i),
+                "committer", "T", x.Item2, "n")).ToImmutableArray();
+        Assert.Equal(["d", "c", "a"], IssueVersionSequence.Collapse(reopened).Select(x => x.SourceRevision));
+        // Unknown labels never read as equal to a known empty list.
+        var unknown = versions[0];
+        Assert.Equal(2, IssueVersionSequence.Collapse([unknown, unknown with { Labels = [] }]).Length);
+    }
+
+    [Fact]
+    public void ProjectHistoryReadsEveryIssueAtOnceAndRefusesMalformedOrUnlabelledRows()
+    {
+        const string a = "ku9rtvg51ra4n33igep0pd9oo3rdad1i", b = "i1s9bnb1ra4n33igep0pd9oo3rdad1ii", c = "vpib790ka4v1imkkea359qh8nr2da877";
+        var json = "[" + string.Join(",",
+            Row("web-a", a, "2026-09-21T21:03:02Z", "closed"),
+            Row("web-a", b, "2026-09-21T21:03:01Z", "open"),
+            Row("web-b", c, "2026-09-21T21:03:00Z", "open")) + "]";
+        var history = ProjectHistoryReader.Parse("dolt-revision", json);
+        Assert.Equal("dolt-revision", history.HistoryRevision);
+        Assert.Equal(["web-a", "web-b"], history.Issues.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(2, history.Issues["web-a"].Length);
+        Assert.Equal($"beads:web-a:{a}", history.Issues["web-a"][0].Id);
+        Assert.Equal("closed", history.Issues["web-a"][0].Status);
+        // Labels are not in this table: unknown, never a claim that the issue has none.
+        Assert.All(history.Issues["web-a"], v => Assert.Null(v.Labels));
+        Assert.False(history.Coverage.LimitReached);
+        Assert.Equal(DateTimeOffset.Parse("2026-09-21T21:03:00Z"), history.Coverage.OldestReturned);
+        Assert.Contains("Recorded label history is not available", history.Coverage.Explanation);
+        // A failed query answers with an error object; that is not an empty history.
+        Assert.Throws<InvalidDataException>(() => ProjectHistoryReader.Parse("dolt-revision", "{\"error\":\"query error\"}"));
+        Assert.Throws<InvalidDataException>(() => ProjectHistoryReader.Parse("dolt-revision", "[" + Row("web-a", "short", "2026-09-21T21:03:02Z", "open") + "]"));
+        Assert.Throws<InvalidDataException>(() => ProjectHistoryReader.Parse("dolt-revision", "[" + Row("web-a", a, "not-a-date", "open") + "]"));
+        Assert.Throws<InvalidDataException>(() => ProjectHistoryReader.Parse("dolt-revision",
+            "[" + Row("web-a", a, "2026-09-21T21:03:02Z", "open") + "," + Row("web-a", a, "2026-09-21T21:03:01Z", "closed") + "]"));
+        Assert.Throws<ArgumentException>(() => ProjectHistoryReader.Parse(" ", json));
+    }
 
     [Fact]
     public void HistoricalMetadataPreservesPresentFieldsAndDoesNotInventMissingRelations()

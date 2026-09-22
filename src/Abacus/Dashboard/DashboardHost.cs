@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Text;
 using Microsoft.AspNetCore.Builder;
@@ -44,7 +45,7 @@ internal sealed class DashboardHost : IAsyncDisposable
             runtimeSession = runtime?.Instance,
             name = projectName, actor, mode = integrated ? "integrated" : "standalone", runtimeConnected = runtime is not null,
             runtimeExplanation = runtime is not null ? "Live worker state from this run; claim Pause/Resume available when connected" : integrated ? "Hosted by this run; runtime state and controls are not yet available" : "Orchestrator not connected", unauthenticated = true,
-            capabilities = new { readIssues = true, editIssues = actions is not null, createDrafts = actions?.DraftsEnabled ?? false, attention = actions?.AttentionEnabled ?? false, history = activity is not null, git = git is not null, runtimeControl = runtime?.CanControlClaims ?? false, claimControl = runtime?.CanControlClaims ?? false },
+            capabilities = new { readIssues = true, editIssues = actions is not null, createDrafts = actions?.DraftsEnabled ?? false, attention = actions?.AttentionEnabled ?? false, history = activity is not null, projectHistory = activity?.ProjectHistoryEnabled ?? false, git = git is not null, runtimeControl = runtime?.CanControlClaims ?? false, claimControl = runtime?.CanControlClaims ?? false },
         }, DashboardStream.Json);
         var assets = LoadAssets();
         var issueBodies = new DetailCache<string, byte[]>(256, CancellationToken.None);
@@ -293,6 +294,26 @@ internal sealed class DashboardHost : IAsyncDisposable
                     var result = await git.IssueAsync(issue, context.RequestAborted, request.Query["patch"] == "true", request.Query["history"] == "true");
                     if (stream.IssuesStale || stream.Issue(id)?.Revision != issue.Revision) { response.StatusCode = 409; return; }
                     await JsonAsync(context, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(result, DashboardStream.Json));
+                }
+                else if (path == "/api/v1/issues/activity")
+                {
+                    // Whole-project recorded history in one read. Without this the timeline
+                    // pages issues in batches and only ever shows the batch it has loaded.
+                    if (activity is null || !activity.ProjectHistoryEnabled) { response.StatusCode = 503; return; }
+                    if (request.Query.Count != 0) { response.StatusCode = 400; return; }
+                    var issues = stream.Issues;
+                    if (issues is null || stream.IssuesStale) { response.StatusCode = 503; return; }
+                    var loaded = await activity.ReadProjectAsync(context.RequestAborted);
+                    // Every issue is stamped with the revision from this one snapshot, so a
+                    // client that has already moved on simply re-reads; nothing is invented.
+                    var page = new ProjectActivityPage(loaded.HistoryRevision, loaded.Coverage,
+                        issues.Values.OrderBy(x => x.Id, StringComparer.Ordinal)
+                            .Select(x => new ProjectActivityIssue(x.Id, x.Revision,
+                                loaded.Issues.GetValueOrDefault(x.Id, [])))
+                            .ToImmutableArray());
+                    response.Headers.ETag = $"\"project-activity-{loaded.HistoryRevision}-{stream.Snapshot().ETag.Trim('"')}\"";
+                    if (request.Headers.IfNoneMatch == response.Headers.ETag) { response.StatusCode = 304; return; }
+                    await JsonAsync(context, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(page, DashboardStream.Json));
                 }
                 else if (path.StartsWith("/api/v1/issues/", StringComparison.Ordinal) && path.EndsWith("/activity", StringComparison.Ordinal))
                 {

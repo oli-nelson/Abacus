@@ -603,6 +603,7 @@ Proposed versioned routes:
 | `GET /api/v1/project` | Identity, capabilities, target choices, actor, source health, hosting mode and integrated runtime-control availability. |
 | `GET /api/v1/snapshot` | Filtered/ranged issue-lane/event summary, revisions, coverage, cursor and counts. |
 | `GET /api/v1/issues/{id}` | Current details and resource revision. |
+| `GET /api/v1/issues/activity` | Whole-project recorded history in one revision-fenced read, per-issue revisions and coverage. |
 | `GET /api/v1/issues/{id}/activity` | Bounded history with coverage and continuation cursor. |
 | `GET /api/v1/branches` | Refs/worktrees/associations and summary comparison data. |
 | `GET /api/v1/issues/{id}/diff` | Validated lazy comparison, bounded patch/files, source tip IDs. |

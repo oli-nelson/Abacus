@@ -41,7 +41,7 @@ try{
   return {visible:labels.length,overlaps,accessibleLanes:document.querySelectorAll('#timeline-event-list>li').length,culled:Number(document.getElementById('timeline-stage').dataset.culledLabels)};
  })()`);
  assert.equal(labelLayout.overlaps,0,'Visible labels must not obscure each other');
- assert.ok(labelLayout.visible>0);assert.ok(labelLayout.culled>0);assert.equal(labelLayout.accessibleLanes,24);
+ assert.ok(labelLayout.visible>0);assert.ok(labelLayout.culled>0);assert.equal(labelLayout.accessibleLanes,120,'A full lane page stays in the accessible list');
  await writeFile('/tmp/abacus-scene-scale.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'));
  assert.match(await evaluate("document.getElementById('timeline-renderer').textContent"),/WebGL/);
  assert.equal((await (await fetch(base+'/fixture/stream-clients')).json()).count,10);

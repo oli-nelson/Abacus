@@ -6,6 +6,58 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+- Read recorded issue history for the whole project in one query instead of one
+  bounded batch of 64 issues at a time. Beads keeps a row per issue per database
+  commit, so a long-lived issue answered with a full copy of itself per commit:
+  tens of megabytes and three processes per issue, and the timeline could only
+  show the batch it had loaded. Repeated identical states now collapse to the
+  earliest commit that records them, on both the whole-project and per-issue
+  reads, so history that previously exceeded its output limit is readable again.
+  Sources that cannot answer a whole-project query keep the batched reader.
+
+- Keep recorded title, assignee, priority and type visible during timeline playback.
+  A closure is recorded from second-precision `closed_at` and usually lands a few
+  milliseconds after the snapshot that closed the issue, which previously blanked
+  every field to "Title unavailable" for closed lanes. Playback fields now come from
+  the newest recorded snapshot at or before the playhead, with the snapshot time and
+  any lag behind the status shown in the inspector.
+
+- Draw 120 timeline lanes per page instead of 24, and sample branch paths by their
+  on-screen length instead of a fixed 100 points. Ordering lanes by start time made a
+  small page cluster every drawn lane into the earliest part of the range, leaving
+  most of the width empty; the scene's vertical spread follows peak simultaneous work
+  rather than the lane count, so a larger page costs geometry, not height.
+
+- Order timeline lanes by when their work starts instead of by issue ID. Only 24
+  lanes are drawn at a time, so a lane revealed later by the playhead could sort
+  ahead of lanes already on the page and push one off it: recorded work appeared to
+  vanish from the past simply because the playhead moved forward. Later work is now
+  appended, and deep-linking to an event pages by the displayed order rather than an
+  unfiltered issue-ID index.
+
+- Fix work episodes sliding sideways on the timeline. A branch kept its side when a
+  neighbour ended but was repacked inwards, so surviving branches drifted across the
+  scene mid-flight — movement the recorded source never contained. A branch now keeps
+  the side and the distance it was first given until it ends, and a new branch reuses
+  the innermost free slot so sequential work still stays near the spine.
+
+- Stretch the timeline's time axis and lane spacing up to 40×, from 10×. The camera's
+  zoom-out limit now scales with the stretch, so **Fit view** at a high stretch is
+  reachable by zoom and survives a reload instead of being discarded as out of range;
+  reducing the stretch pulls a far camera back in rather than stranding it.
+
+- Keep the selected node and the focused lane caption while the timeline plays.
+  Every playback step was treated as a change of playback context, so a pinned event
+  was dropped from the inspector, the callout and the URL several times a second, and
+  a caption holding keyboard focus lost it as soon as the needle moved past that
+  lane's work. Returning to live, seeking and restoring a location still clear the
+  pinned event, because those really do change which events are reachable.
+
+- Caption timeline lanes by the playhead needle rather than by lane count: the
+  selected issue alone when one is selected, otherwise every work episode open at
+  the needle, falling back to the most recently ended work. Uncaptioned lanes keep
+  their accessible list entries.
+
 - Keep timestamped comments visible during timeline playback, with a comment shortcut
   and clear coverage. Explain read-only playback and offer a visible return-to-live
   editing action, including refresh retry, without losing comment or label drafts.

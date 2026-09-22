@@ -12,6 +12,16 @@ Visual/interaction fixture:
 2. Start a disposable Chrome profile with `--remote-debugging-port=19222`.
    Headless machines may need `--use-angle=swiftshader --enable-unsafe-swiftshader`
    for software WebGL; this is test-only, not a user deployment requirement.
+
+   Running `--headless=new` also needs the renderer kept awake, or
+   `requestAnimationFrame` stops once the page settles and every `dataset.*`
+   the scene publishes from a draw goes stale — checks then fail on timing
+   rather than on behavior:
+
+       --window-size=1671,1000 --disable-background-timer-throttling        --disable-backgrounding-occluded-windows --disable-renderer-backgrounding        --disable-features=CalculateNativeWinOcclusion
+
+   Prefer waiting for the scene to publish a value over a fixed delay: software
+   rendering regularly needs longer than a frame budget to land one.
 3. Run `node tests/browser/timeline-cdp.mjs`. It closes that Chrome instance on
    success, writes `/tmp/abacus-timeline-3d.png`, and asserts rendering, history
    selection, inspector-to-event navigation, pinned callout, settled idle frames, orbit geometry reuse, 2D,
@@ -239,13 +249,42 @@ integrated-runtime behavior, peak memory and native-GPU measurements remain
 separate acceptance work.
 
 
+## Lane page stability
+
+`CDP_PORT=19222 node tests/browser/lane-page-stability-cdp.mjs` against a fresh
+fixture. `/fixture/staggered-work` adds earlier work with late-sorting IDs and
+later work with early-sorting IDs, so issue-ID lane order would push drawn lanes
+off the 24-lane page as the playhead reaches the later work. It asserts the page
+holds the earliest work, that advancing the playhead only appends, that no drawn
+lane is dropped, and that scrubbing back restores the same page.
+
+## Playback selection and focus
+
+`CDP_PORT=19222 node tests/browser/playback-selection-cdp.mjs` against a fresh
+fixture. Advancing the playhead is not a change of playback context: it asserts a
+pinned recorded event survives playback in the inspector, the callout and the URL,
+that **Return to live** still clears it, and that a lane caption holding keyboard
+focus is never culled when the needle stops reporting on that lane.
+
+## Whole-project history fallback
+
+`CDP_PORT=19222 node tests/browser/project-history-fallback-cdp.mjs` against a
+fresh fixture. `/fixture/project-history-unsupported` makes the fixture advertise
+the whole-project history capability and then refuse the read, standing in for a
+`bd`/storage that cannot answer the query. It asserts the refused read is tried
+once and not retried in a loop, that every issue is then read individually, and
+that recorded episodes still arrive. Set the fixture route before navigating:
+capabilities are read once at page load.
+
 ## Three-issue reference composition
 
 Run `CDP_PORT=19222 node tests/browser/reference-cdp.mjs` against a fresh fixture
 and disposable Chrome. It explicitly loads all three recorded bindings, commit
 histories and issue snapshots, pins the recorded comment, then fits the scene.
 UTC matches the reference clock labels. It asserts three recorded starts, exactly
-one verified current return and three visible lane cards, and saves
+one verified current return and that the selected lane is the only captioned one
+(lane captions follow the playhead needle: the selected issue when there is one,
+otherwise every episode open at the needle), and saves
 `/tmp/abacus-reference-scene.png`. The fixture is synthetic visual evidence, not
 proof of production Git integration or worker ownership. Restart it before other
 browser tests because this mode changes containment facts.
