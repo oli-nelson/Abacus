@@ -6,6 +6,43 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+- Keep timestamped comments visible during timeline playback, with a comment shortcut
+  and clear coverage. Explain read-only playback and offer a visible return-to-live
+  editing action, including refresh retry, without losing comment or label drafts.
+
+- Replace the Activity tab's repeated snapshot cards with recorded status, label
+  and note changes, keeping comments separately available. Move raw snapshots and
+  source coverage into collapsed technical evidence, and merge history pages
+  without discarding richer timeline history or duplicating changes.
+
+- Label status changes inside grouped timeline nodes, prioritizing closures over
+  comments and issue cards. Try nearby label positions before hiding overlaps,
+  so a grouped closing event no longer silently loses its status annotation.
+
+- Keep issue events, including closure nodes and comments grouped with entry,
+  on their offset branch. Only the first recorded open/blocked → in-progress
+  transition may sit on the spine; branch joins are unmarked. Preserve each work
+  episode's side when other issues end, preventing return curves from dipping
+  through the spine and doubling back. Both axis stretch controls now reach 10×.
+
+- Space timeline work episodes by concurrent activity instead of arbitrary issue
+  slots: sequential work reuses one offset, overlapping work alternates above
+  and below the spine, and continuing lanes adjust smoothly as overlaps end.
+  Keep line thickness and circular event-node proportions independent of axis
+  stretching, enlarge nodes, and fit the actual layout. Old saved cameras refit
+  once when switching to the new layout.
+
+- Show meaningful issue changes on the timeline instead of raw database snapshots:
+  status transitions, added/removed labels, new comments, and note changes with
+  expandable before/after text. Unchanged snapshots and unrelated field edits
+  no longer create nodes or inflate clusters. Keep snapshot history for status
+  curves, hide technical evidence behind a disclosure, and avoid inventing changes
+  from the first available or ambiguous snapshot. Git history remains in its inspector.
+  Old links to raw snapshot/Git timeline markers no longer resolve; inspect those
+  records in Activity/Git instead. Links to comments remain valid.
+  Grouped-node popups preview up to five comments with commenter names and
+  truncated text; full comments remain available in the inspector.
+
 - Draw timeline curves from recorded issue-status work episodes: in-progress
   starts leave the activity spine, blocked spans are marked, and closed spans
   return at closure without extending to now. Git proof is not required to draw
@@ -32,8 +69,12 @@ Unreleased section. Released versions are listed newest first.
 
 ### Dashboard navigation
 
+- Show titles without issue IDs on floating timeline issue labels. Add **Maximize
+  view** to fill the timeline panel with the scene and view controls, hiding time
+  and issue settings while preserving the inspector and selected range. Restore
+  with the same button or Escape; this is separate from browser fullscreen.
 - Add independent Time width and Vertical spacing sliders for 2D/3D timelines,
-  with remembered time stretching up to 10× and vertical stretching up to 4×,
+  with remembered time stretching up to 10× and vertical stretching up to 10×,
   plus a reset control, without changing the time range.
 - Move live workers and registered worktree controls into dedicated Workers and
   Worktrees tabs, keeping issue and branch views focused.
@@ -80,7 +121,7 @@ Unreleased section. Released versions are listed newest first.
   do not accumulate an animation backlog. Finished effects release their draw
   ranges even with glow disabled or after switching to the 2D fallback.
 
-- Fade timeline filter changes briefly while keeping lane slots and timestamps
+- Fade timeline filter changes briefly while keeping recorded timestamps
   fixed; rapid changes replace the effect and reduced motion cancels it.
 
 - Anchor timeline speech bubbles to their projected events as the camera moves;

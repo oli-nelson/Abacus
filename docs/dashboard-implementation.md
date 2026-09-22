@@ -2966,3 +2966,112 @@ source-coverage constraints.
 - Verified 34 priority/model tests; Chrome 73-issue fixture requests the relevant
   high-ID issue first and checks paging/range reset; range-motion and inspector
   regressions passed. Build passed with zero warnings/errors.
+
+### Meaningful timeline events instead of snapshot noise
+
+- Preserve raw snapshots for state/episode reconstruction, but cache a separate
+  display-event projection for actual status/label/note differences and comments.
+  Baselines, unchanged snapshots and unrelated metadata do not count as events;
+  equal-time conflicts break the affected field baseline instead of inventing
+  changes. Closure evidence does not duplicate a matching closed snapshot.
+- Scene/minimap markers, clusters, annotations, accessible lists, links and pins
+  use the display projection. Four event filters replace raw snapshot/Git/creation
+  filters. Git history stays in its inspector; old raw-marker links are unavailable.
+- Inspectors expand meaningful event details on selection; notes offer before/after
+  text and labels list additions/removals. Technical provenance is collapsed, and
+  committers are never presented as confirmed edit authors. Snapshot-derived times
+  are explicitly recorded times, not exact edit times.
+- Verified 53 pure browser-model tests, a noisy 12-snapshot fixture producing only
+  six meaningful events, four-change cluster, all four filters, note comparison,
+  collapsed technical evidence and reloadable note links. Nine navigation/status
+  episode/range/inspector browser regressions passed. Screenshot inspected.
+
+### Comment previews in grouped-node popups
+
+- Grouped popups include up to five commenter names and 240-character previews,
+  Unicode-safe ellipsis truncation, a bounded keyboard-scrollable list and an
+  explicit remaining-comment count. Full comments stay in the inspector; single
+  comment popups also mark truncation with an ellipsis.
+- Popup text interaction no longer starts camera dragging or hovers through to
+  underlying scene markers. Verified 54 model tests and the semantic-event Chrome
+  fixture including named comment previews. Build passed.
+
+### Concurrency-driven lane placement and unstretched geometry
+
+- Replace issue-slot Y/Z coordinates with displayed work-episode overlap layout:
+  one lane at +X, two at ±X, further lanes alternating outward. Reuse space for
+  sequential episodes and preserve survivors' relative vertical order when
+  concurrency shrinks, easing into freed offsets rather than swapping lanes.
+  Blocked intervals remain part of their work episode. Missing-start live markers
+  are spaced without fabricating historical paths. Camera fit uses actual extents;
+  old saved slot-based cameras migrate once to the new layout.
+- Axis scaling now changes path centerlines, not tube thickness or bead shape.
+  Build tangent rings in scaled space and inverse-compensate radial offsets;
+  larger, higher-resolution spherical nodes replace diamonds. Fallback nodes are
+  outlined circles. Geometry refreshes once when axis scales change, not every
+  camera frame (supersedes the earlier no-upload-on-scale implementation note).
+- Rechecked the visual reference. Verified concurrency reuse/mirroring/order and
+  smooth transitions, world-space circular bead radii and tube perpendicularity
+  at 10×/0.6×, plus 60 pure tests. Navigation, episode/reopen/live/history-batch/Git/
+  undated-close/range/inspector browser regressions and axis/fallback checks passed.
+
+### Title-only labels and panel maximization
+
+- Floating issue cards show only the historical/current title, retaining IDs in
+  accessible names, data identity and inspector context. Missing historical titles
+  show an explicit unavailable label rather than substituting current data.
+- Maximize view fills the timeline workspace with view controls, legend and scene;
+  hides range/playback/history/issue controls without resetting state or affecting
+  the adjacent inspector. Restore panel/Escape reverses it; leaving Timeline
+  removes the sizing mode from other tabs. Narrow layouts account for header height.
+- Verified title-only labels, increased scene height, hidden/retained controls,
+  range/inspector preservation, no extra reads, Escape, tab switching and narrow
+  restoration in Chrome. All 60 pure tests and the embedded-asset build passed.
+
+### Branch-only events, 10× vertical stretch and side-preserving returns
+
+- Only the first recorded open/blocked → in-progress transition can have a
+  spine marker. Split that entry from other same-time changes before clustering
+  in both scene and minimap. All other events stay offset, including closure,
+  later resumes and reopened work. Event-aware path geometry reaches the offset
+  before the first branch event and stays there through the last; main-line joins
+  carry no extra event nodes and retain recorded endpoint times.
+- Vertical stretch now accepts/restores up to 10×, matching time stretch.
+- Reproduced a lane-layout overshoot: symmetric re-ranking after another episode
+  ended could move a positive lane negative, then its closure curve returned to
+  zero. Preserve an episode's side for its lifetime and compact only within that
+  side. A lone negative survivor remains negative, and same-side survivors are
+  not forcibly split across the spine; this intentionally supersedes strict
+  re-centering after every departure.
+- Verified 64 pure tests, including endpoint anchoring and a positive-branch
+  departure regression. Six final Chrome checks passed: event placement, both
+  10× controls/persistence/fallback, semantic events/comments, reopened playback,
+  range motion and inspector. Build passed with zero warnings/errors.
+
+### Consistent closing-status annotations
+
+- Fixed a display omission: annotation selection excluded cluster nodes entirely,
+  so a status closure grouped with a comment/note had no label. Expand cluster
+  members for selected-issue annotations, keep closures/status changes ahead of
+  comment volume in the bounded 24-label budget, and prioritize closure placement
+  over issue cards. Nearby alternative positions are tried before culling.
+- Event filters, playback limits and offscreen culling remain authoritative;
+  labels do not manufacture missing history. Cluster-member labels select the
+  individual change and retain cluster anchoring.
+- Verified 67 pure tests, visible/clickable clustered closure labels in Chrome
+  2D/3D and narrow layouts, event-kind filtering, plus range/inspector regressions.
+  Embedded-asset build passed with zero warnings/errors.
+
+### Meaningful Activity tab
+
+- Replace the default raw snapshot feed with status/label/note changes from the
+  same semantic projection as the timeline. Keep comments in their existing
+  section, show note comparisons and collapsed per-event evidence, and move raw
+  records/source coverage under an explicit collapsed technical disclosure.
+- Merge inspector history reads into the revision-fenced history cache rather
+  than replacing richer auto-loaded timeline history. Recompute cards across
+  loaded page boundaries and avoid duplicate changes on reload; only expose
+  timeline links for events belonging to rendered work episodes.
+- Chrome fixture verifies five meaningful changes from 16 snapshots, retained
+  comments, collapsed raw data, and duplicate-free reload. Pure tests: 67 passed.
+  Build passed with zero warnings/errors; range/inspector regressions checked.

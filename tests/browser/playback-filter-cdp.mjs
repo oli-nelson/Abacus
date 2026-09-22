@@ -15,7 +15,7 @@ await call('Network.enable');await call('Runtime.enable');await call('Emulation.
 await call('Page.navigate',{url:'http://127.0.0.1:18081/?from=2026-09-21T10%3A19%3A00Z&to=2026-09-21T10%3A21%3A00Z&at=2026-09-21T10%3A19%3A00Z&issue=bd-a1f'});
 await until("!document.getElementById('activity-section').hidden");
 await evaluate("document.getElementById('load-activity').click()");
-await until("document.querySelectorAll('#activity article').length===3");
+await until("document.querySelectorAll('#activity article').length===4");
 await evaluate("document.getElementById('status').value='blocked';document.getElementById('status').dispatchEvent(new Event('change'));document.getElementById('timeline-speed').value='60'");
 assert.equal(await evaluate("document.querySelectorAll('.lane-card').length"),0);
 const requests=apiCalls;

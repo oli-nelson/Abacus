@@ -179,7 +179,7 @@ test('curved tubes share smooth tangent rings and spherical beads use radial nor
     const v=vertex(i),radial=[v[0]-4,v[1],v[2]],length=Math.hypot(...radial);
     for(let k=0;k<3;k++)assert.ok(Math.abs(radial[k]/length-v[k+3])<2e-6);
   }
-  assert.equal(renderer.uploads,1);assert.equal(renderer.counts[0],96+6*8*6,'Smoothing does not add geometry');
+  assert.equal(renderer.uploads,1);assert.equal(renderer.counts[0],96+8*12*6,'Smooth tubes and bounded higher-resolution circular beads');
 });
 
 test('speech bubbles stay bounded and point above or below the actual event',()=>{

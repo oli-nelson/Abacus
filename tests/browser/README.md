@@ -403,6 +403,36 @@ queries, identical-member no replay and reduced-motion suppression.
 
 ### Range motion and pinned selection
 
+`semantic-activity-cdp.mjs` checks meaningful Activity cards instead of repeated
+snapshots, separately retained comments, collapsed raw evidence and deduplicated
+reloads that preserve already-loaded timeline history.
+
+`closing-label-cdp.mjs` verifies visible, clickable status labels for clustered
+closures in 2D/3D and narrow layouts, while respecting event-kind filters.
+`timeline-annotations.test.mjs` checks cluster expansion, status priority over
+comment volume and alternative placement before collision hiding.
+
+`event-placement-cdp.mjs` checks that only an initial open → in-progress event
+uses the spine, while same-time comments, resumes and closures remain on their
+branch even after narrowing the range. `event-placement.test.mjs` covers entry
+classification and event-aware curve endpoints. Concurrency tests also cover
+side preservation after another issue ends to prevent return-curve overshoot.
+
+`panel-maximize-cdp.mjs` checks title-only floating labels, expanded scene height,
+view-only controls, preserved range/inspector, Escape and button restoration,
+tab switching, narrow layout and no additional data reads.
+
+`concurrent-layout.test.mjs` checks sequential reuse, mirrored overlap offsets,
+smooth survivor repositioning and deterministic multi-issue ordering.
+`timeline-geometry.test.mjs` verifies circular marker radii and perpendicular
+tube cross-sections at 10× time stretch with compressed vertical spacing.
+
+`meaningful-events-cdp.mjs` verifies that unchanged snapshots do not create nodes,
+four meaningful event kinds filter correctly, clusters count actual changes,
+notes show before/after text, technical evidence starts collapsed, and status
+curves survive. `meaningful-events.test.mjs` covers baselines, duplicates,
+closure deduplication, label order, note clearing and equal-time ambiguity.
+
 `history-priority-cdp.mjs` checks that a range-relevant issue beyond the old
 64-issue boundary is requested first, all batches remain reachable, and changing
 range resets the prioritized batch. `history-priority.test.mjs` covers ordering,
@@ -430,3 +460,7 @@ remain reachable with at most 50 rendered entries and no paging source requests.
 `node tests/browser/navigation-cdp.mjs` checks dedicated Workers visibility and
 live updates, short-window real wheel scrolling, Ctrl+wheel camera zoom, reachable
 footer, narrow five-tab navigation, and All entries from filtered playback.
+
+`playback-comments-cdp.mjs` checks comments up to the playhead, exclusion of later
+comments, the maximized inspector's live-edit recovery, visible refresh failure
+and retry, preserved drafts and restored label editing.

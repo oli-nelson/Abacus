@@ -271,9 +271,10 @@ change after the response.
 ## Committed history coverage
 
 History uses the installed `bd --readonly history <id> --limit 1000 --json`
-contract, checked at startup. The inspector loads it only on demand and labels
-each entry as a **committed snapshot**, with commit time/hash and committer. A
-committer is not necessarily the person who edited a field. Current comments
+contract, checked at startup. The inspector loads history on demand and displays
+meaningful field changes; raw **committed snapshots**, commit hashes and committer
+information are kept under collapsed technical evidence. A committer is not
+necessarily the person who edited a field. Current comments
 retain their separately recorded author/time; current notes do not become dated
 events. Missing/compacted history and uncommitted edits remain explicit gaps,
 even when a page is empty or shorter than the limit.
@@ -316,6 +317,10 @@ Playback/scrubbing is local presentation only. Historical status comes from the
 last loaded recorded state (equal-time conflicts are unknown); other historical
 fields are not backfilled from current data. Editing is disabled during playback.
 Return to live rereads the selected current issue before enabling the composer.
+The inspector provides a return-to-live editing button even in maximized view,
+plus a retry if that read fails. Comment and label drafts are preserved.
+Use **View comments** to open Activity: playback shows timestamped comments at
+or before the playhead, while live mode includes all current comments.
 Camera and playback do not run Beads/Git commands. Updates continue to arrive
 during playback, with an issue-update count rather than a forced viewport jump.
 
@@ -781,10 +786,62 @@ an event or time. The date/time form remains available for keyboard entry;
 **First event → now** expands back out after selecting a narrower range.
 
 **Time width** and **Vertical spacing** independently stretch the timeline's time
-axis (0.25×–10×) and lane spacing (0.25×–4×) in both 2D and 3D. They change the view,
+axis (0.25×–10×) and lane spacing (0.25×–10×) in both 2D and 3D. They change the view,
 not the selected dates or playback time. Preferences are remembered in this
 browser; **Reset stretch** restores both to 1×. **Fit view** fits the stretched
 scene without resetting these settings. The sliders also support keyboard arrows.
+
+Vertical placement follows concurrent work among the displayed episodes, not
+issue IDs: one issue uses +X, two use +X/−X, and additional issues alternate
+outwards. Continuing issues smoothly settle into freed spacing on their existing
+side as other episodes end; they never switch sides mid-episode. A lone survivor
+can therefore remain below the spine, and existing same-side survivors are not
+forced apart across it. Blocked work keeps its place until its work episode ends. Line
+thickness and round event-node proportions no longer stretch with the axes;
+nodes are larger in both WebGL and fallback views. Existing saved cameras refit
+once for this layout migration; subsequent camera preferences remain saved.
+
+### Meaningful timeline events
+
+Floating issue labels show titles only; IDs remain available in the inspector
+and accessible control names. **Maximize view** expands the scene within its
+panel, leaving camera, 2D/3D, stretch and other view controls above it. Time-range,
+playback and issue-setting controls are temporarily hidden, not reset; the
+inspector remains available. **Restore panel** or Escape restores the normal
+layout. This does not enter browser fullscreen.
+
+The timeline shows only **status changes, label changes, new comments, and note
+changes** within recorded work episodes. Event filters use these four categories.
+Issue-event nodes stay on the offset branch, including closure. The only spine
+node is a first recorded open/blocked → in-progress transition; later resumes and
+reopened episodes remain offset. Same-time comments/notes/labels are clustered
+separately from that initial entry. Branch joins remain at their recorded times
+without placing other event nodes on the main line.
+Clusters count those changes, not database snapshots; one recorded version may
+contain several meaningful changes. Labels name additions/removals, comments show
+their text/author, and **Show note changes** expands a before/after comparison.
+Grouped-node floating popups also show up to five named comment previews, each
+limited to 240 characters with an ellipsis. The preview list scrolls and reports
+additional comments; the inspector keeps full text and all cluster members.
+Selected-issue status annotations also include changes inside grouped nodes.
+Closing changes receive placement priority, and labels try nearby positions
+before collision filtering hides them. Offscreen events and event-kind filters
+still apply; dense scenes retain a bounded annotation count.
+
+Committed snapshots still reconstruct work curves and historical state, but
+unchanged snapshots and unrelated title/assignee edits do not add event nodes.
+The first available snapshot establishes a baseline, not a fabricated transition;
+missing fields or conflicting equal-time records do not establish a change.
+Snapshot-derived changes use **recorded at** timestamps: the exact edit time and
+editor may be unknown. Commit hashes and committer information are tucked inside
+**Technical evidence**. Raw snapshots remain available in Activity, and Git
+commits remain in the Git inspector rather than the issue timeline.
+
+The Activity tab likewise lists meaningful status, label and note changes instead
+of repeated snapshot titles; comments remain in its Comments section. Raw records
+and detailed coverage are available under the collapsed **Technical evidence ·
+raw snapshots** disclosure. **Load older history** expands the comparison baseline
+without duplicating entries or replacing already-loaded timeline history.
 
 Selecting a closed issue checks its current Git binding/ancestry and shows the
 result in Overview. **Git confirms integration** means its tip is contained in

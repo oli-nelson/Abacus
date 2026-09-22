@@ -2,7 +2,7 @@ import {bindInspectorResize} from './inspector-resize.js';
 bindInspectorResize();
 const forceRequests=new Map();
 import {Timeline} from './timeline.js';
-import {prioritizeTimelineHistory} from './timeline-model.js';
+import {eventKindLabel,prioritizeTimelineHistory} from './timeline-model.js';
 import {issuePage} from './issue-table.js';
 import {IssueRelations} from './issue-relations.js';
 const relations=new IssueRelations();
@@ -164,10 +164,10 @@ document.addEventListener('timeline-range-change',()=>queueMicrotask(()=>{
 }));
 function resetActivity() {
   activityRequest?.abort(); activityRequest=null; activityKey=null; activityCursor=null; activityLoaded=false;
-  $('activity').replaceChildren(); $('more-activity').hidden=true;
+  $('activity').replaceChildren();$('activity-snapshots').replaceChildren();$('activity-evidence').open=false;$('activity-evidence').hidden=true; $('more-activity').hidden=true;
   $('activity-section').hidden=!canReadHistory || !issues.has(selected);
   $('load-activity').disabled=!!historyState?.stale;
-  $('activity-state').textContent=historyState?.stale ? historyState.error : 'Committed snapshots only; not a complete edit log.';
+  $('activity-state').textContent=historyState?.stale ? historyState.error : 'Load history to see status, label and note changes. Comments are listed below.';
 }
 async function loadActivity(more=false) {
   const issue=issues.get(selected); if(!issue || !canReadHistory || historyState?.stale)return;
@@ -176,25 +176,37 @@ async function loadActivity(more=false) {
   activityKey=key;activityLoaded=true;
   if(!more)activityCursor=null;
   $('load-activity').disabled=true;$('more-activity').disabled=true;
-  $('activity-state').textContent='Reading committed snapshots…';
+  $('activity-state').textContent='Loading issue changes…';
   try {
     const response=await fetch(`/api/v1/issues/${encodeURIComponent(issue.id)}/activity?limit=25${more && activityCursor ? '&after='+encodeURIComponent(activityCursor) : ''}`,{signal:request.signal});
     if(!response.ok)throw new Error(response.status===409 ? 'History changed while loading. Reload history to start a fresh page.' : 'History unavailable. Current issue fields are not a substitute.');
     const data=await response.json();if(activityRequest!==request || selected!==issue.id || activityKey!==key)return;
-    timeline.setHistory(issue.id,data,more);timeline.setData([...issues.values()],selected,$('search').value,$('status').value,metadataFilters());
-    if(!more)$('activity').replaceChildren();
-    for(const version of data.versions) {
-      const card=document.createElement('article');card.className='comment';
-      card.append(text('small',`Recorded commit · ${new Date(version.recordedAt).toLocaleString()}`),
-        text('p',`${version.title} · ${statusLabel(version.status)}`),
-        text('small',`Committer: ${version.committer} (not necessarily edit author) · ${version.sourceRevision}`));
-      if(version.notes)card.append(text('p',version.notes));
-      if(Number.isFinite(Date.parse(version.recordedAt)))card.append(timelineEventButton(issue.id,version.id));
+    // Merge into the revision-fenced cache: inspector paging must not replace
+    // a fuller timeline history or duplicate changes across page boundaries.
+    timeline.setHistory(issue.id,data,true);timeline.setData([...issues.values()],selected,$('search').value,$('status').value,metadataFilters());
+    const lane=timeline.projection.cache.get(issue.id),events=(lane?.displayEvents||[]).filter(e=>e.kind!=='comment').sort((a,b)=>b.time-a.time||a.id.localeCompare(b.id));
+    const onTimeline=new Set(lane?timeline.episodeEvents(lane).map(e=>e.id):[]);
+    $('activity').replaceChildren();
+    for(const event of events){
+      const card=text('article','');card.className='comment';
+      card.append(text('small','Recorded at · '+new Date(event.time).toLocaleString()),text('p',event.text));
+      appendEventEvidence(card,event);
+      if(onTimeline.has(event.id))card.append(timelineEventButton(issue.id,event.id));
       $('activity').append(card);
     }
+    if(!events.length)$('activity').append(text('p','No status, label or note changes found in the loaded history. Unchanged snapshots are hidden.'));
+    $('activity-snapshots').replaceChildren();
+    const versions=timeline.histories.get(issue.id)?.versions||[];
+    for(const version of versions){
+      const card=text('article','');card.className='comment';
+      card.append(text('small','Recorded snapshot · '+new Date(version.recordedAt).toLocaleString()),text('p',version.title+' · '+statusLabel(version.status)),text('small','Committer: '+version.committer+' (not necessarily edit author) · '+version.sourceRevision));
+      $('activity-snapshots').append(card);
+    }
+    $('activity-evidence').hidden=!versions.length;
+    $('activity-coverage').textContent=data.coverage.explanation;
     activityCursor=data.continuation;
     $('more-activity').hidden=!activityCursor;
-    $('activity-state').textContent=`${data.coverage.explanation}${data.coverage.limitReached ? ' Bounded to the latest 1,000 snapshots; older coverage is unknown.' : ''}${!$('activity').children.length ? ' No recorded snapshots returned.' : ''}`;
+    $('activity-state').textContent=events.length+' changes in loaded history. Exact edit times may be unknown.'+(activityCursor?' Load older history for earlier changes.':'')+(data.coverage.limitReached?' History is limited; older changes may be missing.':'');
     render();
   } catch(error) {if(activityRequest===request && error.name!=='AbortError'){$('activity-state').textContent=error.message;$('more-activity').hidden=true;}}
   finally {if(activityRequest===request){$('load-activity').disabled=false;$('more-activity').disabled=false;}}
@@ -222,7 +234,7 @@ restoreMetadataFilters();
 const statusLabel = value => value === 'closed' ? 'Completed' : value;
 function text(tag, value, className) { const node = document.createElement(tag); node.textContent = value ?? 'Unknown'; if (className) node.className = className; return node; }
 let issueGitRequest=null,issueGitInspectorKey=null;
-let selectedEvent=null, inspectorSourceKey=null, liveReadPending=false;
+let selectedEvent=null, inspectorSourceKey=null, liveReadPending=false, liveReadError=false;
 const inspectorTabs=['overview','activity','git'];
 let inspectorTab=readInspectorTab();
 const inspectorTabBar=document.querySelector('.inspector-tabs'),inspectorIndicator=document.createElement('span');
@@ -306,7 +318,7 @@ async function loadIssueGit(detail=''){
     if(result.patch){$('issue-git-detail-state').textContent=result.patch.warning||'Triple-dot patch at the displayed tips; working-tree changes are not included.';$('issue-git-patch').hidden=!result.patch.available;$('issue-git-patch').textContent=result.patch.text;}
     if(result.history){
       const h=result.history;$('issue-git-detail-state').textContent=`${h.coverage} ${h.limitReached?'Latest 100 commits only; older commits omitted.':''} ${h.clockSkew?'Commit timestamps disagree with parent order; topology is authoritative.':''} Reachable branch history includes shared ancestors, not only work authored for this issue.`;
-      for(const commit of h.commits){const card=document.createElement('article');card.className='comment';card.append(text('small',`${commit.id} · ${commit.author} · ${new Date(commit.committedAt).toLocaleString()}`),text('p',commit.message),text('small','Parents: '+(commit.parents.join(' · ')||'none recorded')),timelineEventButton(issue.id,'git:'+issue.id+':'+commit.id));$('issue-git-history').append(card);}
+      for(const commit of h.commits){const card=document.createElement('article');card.className='comment';card.append(text('small',`${commit.id} · ${commit.author} · ${new Date(commit.committedAt).toLocaleString()}`),text('p',commit.message),text('small','Parents: '+(commit.parents.join(' · ')||'none recorded')));$('issue-git-history').append(card);}
     }
 
   }catch(error){if(issueGitRequest===request&&error.name!=='AbortError'){timeline.setGitEvidence(issue.id,null);$('issue-git-state').textContent=error.message;$('integration-confirmation-state').textContent='Git integration could not be checked. Status closure is unchanged.';}}
@@ -326,14 +338,16 @@ const timeline=new Timeline({
     timeline.pinnedEvent=null;timeline.calloutAnimation?.cancel();$('timeline-callout').hidden=true;
     if(!restoringLocation){const url=new URL(location.href);url.searchParams.delete('event');history.replaceState(null,'',url);}
     if(returnedLive && selected){
-      const id=selected;liveReadPending=true;
+      const id=selected;liveReadPending=true;liveReadError=false;
       fetch('/api/v1/issues/'+encodeURIComponent(id)).then(r=>{if(!r.ok)throw new Error();return r.json();})
         .then(issue=>{issues.set(id,issue);liveReadPending=false;currentInspectorRevision=null;render();})
-        .catch(()=>{$('write-result').textContent='Cannot reread current issue. Return to live again to retry before editing.';});
+        .catch(()=>{liveReadError=true;currentInspectorRevision=null;inspect();});
     }
     inspect();creationFeedback();
   },
 });
+$('inspector-edit-live').addEventListener('click',()=>timeline.returnLive());
+$('inspector-comments').addEventListener('click',()=>{showInspectorTab('activity',true,true);$('comments-coverage').scrollIntoView({block:'nearest'});});
 function inspectRelations(issue,historical){
   relations.update(issues);
   const key=`${selected}:${historical}:${relations.revision}`;
@@ -373,6 +387,13 @@ function inspect() {
     const reloadHistory=activityLoaded && activityKey?.startsWith(issue?.id+':');
     inspectorSourceKey=sourceKey;resetActivity();if(reloadHistory)loadActivity();
   }
+  $('inspector-mode').hidden=!issue||(timeline.live&&!liveReadPending);
+  $('inspector-mode-message').textContent=!timeline.live
+    ? 'Timeline playback is read-only. Return to live to add comments, adjust labels or edit the current issue. Your drafts are kept.'
+    : liveReadError ? 'Could not refresh the current issue. Retry before editing.' : 'Refreshing the current issue before enabling edits…';
+  $('inspector-edit-live').textContent=liveReadError?'Retry current issue':canEdit?'Return to live to edit':'Return to live';
+  $('inspector-edit-live').disabled=timeline.live&&liveReadPending&&!liveReadError;
+  renderComments(issue,historical);
   $('selected-title').textContent = issue?.title ?? 'Select an issue';
   $('selected-id').textContent = issue?.id ?? '';
   $('copy-issue-id').disabled=!issue;$('copy-issue-result').textContent='';
@@ -394,21 +415,22 @@ function inspect() {
   const memberFocus=eventFocused?document.activeElement.dataset.memberPage:null;
   const memberPage=$('selected-event').dataset.eventId===selectedEvent?.id?Number($('selected-event').dataset.memberPage)||0:0;
   $('selected-event').dataset.memberPage='0';
-  const eventExpanded=$('selected-event').dataset.eventId===selectedEvent?.id&&$('selected-event').querySelector('details')?.open;
+  const eventExpanded=$('selected-event').dataset.eventId===selectedEvent?.id?($('selected-event').querySelector('details')?.open??true):true;
   $('selected-event').dataset.eventId=selectedEvent?.id||'';
   $('selected-event').replaceChildren();
   if(!selectedEvent&&timeline.pendingEvent)$('selected-event').append(text('p','Linked event is not available in the loaded history at this playhead. Load the relevant activity or Git history; no event has been inferred.'));
   if(selectedEvent){
     const e=selectedEvent;
     const eventDetails=document.createElement('details');eventDetails.open=Boolean(eventExpanded);
-    eventDetails.append(text('summary',(e.kind==='cluster'?'Recorded event cluster':e.kind)+' · '+new Date(e.time).toLocaleTimeString()+' · Event details'));
+    eventDetails.append(text('summary',eventKindLabel(e.kind)+' · '+new Date(e.time).toLocaleTimeString()+' · Event details'));
     $('selected-event').append(eventDetails);
-    eventDetails.append(text('h3',e.kind==='cluster'?'Recorded event cluster':e.kind),
+    eventDetails.append(text('h3',eventKindLabel(e.kind)),
       text('p',e.kind==='current'?'Current observation · transition time unknown':new Date(e.time).toLocaleString()),
-      text('p',e.text),text('small',e.kind==='snapshot'?'Beads committed snapshot · committer is not necessarily edit author':(e.author||'Author not recorded')));
-    const utc=text('time',(e.kind==='current'?'Displayed at: ':'Recorded timestamp: ')+new Date(e.time).toISOString());utc.dateTime=new Date(e.time).toISOString();eventDetails.append(utc);
+      text('p',e.text),text('p',e.kind==='comment'?(e.author||'Author not recorded'):e.kind==='cluster'?'Meaningful issue changes only':e.certainty||'' ));
+    const utc=text('time',(e.kind==='current'?'Displayed at: ':'Recorded at: ')+new Date(e.time).toISOString());utc.dateTime=new Date(e.time).toISOString();eventDetails.append(utc);
     if(e.kind==='current'&&e.provenance)eventDetails.append(text('small',e.provenance),text('small','Source revision: '+(e.sourceRevision||'unknown')));
     if(e.kind==='git')eventDetails.append(text('small',e.sourceRevision+' · '+e.provenance),text('small','Parents: '+(e.parents.join(' · ')||'none recorded')));
+    appendEventEvidence(eventDetails,e);
     if(e.members){
       const members=text('div',''),pager=text('nav',''),count=text('span','');
       pager.setAttribute('aria-label','Cluster member pages');count.setAttribute('aria-live','polite');
@@ -420,9 +442,9 @@ function inspect() {
         members.replaceChildren();const start=page*size;
         for(const member of e.members.slice(start,start+size)){
           const entry=text('article',''),timestamp=text('time',new Date(member.time).toISOString());timestamp.dateTime=new Date(member.time).toISOString();
-          entry.append(text('h4',member.kind+' · '+(member.author||'Author not recorded')),timestamp,text('p',member.text),
-            text('small','Source: '+(member.source||'unknown')+' · '+(member.sourceRevision||'revision not recorded')));
-          if(member.provenance||member.certainty)entry.append(text('small',member.provenance||member.certainty));
+          entry.append(text('h4',eventKindLabel(member.kind)),timestamp,text('p',member.text));
+          if(member.kind==='comment')entry.append(text('p',member.author||'Author not recorded'));
+          appendEventEvidence(entry,member);
           members.append(entry);
         }
         count.textContent=` ${start+1}–${Math.min(start+size,e.members.length)} of ${e.members.length} events `;
@@ -442,7 +464,7 @@ function inspect() {
       text('dt','Last recorded status'),text('dd',state?.status||'unknown'),text('dt','Coverage'),text('dd',state?.certainty||'Unknown'),
       text('dt','Other fields'),text('dd','Unknown at this time. Return to live to inspect and edit current data.'));
     for(const [label,value] of [['Last recorded assignee',state?.assignee==null?'Unknown':state.assignee||'Unassigned'],['Last recorded priority',Number.isInteger(state?.priority)?`P${state.priority}`:'Unknown'],['Last recorded labels',Array.isArray(state?.labels)?state.labels.join(' · ')||'None':'Unknown'],['Last recorded type',state?.issueType||'Unknown'],['Last recorded declared target',state?.target||'Unknown']])$('details').append(text('dt',label),text('dd',value));
-    $('issue-form').hidden=true;$('comments').replaceChildren();return;
+    $('issue-form').hidden=true;return;
   }
   if (!issue) { $('issue-form').hidden=true; $('comments').replaceChildren(); return; }
   for (const [label,value] of [['Description',issue.description || 'No description'],['Status',statusLabel(issue.status)],['Assignee (not verified worker)',issue.assignee || 'Unassigned'],['Priority',Number.isInteger(issue.priority)?`P${issue.priority} · ${['Critical','High','Medium','Low','Backlog'][issue.priority]||'Unknown'}`:'Unknown'],['Type',issue.issueType||'Unknown'],['Declared target (not execution binding)',issue.target||'Not recorded'],['Labels',issue.labels.join(' · ') || 'None'],['Notes',issue.notes || 'No notes'],['User attention',issue.labels.includes('abacus:needs-user-attention')?'Requested':'None']]) {
@@ -454,15 +476,39 @@ function inspect() {
     if(label==='User attention')definition.dataset.attention=issue.labels.includes('abacus:needs-user-attention')?'requested':'clear';
     row.append(term,definition);$('details').append(row);
   }
-  $('comments').replaceChildren(...(issue.comments || []).map(c => { const card=document.createElement('article');card.className='comment';card.append(text('small',`${c.author || 'Unknown author'} · ${c.createdAt ? new Date(c.createdAt).toLocaleString() : 'Time unknown'}`),text('p',c.text));if(c.createdAt&&Number.isFinite(Date.parse(c.createdAt)))card.append(timelineEventButton(issue.id,'comment:'+issue.id+':'+c.id));return card; }));
   setupEditor(issue);
+}
+function renderComments(issue,historical){
+  const all=issue?.comments||[];
+  const visible=historical?all.filter(c=>Number.isFinite(Date.parse(c.createdAt))&&Date.parse(c.createdAt)<=timeline.playhead):all;
+  $('inspector-comments').hidden=!issue;
+  $('inspector-comments').textContent=`View comments (${visible.length})`;
+  $('comments-coverage').textContent=!issue?'':historical
+    ? `Comments recorded at or before the playhead (${visible.length}). Return to live for all current comments; later or undated comments are not shown in playback.`
+    : visible.length?'Current issue comments.':'No comments on this issue yet.';
+  $('comments').replaceChildren(...visible.map(c=>{
+    const card=document.createElement('article');card.className='comment';
+    card.append(text('small',`${c.author||'Unknown author'} · ${c.createdAt?new Date(c.createdAt).toLocaleString():'Time unknown'}`),text('p',c.text));
+    if(c.createdAt&&Number.isFinite(Date.parse(c.createdAt)))card.append(timelineEventButton(issue.id,'comment:'+issue.id+':'+c.id));
+    return card;
+  }));
+}
+function appendEventEvidence(parent,event){
+  if(event.kind==='notes'){
+    const changes=text('details','');changes.append(text('summary','Show note changes'),text('h4','Before'),text('pre',event.before||'(empty)'),text('h4','After'),text('pre',event.after||'(empty)'));parent.append(changes);
+  }
+  if(!event.source)return;
+  const evidence=text('details','');evidence.className='event-evidence';
+  evidence.append(text('summary','Technical evidence'),text('p','Source: '+event.source),text('p','Revision: '+(event.sourceRevision||'not recorded')));
+  if(event.committer)evidence.append(text('p','Committer: '+event.committer+' (not necessarily edit author)'));
+  if(event.certainty)evidence.append(text('p',event.certainty));parent.append(evidence);
 }
 function timelineEventButton(issueId,eventId){
   const button=text('button','Show on timeline','show-timeline-event');
   button.title='Show this recorded event in playback; clears view filters to reveal its lane.';
   button.addEventListener('click',()=>{
     // This is explicit navigation, not a source write or a guessed transition.
-    const event=timeline.projection.cache.get(issueId)?.events.find(e=>e.id===eventId);
+    const event=timeline.projection.cache.get(issueId)?.displayEvents.find(e=>e.id===eventId);
     if(!event||event.time>timeline.now()){button.textContent='Event unavailable in loaded history';return;}
     $('search').value='';$('status').value='';
     for(const key of metadataFields)$('filter-'+key).value='';

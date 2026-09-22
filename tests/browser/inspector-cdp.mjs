@@ -48,7 +48,7 @@ assert.equal(await evaluate("document.getElementById('selected-current-status').
 await evaluate("history.pushState(null,'','?view=issues&issue=bd-a1f&inspector=activity');dispatchEvent(new PopStateEvent('popstate'))");
 assert.equal(await evaluate("document.getElementById('inspector-panel-activity').hidden"),false);
 await evaluate("document.getElementById('load-activity').click()");
-await until("document.querySelectorAll('#activity article').length===3");
+await until("document.querySelectorAll('#activity article').length===4");
 await call('Page.reload');
 await until("document.getElementById('selected-id').textContent==='bd-a1f' && !document.getElementById('inspector-panel-activity').hidden");
 await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});

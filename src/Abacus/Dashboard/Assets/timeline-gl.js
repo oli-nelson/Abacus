@@ -64,6 +64,7 @@ export class TimelineRenderer {
   setScene(scene) {
     this.scene=scene;
     if(!this.gl)return;
+    const scale=this.geometryScale||[1,1,1];
     const solid=[],lines=[],planes=[],glow=[];this.arrivalRanges=[];this.glowArrivalRanges=[];
     const vertex=(into,p,n,c,timed=1)=>into.push(...p,...n,...c,timed);
     const triangle=(into,a,b,c,color,timed=1)=>{const normal=unit(cross(sub(b,a),sub(c,a)));for(const p of [a,b,c])vertex(into,p,normal,color,timed);};
@@ -71,9 +72,9 @@ export class TimelineRenderer {
     const tube=(a,b,color,r=.032,timed=1,into=solid,startDirection=sub(b,a),endDirection=startDirection)=>{
       // Shared tangent rings meet exactly at bends; radial normals avoid faceted lighting.
       const ring=(p,direction,j)=>{
-        const dir=unit(direction),side=unit(cross(dir,Math.abs(dir[1])>.9?[1,0,0]:[0,1,0])),up=cross(dir,side);
+        const dir=unit(direction.map((v,k)=>v*scale[k])),side=unit(cross(dir,Math.abs(dir[1])>.9?[1,0,0]:[0,1,0])),up=cross(dir,side);
         const normal=side.map((v,k)=>v*Math.cos(j*Math.PI/4)+up[k]*Math.sin(j*Math.PI/4));
-        return {pos:p.map((v,k)=>v+r*normal[k]),normal};
+        return {pos:p.map((v,k)=>v+r*normal[k]/scale[k]),normal};
       };
       for(let j=0;j<8;j++){
         const a0=ring(a,startDirection,j),a1=ring(a,startDirection,j+1),b0=ring(b,endDirection,j),b1=ring(b,endDirection,j+1);
@@ -110,17 +111,17 @@ export class TimelineRenderer {
 
     for(const marker of scene.markers){
       const first=solid.length/11;
-      const p=marker.pos,r=marker.selected?.22:.17,color=[...rgb(marker.color),1];
+      const p=marker.pos,r=marker.selected?.46:.36,color=[...rgb(marker.color),1];
       if(marker.shape==='diamond'){
         const top=[p[0],p[1]+r*1.6,p[2]],bottom=[p[0],p[1]-r*1.6,p[2]];
         const ring=[[p[0]+r,p[1],p[2]],[p[0],p[1],p[2]+r],[p[0]-r,p[1],p[2]],[p[0],p[1],p[2]-r]];
         for(let j=0;j<4;j++){triangle(solid,top,ring[j],ring[(j+1)%4],color);triangle(solid,bottom,ring[(j+1)%4],ring[j],color);}
       }else{
-        const point=(a,b)=>[p[0]+r*Math.sin(a)*Math.cos(b),p[1]+r*Math.cos(a),p[2]+r*Math.sin(a)*Math.sin(b)];
-        for(let a=0;a<6;a++)for(let b=0;b<8;b++){
-          const a0=a*Math.PI/6,a1=(a+1)*Math.PI/6,b0=b*Math.PI/4,b1=(b+1)*Math.PI/4;
+        const point=(a,b)=>[p[0]+r*Math.sin(a)*Math.cos(b)/scale[0],p[1]+r*Math.cos(a)/scale[1],p[2]+r*Math.sin(a)*Math.sin(b)/scale[2]];
+        for(let a=0;a<8;a++)for(let b=0;b<12;b++){
+          const a0=a*Math.PI/8,a1=(a+1)*Math.PI/8,b0=b*Math.PI/6,b1=(b+1)*Math.PI/6;
           for(const pos of [point(a0,b0),point(a1,b0),point(a1,b1),point(a0,b0),point(a1,b1),point(a0,b1)])
-            vertex(solid,pos,unit(sub(pos,p)),color);
+            vertex(solid,pos,unit(sub(pos,p).map((v,k)=>v*scale[k])),color);
         }
       }
       if(marker.arrival!=null||marker.colorTransition)this.arrivalRanges.push({first,end:solid.length/11,marker});
@@ -143,6 +144,8 @@ export class TimelineRenderer {
   activeArrivals(){return [...(this.scene?.markers||[]),...(this.scene?.paths||[])].some(marker=>this.markerAnimating(marker));}
   draw(camera,playheadX) {
     if(!this.scene)return;
+    const scale=camera.axisScale||[1,1,1];
+    if(JSON.stringify(this.geometryScale)!==JSON.stringify(scale)){this.geometryScale=[...scale];this.setScene(this.scene);}
     this.frames++;
     this.arrivalRanges=(this.arrivalRanges||[]).filter(range=>this.markerAnimating(range.marker));
     this.glowArrivalRanges=(this.glowArrivalRanges||[]).filter(range=>this.markerAnimating(range.marker));
@@ -209,7 +212,7 @@ export class TimelineRenderer {
       ctx.stroke();ctx.globalAlpha=1;
     }
     ctx.shadowBlur=0;ctx.setLineDash([]);
-    for(const m of this.scene.markers){if(m.pos[0]>playheadX)continue;const q=p(m.pos);ctx.globalAlpha=this.arrivalOpacity(m);ctx.fillStyle='rgb('+this.markerColor(m).map(v=>Math.round(v*255)).join(',')+')';ctx.beginPath();if(m.shape==='diamond'){ctx.moveTo(q.x,q.y-7);ctx.lineTo(q.x+6,q.y);ctx.lineTo(q.x,q.y+7);ctx.lineTo(q.x-6,q.y);}else ctx.arc(q.x,q.y,5,0,Math.PI*2);ctx.closePath();ctx.fill();ctx.globalAlpha=1;}
+    for(const m of this.scene.markers){if(m.pos[0]>playheadX)continue;const q=p(m.pos);ctx.globalAlpha=this.arrivalOpacity(m);ctx.fillStyle='rgb('+this.markerColor(m).map(v=>Math.round(v*255)).join(',')+')';ctx.beginPath();ctx.arc(q.x,q.y,m.selected?8:6,0,Math.PI*2);ctx.closePath();ctx.fill();ctx.strokeStyle='#d9faff';ctx.lineWidth=1.5;ctx.stroke();ctx.globalAlpha=1;}
     const n=p([this.scene.nowX,this.scene.floor,0]);ctx.strokeStyle='#3389c9';ctx.beginPath();ctx.moveTo(n.x,0);ctx.lineTo(n.x,height);ctx.stroke();
   }
 }

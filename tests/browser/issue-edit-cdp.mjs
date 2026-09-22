@@ -21,7 +21,7 @@ await evaluate("document.getElementById('write-submit').click()");
 await until("document.getElementById('write-result').textContent.includes('No content')");
 assert.equal((await (await fetch('http://127.0.0.1:18081/fixture/requests')).json()).length,0);
 await set('write-add-labels','team:ui\n--literal');await set('write-remove-labels','frontend');
-for(const id of ['bd-b7c','bd-a1f'])await evaluate(`[...document.querySelectorAll('.lane-card')].find(n=>n.textContent.includes('${id}')).click()`);
+for(const id of ['bd-b7c','bd-a1f'])await evaluate(`[...document.querySelectorAll('.lane-card')].find(n=>n.dataset.issueId==='${id}').click()`);
 assert.equal(await evaluate("document.getElementById('write-add-labels').value"),'team:ui\n--literal');
 await evaluate("document.getElementById('timeline-scrub').value=100;document.getElementById('timeline-scrub').dispatchEvent(new Event('input'))");
 assert.equal(await evaluate("document.getElementById('issue-form').hidden"),true);

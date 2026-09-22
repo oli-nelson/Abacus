@@ -1,5 +1,5 @@
 import {matchesIssueMetadata,matchesIssueText} from './issue-filters.js';
-import {brushTimeRange,issueWorkEpisodes,workEpisodes,episodePosition,eventArrivalStart,eventBubblePlacement,TimelineProjection,eventsFor,authorInitials,timelineLocation,savedTimelineCamera,clusterEvents,stateAt,statusColors,stamp,clamp,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,branchCurvePosition} from './timeline-model.js';
+import {timelineAnnotations,isInitialWorkEntry,eventAwareEpisodePosition,concurrentEpisodeLayout,commentPreview,eventKindLabel,brushTimeRange,issueWorkEpisodes,workEpisodes,episodePosition,eventArrivalStart,eventBubblePlacement,TimelineProjection,eventsFor,authorInitials,timelineLocation,savedTimelineCamera,clusterEvents,stateAt,statusColors,stamp,clamp,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,branchCurvePosition} from './timeline-model.js';
 import {TimelineRenderer,projectPoint,rgb} from './timeline-gl.js';
 const $=id=>document.getElementById(id);
 const node=(tag,value,className)=>{const n=document.createElement(tag);n.textContent=value ?? '';if(className)n.className=className;return n;};
@@ -12,7 +12,7 @@ export class Timeline {
     this.onSelect=onSelect;this.onPlayback=onPlayback;this.projection=new TimelineProjection();this.connectorArrivals=new Map();this.topologyObservations=new Map();this.laneArrivals=new Map();this.statusChanges=new Map();this.arrivals=new Map();this.histories=new Map();this.gitEvidence=new Map();this.gitHistories=new Map();this.lanes=[];this.selected=null;this.visible=false;
     this.clock={server:Date.now(),local:performance.now()};this.frame=null;this.transition=null;this.playing=false;this.lastPlayback=0;this.newEvents=0;this.offset=0;
     Object.assign(this,timelineLocation(new URL(location.href),this.now()));
-    this.axisScale=['time','vertical'].map(axis=>{const n=Number(readPreference('abacus.timeline.scale.'+axis,'1'));return Number.isFinite(n)&&n>=.25&&n<=(axis==='time'?10:4)?n:1;});this.axisScale.push(1);
+    this.axisScale=['time','vertical'].map(axis=>{const n=Number(readPreference('abacus.timeline.scale.'+axis,'1'));return Number.isFinite(n)&&n>=.25&&n<=10?n:1;});this.axisScale.push(1);
     this.camera={yaw:.15,pitch:.28,distance:30,target:[0,0,0],perspective:1};
     const urlMode=new URL(location.href).searchParams.get('camera');
     this.mode=['2d','3d'].includes(urlMode)?urlMode:readPreference('abacus.timeline.mode','3d');
@@ -32,7 +32,8 @@ export class Timeline {
     $('timeline-glow').setAttribute('aria-pressed',String(this.renderer.glow));document.documentElement.dataset.glow=this.renderer.glow?'on':'off';
     this.applyMode(false);
     const saved=savedTimelineCamera(readPreference('abacus.timeline.camera',''),this.mode);
-    if(saved){this.camera=saved;this.fitted=true;}
+    if(saved&&readPreference('abacus.timeline.layout','')==='concurrent-v1'){this.camera=saved;this.fitted=true;}
+    savePreference('abacus.timeline.layout','concurrent-v1');
     $('timeline-camera').value=readPreference('abacus.timeline.control','orbit')==='pan'?'pan':'orbit';
     this.lastEventKind=$('timeline-kind').value;this.bindControls();this.syncTimeInputs();
     new ResizeObserver(()=>this.invalidate()).observe($('timeline-stage'));
@@ -99,7 +100,7 @@ export class Timeline {
       this.pinnedEvent=null;this.calloutAnimation?.cancel();this.cancelFilterMotion();$('timeline-callout').hidden=true;return;
     }
     const previous=this.pinnedEvent;
-    const event=this.projection.cache.get(this.selected)?.events.find(e=>e.id===previous.id)
+    const event=this.projection.cache.get(this.selected)?.displayEvents.find(e=>e.id===previous.id)
       ??this.scene?.markers.find(m=>m.issueId===this.selected&&m.event.id===previous.id)?.event;
     // A pinned overlay is not an independent cache of source evidence. Remove
     // invalidated facts, and refresh changed text without replaying its entrance.
@@ -120,7 +121,7 @@ export class Timeline {
   }
   restoreSharedEvent(){
     if(!this.pendingEvent)return;
-    const event=this.projection.cache.get(this.selected)?.events.find(e=>e.id===this.pendingEvent);
+    const event=this.projection.cache.get(this.selected)?.displayEvents.find(e=>e.id===this.pendingEvent);
     // Never fetch history implicitly or substitute a current observation for a
     // missing recorded event. A later explicit history load can resolve the link.
     if(!event||!Number.isFinite(event.time)||event.time>this.playhead)return;
@@ -180,10 +181,17 @@ export class Timeline {
     if(!this.playing)return;
     this.playing=false;this.saveRange();this.updateTransport();
   }
-  show(visible){this.visible=visible;if(!visible){this.cancelRangeBrush();cancelAnimationFrame(this.frame);this.frame=null;this.pausePlayback();this.finishCameraTransition();this.calloutAnimation?.cancel();this.cancelFilterMotion();}else this.invalidate();}
+  show(visible){this.visible=visible;this.syncPanelSize();if(!visible){this.cancelRangeBrush();cancelAnimationFrame(this.frame);this.frame=null;this.pausePlayback();this.finishCameraTransition();this.calloutAnimation?.cancel();this.cancelFilterMotion();}else this.invalidate();}
+  syncPanelSize(){
+    const workspace=$('timeline-pane').closest('.workspace');
+    workspace.classList.toggle('timeline-maximized',Boolean(this.visible&&this.panelMaximized));
+    workspace.style.setProperty('--timeline-panel-top',Math.max(0,workspace.getBoundingClientRect().top)+'px');
+    $('timeline-maximize').setAttribute('aria-pressed',String(Boolean(this.panelMaximized)));
+    $('timeline-maximize').textContent=this.panelMaximized?'Restore panel':'Maximize view';
+  }
   timeX(time){return -12+24*(time-this.from)/Math.max(1,this.to-this.from);}
   episodes(lane){return issueWorkEpisodes(lane.issue,lane.events,Math.min(this.now(),this.to,this.live?Infinity:this.playhead),this.live);}
-  episodeEvents(lane){const episodes=this.episodes(lane);return lane.events.filter(e=>episodes.some(p=>e.time>=p.start&&e.time<=(p.end??this.now())));}
+  episodeEvents(lane){const episodes=this.episodes(lane);return lane.displayEvents.filter(e=>episodes.some(p=>e.time>=p.start&&e.time<=(p.end??this.now())));}
   filteredLanes(){
     return this.lanes.filter(l=>{
       if(this.historyScope&&!this.historyScope.has(l.issue.id))return false;
@@ -204,32 +212,55 @@ export class Timeline {
     const visibleIds=new Set(this.visibleLanes.map(l=>l.issue.id));
     for(const map of [this.laneArrivals,this.connectorArrivals])for(const id of map.keys())if(!visibleIds.has(id))map.delete(id);
     const paths=[],markers=[],labels=[],targetLabels=[];
-    const slots=this.visibleLanes.map(l=>l.slot),floor=slots.length?-Math.max(...slots)*3.2-1.5:-3,ceiling=slots.length?-Math.min(...slots)*3.2+1.5:3;
-    const spineY=(floor+ceiling)/2-.8;
+    const allEpisodeMap=new Map(this.visibleLanes.map(lane=>[lane.issue.id,this.episodes(lane)]));
+    const episodeMap=new Map(this.visibleLanes.map(lane=>[lane.issue.id,allEpisodeMap.get(lane.issue.id).filter(e=>e.start<=this.to&&(e.end??now)>=this.from)]));
+    const key=(lane,episode)=>lane.issue.id+':'+episode.start;
+    const rows=this.visibleLanes.flatMap(lane=>episodeMap.get(lane.issue.id).map(e=>({key:key(lane,e),start:e.start,end:e.end??now+1})));
+    for(const lane of this.visibleLanes)if(this.live&&lane.issue.status==='in_progress'&&!episodeMap.get(lane.issue.id).some(e=>e.end===null))rows.push({key:lane.issue.id+':unknown',start:now,end:now+1});
+    const layout=concurrentEpisodeLayout(rows),floor=layout.min-1.5,ceiling=layout.max+1.5,spineY=0;
+    const offset=(lane,episode,time)=>layout.offset(key(lane,episode),time);
+    const entry=(lane,event)=>isInitialWorkEntry(event,allEpisodeMap.get(lane.issue.id));
+    const positions=new Map();
     let episodeCount=0,closedCount=0;
     for(const lane of this.visibleLanes){
-      const episodes=this.episodes(lane).filter(e=>e.start<=this.to&&(e.end??now)>=this.from);
+      const episodes=episodeMap.get(lane.issue.id);
       for(const episode of episodes){
         episodeCount++;if(episode.endStatus==='closed')closedCount++;
         const start=this.timeX(episode.start),end=this.timeX(episode.end??now);
-        const position=x=>episodePosition(x,start,end,-lane.slot*3.2,((lane.slot%3)-1)*.6,spineY,episode.endStatus==='closed');
+        const events=lane.displayEvents.filter(e=>e.time>=episode.start&&e.time<=(episode.end??now));
+        const branchEvents=events.filter(e=>!entry(lane,e)),eventXs=branchEvents.map(e=>this.timeX(e.time));
+        if(this.live&&episode.end===null&&['in_progress','blocked'].includes(lane.issue.status))eventXs.push(end);
+        const eventXSet=new Set(eventXs);
+        const first=eventXs.length?Math.min(...eventXs):Infinity,last=eventXs.length?Math.max(...eventXs):-Infinity;
+        const position=x=>{
+          let y=offset(lane,episode,this.from+(x+12)/24*(this.to-this.from));
+          // A moving lane may cross the spine; its event must still be distinct.
+          if(eventXSet.has(x)&&Math.abs(y)<.8)y=y<0?-.8:.8;
+          return eventAwareEpisodePosition(x,start,end,y,episode.endStatus==='closed',first,last);
+        };
+        positions.set(key(lane,episode),position);
         const left=Math.max(-12,start),right=Math.min(12,end),points=[];
-        for(let i=0;i<=100;i++)points.push(position(left+(right-left)*i/100));
+        const samples=[...new Set([...Array.from({length:101},(_,i)=>left+(right-left)*i/100),...layout.sampleTimes.map(t=>this.timeX(t)).filter(x=>x>left&&x<right),...eventXs.filter(x=>x>=left&&x<=right),...([first,last].filter(Number.isFinite).filter(x=>x>=left&&x<=right))])].sort((a,b)=>a-b);
+        if(left===start&&Math.abs(position(start)[1])>.001)points.push([start,spineY,0]);
+        for(const x of samples)points.push(position(x));
+        if(right===end&&episode.endStatus==='closed'&&Math.abs(position(end)[1])>.001)points.push([end,spineY,0]);
         paths.push({issueId:lane.issue.id,points,color:lane.color,selected:lane.issue.id===this.selected,dashed:false});
         for(let i=0;i<episode.transitions.length;i++){
           const transition=episode.transitions[i];if(transition.status!=='blocked')continue;
           const a=Math.max(left,this.timeX(transition.time)),b=Math.min(right,this.timeX(episode.transitions[i+1]?.time??episode.end??now));
           if(b<=a)continue;
-          paths.push({issueId:lane.issue.id,points:Array.from({length:33},(_,j)=>position(a+(b-a)*j/32)),color:statusColors.blocked,dashed:true,selected:true});
+          paths.push({issueId:lane.issue.id,points:[...new Set([...Array.from({length:33},(_,j)=>a+(b-a)*j/32),...samples.filter(x=>x>a&&x<b)])].sort((x,y)=>x-y).map(position),color:statusColors.blocked,dashed:true,selected:true});
         }
-        const candidates=lane.events.filter(e=>e.time>=episode.start&&e.time<=(episode.end??now)&&(filter==='all'||e.kind===filter));
-        for(const e of clusterEvents(candidates,this.from,this.to,70))markers.push({pos:position(this.timeX(e.time)),color:e.status?statusColors[e.status]||statusColors.unknown:lane.color,shape:e.status?'diamond':'sphere',event:e,issueId:lane.issue.id,selected:lane.issue.id===this.selected});
-        labels.push({lane,pos:[left,-lane.slot*3.2,((lane.slot%3)-1)*.6],end:right,episode});
+        const candidates=events.filter(e=>filter==='all'||e.kind===filter);
+        // Never let a comment/label/note share a spine-entry cluster.
+        const displayed=[...candidates.filter(e=>entry(lane,e)),...clusterEvents(candidates.filter(e=>!entry(lane,e)),this.from,this.to,70)];
+        for(const e of displayed)if(e.time>=this.from&&e.time<=this.to)markers.push({pos:entry(lane,e)?[this.timeX(e.time),spineY,0]:position(this.timeX(e.time)),color:e.status?statusColors[e.status]||statusColors.unknown:lane.color,shape:'sphere',event:e,issueId:lane.issue.id,selected:lane.issue.id===this.selected});
+        labels.push({lane,pos:[left,offset(lane,episode,Math.max(this.from,episode.start)),0],end:right,episode});
       }
       const latest=episodes.at(-1),active=latest&&latest.end===null;
       if(this.live&&(lane.issue.status==='in_progress'||active&&lane.issue.status==='blocked')){
-        const pos=active?episodePosition(12,this.timeX(latest.start),12,-lane.slot*3.2,((lane.slot%3)-1)*.6,spineY,false):[12,-lane.slot*3.2,0];
-        markers.push({pos,color:statusColors[lane.issue.status],shape:'diamond',issueId:lane.issue.id,event:{id:'current:'+lane.issue.id,kind:'current',source:'beads',sourceRevision:lane.issue.revision,time:now,status:lane.issue.status,text:active?'Current working state':'Current working state · start time not recorded',provenance:'Current Beads observation; not a dated status transition.'}});
+        const pos=active?positions.get(key(lane,latest))(12):[12,layout.offset(lane.issue.id+':unknown',now),0];
+        markers.push({pos,color:statusColors[lane.issue.status],shape:'sphere',issueId:lane.issue.id,event:{id:'current:'+lane.issue.id,kind:'current',source:'beads',sourceRevision:lane.issue.revision,time:now,status:lane.issue.status,text:active?'Current working state':'Current working state · start time not recorded',provenance:'Current Beads observation; not a dated status transition.'}});
         if(!active)labels.push({lane,pos,end:12});
       }
     }
@@ -246,8 +277,9 @@ export class Timeline {
     $('timeline-stage').dataset.recordedStarts=String(episodeCount);
     $('timeline-stage').dataset.currentConnections='0';
     $('timeline-stage').dataset.closedEpisodes=String(closedCount);
+    $('timeline-stage').dataset.spineEvents=JSON.stringify(markers.filter(m=>Math.abs(m.pos[1]-spineY)<1e-6).map(m=>({kind:m.event.kind,before:m.event.before,after:m.event.after})));
     $('timeline-stage').dataset.clusters=String(markers.filter(m=>m.event.kind==='cluster').length);
-    const guides=markers.filter(m=>m.selected&&['comment','snapshot'].includes(m.event.kind)).slice(-6).map(m=>({pos:m.pos,color:m.color}));
+    const guides=markers.filter(m=>m.selected&&['comment','status','labels','notes'].includes(m.event.kind)).slice(-6).map(m=>({pos:m.pos,color:m.color}));
     this.scene={paths,markers,guides,floor,ceiling,nowX:Math.abs(now-this.to)<1000?clamp(this.timeX(now),-12,12):this.timeX(now)};
     this.labels=labels;this.renderer.setScene(this.scene);this.buildLabels();this.updateTransport();
     $('timeline-page').textContent=visible.length?`${this.offset+1}–${Math.min(this.offset+24,visible.length)} / ${visible.length} lanes`:'No matching lanes in this range';
@@ -267,21 +299,22 @@ export class Timeline {
       remember(card,JSON.stringify(['lane',lane.issue.id,episode?.start??'current']));
       const state=stateAt(lane.issue,lane.events,this.playhead,this.live);
       const git=gitLaneSummary(lane.issue,this.gitEvidence.get(lane.issue.id),this.live);
-      card.append(node('strong',lane.issue.id+' · '+state.title),node('span',episode?'Work episode · '+display(episode.start):'Working now · start unknown'),node('small',episode?.endUnknown?episode.currentStatus+' now · end time unknown; last recorded working state':episode?.end!==null&&episode?.end!==undefined?'Ended '+display(episode.end)+' · '+episode.endStatus:(this.live?lane.issue.status+' · current state':state.status+' · as of playhead')));
+      card.dataset.issueId=lane.issue.id;card.setAttribute('aria-label',state.title+' · '+lane.issue.id);
+      card.append(node('strong',state.title===lane.issue.id?'Title unavailable':state.title),node('span',episode?'Work episode · '+display(episode.start):'Working now · start unknown'),node('small',episode?.endUnknown?episode.currentStatus+' now · end time unknown; last recorded working state':episode?.end!==null&&episode?.end!==undefined?'Ended '+display(episode.end)+' · '+episode.endStatus:(this.live?lane.issue.status+' · current state':state.status+' · as of playhead')));
       if(git){card.append(node('small',git.changes),node('small',git.integration));card.title=git.basis;card.dataset.gitEvidence='validated';}
       card.addEventListener('click',()=>this.onSelect(lane.issue.id,null));card.addEventListener('focus',()=>this.invalidate());overlay.append(card);this.labelNodes.push({node:card,issueId:lane.issue.id,pos:[Math.max(-12,pos[0]),pos[1]+.5,pos[2]],time:Math.max(this.from,stamp(lane.issue.createdAt)??this.from)});
     }
     // A small selected-lane annotation budget keeps the reference-style captions
     // informative without filling dense scenes with overlapping text.
-    const annotated=(this.scene?.markers||[]).filter(m=>m.issueId===this.selected&&m.event&&['comment','snapshot'].includes(m.event.kind)).slice(-6);
+    const annotated=timelineAnnotations(this.scene?.markers||[],this.selected);
     for(const marker of annotated){
-      const event=marker.event,caption=event.kind==='comment'?'Comment':event.status||'Recorded note';
+      const event=marker.event,caption=eventKindLabel(event.kind);
       const label=node('button',(event.kind==='comment'?'◌ ':'◇ ')+new Date(event.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' · '+caption,'event-annotation');
       label.style.setProperty('--event-color',marker.color);label.title=new Date(event.time).toISOString()+' · '+(event.text?.slice(0,500)||caption);
       label.setAttribute('aria-label',caption+' at '+display(event.time)+'. '+(event.text||'').slice(0,160));
       remember(label,JSON.stringify(['marker',marker.issueId,event.id]));
       label.addEventListener('click',()=>this.pick(marker.issueId,event));label.addEventListener('focus',()=>this.invalidate());
-      overlay.append(label);this.labelNodes.push({node:label,pos:[marker.pos[0],marker.pos[1]+.55,marker.pos[2]],time:event.time,priority:1.5});
+      overlay.append(label);this.labelNodes.push({node:label,pos:[marker.pos[0],marker.pos[1]+.55,marker.pos[2]],time:event.time,annotation:true,priority:event.kind==='status'?(event.after==='closed'?4:3):1.5});
     }
     for(const marker of this.scene?.markers||[]){
       if(marker.event.kind!=='current'||marker.event.status!=='blocked')continue;
@@ -309,7 +342,7 @@ export class Timeline {
       button.addEventListener('click',()=>this.onSelect(lane.issue.id,null));item.append(button);
       const events=this.episodeEvents(lane).filter(e=>e.time>=this.from&&e.time<=Math.min(this.to,this.playhead)&&($('timeline-kind').value==='all'||e.kind===$('timeline-kind').value));
       for(const e of events.slice(-100)){
-        const b=node('button',display(e.time)+' · '+e.kind+' · '+e.text.slice(0,160),'event-list-item');
+        const b=node('button',display(e.time)+' · '+eventKindLabel(e.kind)+' · '+e.text.slice(0,160),'event-list-item');
         b.title=new Date(e.time).toISOString()+' · '+e.source+' · '+(e.sourceRevision||'revision not recorded');
         remember(b,JSON.stringify(['event',lane.issue.id,e.id]));
         b.addEventListener('click',()=>this.pick(lane.issue.id,e));item.append(b);
@@ -328,7 +361,7 @@ export class Timeline {
     if(restoreFocus)(focusTargets.get(focusKey)||$('timeline-stage')).focus({preventScroll:true});
   }
   revealEvent(id,eventId){
-    const lane=this.projection.cache.get(id),event=lane?.events.find(e=>e.id===eventId);
+    const lane=this.projection.cache.get(id),event=lane?.displayEvents.find(e=>e.id===eventId);
     if(!event||!Number.isFinite(event.time)||event.time>this.now())return false;
     this.playing=false;
     this.from=Math.min(this.from,event.time-60000);this.to=Math.max(this.to,event.time+60000);
@@ -345,14 +378,25 @@ export class Timeline {
     if(!event)return;
     const close=node('button','×','callout-close');close.setAttribute('aria-label','Dismiss pinned event');
     close.addEventListener('click',()=>{this.calloutAnimation?.cancel();this.cancelFilterMotion();this.pinnedEvent=null;callout.hidden=true;this.invalidate();this.onSelect(id,null);$('timeline-stage').focus({preventScroll:true});});
-    const identity=node('div',null,'callout-identity'),badge=node('span',authorInitials(event.author),'author-initials');
+    const identity=node('div',null,'callout-identity'),badge=node('span',event.kind==='comment'?authorInitials(event.author):({status:'↔',labels:'#',notes:'≡',cluster:String(event.members?.length||0)}[event.kind]||'•'),'author-initials');
     badge.setAttribute('aria-hidden','true');
     const heading=node('div',null,'callout-heading');
     const timestamp=node('time',display(event.time));timestamp.dateTime=new Date(event.time).toISOString();timestamp.title=timestamp.dateTime;
-    const metadata=node('small','');metadata.append(timestamp,document.createTextNode(' · '+id+' · '+event.kind));
-    heading.append(node('strong',event.kind==='current'?(event.source==='git'?'Git containment':'Current issue state'):event.author||'Author not recorded'),metadata);
+    const metadata=node('small','');metadata.append(timestamp,document.createTextNode(' · '+id+' · '+eventKindLabel(event.kind)));
+    heading.append(node('strong',event.kind==='current'?(event.source==='git'?'Git containment':'Current issue state'):event.kind==='comment'?(event.author||'Author not recorded'):eventKindLabel(event.kind)),metadata);
     identity.append(badge,heading);
-    callout.append(close,identity,node('p',event.text?.slice(0,280)),node('small',event.kind==='git'?event.provenance:event.kind==='snapshot'?'Committed snapshot; committer is not necessarily edit author':event.kind==='current'?(event.provenance||'Current state; transition time unknown'):'Recorded Beads event · not a Git merge'));
+    callout.append(close,identity,node('p',commentPreview(event.text,280)),node('small',event.kind==='git'?event.provenance:['status','labels','notes'].includes(event.kind)?'Recorded at this time; exact edit time and author may be unknown':event.kind==='current'?(event.provenance||'Current state; transition time unknown'):event.kind==='cluster'?'Grouped issue changes':'New comment'));
+    const comments=event.members?.filter(member=>member.kind==='comment')||[];
+    if(comments.length){
+      const previews=node('section',null,'callout-comments');previews.setAttribute('aria-label','Comment previews');
+      previews.tabIndex=0;
+      for(const comment of comments.slice(0,5)){
+        const preview=node('article',null,'callout-comment');
+        preview.append(node('strong',comment.author||'Author not recorded'),node('p',commentPreview(comment.text)));
+        previews.append(preview);
+      }
+      callout.append(previews,node('small',comments.length>5?`${comments.length-5} more comments · all full comments in the inspector`:'Full comments in the inspector'));
+    }
     if(changed&&!this.reduced()&&!document.hidden&&this.visible){
       this.calloutAnimation=callout.animate([{opacity:0,transform:'translateY(7px)'},{opacity:1,transform:'translateY(0)'}],{duration:240,easing:'cubic-bezier(.2,.75,.25,1)'});
     }
@@ -375,7 +419,8 @@ export class Timeline {
     if(canvas.width!==w)canvas.width=w;canvas.height=h;ctx.clearRect(0,0,w,h);
     const lanes=this.visibleLanes||[],kind=$('timeline-kind').value;this.minimapEvents=[];
     lanes.forEach((lane,i)=>{const y=8+(i+.5)*38/Math.max(1,lanes.length);ctx.strokeStyle=lane.color;ctx.globalAlpha=.45;ctx.beginPath();for(const episode of this.episodes(lane)){const left=Math.max(this.from,episode.start),right=Math.min(this.to,episode.end??this.now());if(right<left)continue;ctx.moveTo((left-this.from)/(this.to-this.from)*w,y);ctx.lineTo((right-this.from)/(this.to-this.from)*w,y);}ctx.stroke();ctx.globalAlpha=1;
-      for(const e of clusterEvents(this.episodeEvents(lane).filter(e=>e.time<=this.now()&&(kind==='all'||e.kind===kind)),this.from,this.to,80)){const x=(e.time-this.from)/(this.to-this.from)*w;ctx.fillStyle=e.status?statusColors[e.status]||lane.color:lane.color;ctx.fillRect(x-2,y-2,4,4);this.minimapEvents.push({x:x/w,y:y/h,issueId:lane.issue.id,event:e});}});
+      const episodes=this.episodes(lane),candidates=this.episodeEvents(lane).filter(e=>e.time>=this.from&&e.time<=this.to&&e.time<=this.now()&&(kind==='all'||e.kind===kind)),isEntry=e=>isInitialWorkEntry(e,episodes);
+      for(const e of [...candidates.filter(isEntry),...clusterEvents(candidates.filter(e=>!isEntry(e)),this.from,this.to,80)]){const x=(e.time-this.from)/(this.to-this.from)*w;ctx.fillStyle=e.status?statusColors[e.status]||lane.color:lane.color;ctx.fillRect(x-2,y-2,4,4);this.minimapEvents.push({x:x/w,y:y/h,issueId:lane.issue.id,event:e});}});
     ctx.strokeStyle='#e3f5ff';const x=clamp((this.playhead-this.from)/(this.to-this.from)*w,0,w);ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();
   }
   syncTimeInputs(){$('timeline-from').value=localInput(this.from);$('timeline-to').value=localInput(this.to);}
@@ -404,7 +449,7 @@ export class Timeline {
     const pinned=this.pinnedEvent,issueId=this.pinnedIssue,changed=from!==this.from||to!==this.to;
     this.liveHours=null;this.from=from;this.to=to;this.playing=false;this.seek(Math.min(to,this.now()));
     if(pinned&&pinned.kind!=='current'&&pinned.time>=from&&pinned.time<=this.playhead){
-      const event=this.projection.cache.get(issueId)?.events.find(e=>e.id===pinned.id)||this.scene.markers.find(m=>m.issueId===issueId&&m.event.id===pinned.id)?.event;
+      const event=this.projection.cache.get(issueId)?.displayEvents.find(e=>e.id===pinned.id)||this.scene.markers.find(m=>m.issueId===issueId&&m.event.id===pinned.id)?.event;
       if(event){this.pick(issueId,event);this.calloutAnimation?.cancel();}
     }
     this.syncTimeInputs();this.fit();if(changed)this.fadeFilteredScene();
@@ -441,7 +486,9 @@ export class Timeline {
   fit(animate=true,selectedOnly=false){
     const lanes=selectedOnly?this.visibleLanes.filter(l=>l.issue.id===this.selected):this.visibleLanes;
     if(!lanes?.length)return;
-    const slots=lanes.map(l=>l.slot),mid=-(Math.min(...slots)+Math.max(...slots))*1.6,height=(Math.max(...slots)-Math.min(...slots))*3.2+5;
+    const points=(this.scene?.paths||[]).filter(p=>!selectedOnly||p.issueId===this.selected).flatMap(p=>p.points);
+    points.push(...(this.scene?.markers||[]).filter(m=>!selectedOnly||m.issueId===this.selected).map(m=>m.pos));const ys=points.map(p=>p[1]);
+    const low=Math.min(0,...ys),high=Math.max(2.4,...ys),mid=(low+high)/2,height=high-low+5;
     const rect=$('timeline-stage').getBoundingClientRect(),aspect=Math.max(.4,rect.width/Math.max(1,rect.height));
     this.moveCamera({...this.camera,target:[-2,mid,0],distance:Math.max(12,height*this.axisScale[1],36*this.axisScale[0]/aspect)},animate);
   }
@@ -491,7 +538,8 @@ export class Timeline {
       if(!p||p.x<0||p.x>rect.width||p.y<0||p.y>rect.height||(label.time!==null&&label.time>this.playhead))continue;
       const width=label.node.offsetWidth,height=label.node.offsetHeight;
       const x=clamp(p.x-(label.issueId?width+18:0),8,Math.max(8,rect.width-width-8)),y=clamp(p.y-(label.issueId?height/2:0),0,Math.max(0,rect.height-height));
-      candidates.push({label,x,y,width,height,priority:label.node===document.activeElement?3:label.issueId===this.selected?2:label.priority??(label.issueId?1:0)});
+      const alternatives=label.annotation?[[p.x-width-12,y],[p.x,p.y+22],[p.x-width-12,p.y+22],[p.x,p.y-height-14],[p.x-width-12,p.y-height-14]].map(([ax,ay])=>({x:clamp(ax,8,Math.max(8,rect.width-width-8)),y:clamp(ay,0,Math.max(0,rect.height-height))})):[];
+      candidates.push({label,x,y,width,height,alternatives,priority:label.node===document.activeElement?5:label.issueId===this.selected?2:label.priority??(label.issueId?1:0)});
     }
     const placed=new Map(nonOverlappingLabels(candidates).map(c=>[c.label,c]));
     for(const label of this.labelNodes||[]){
@@ -514,6 +562,9 @@ export class Timeline {
     if(this.playing||this.transition||this.renderer.activeArrivals())this.invalidate();
   }
   bindControls(){
+    $('timeline-maximize').addEventListener('click',()=>{this.panelMaximized=!this.panelMaximized;this.cancelRangeBrush();this.syncPanelSize();this.invalidate();});
+    window.addEventListener('resize',()=>this.syncPanelSize());
+    $('timeline-pane').addEventListener('keydown',e=>{if(e.key==='Escape'&&this.panelMaximized){this.panelMaximized=false;this.syncPanelSize();$('timeline-maximize').focus();this.invalidate();}});
     $('timeline-glow').addEventListener('click',()=>{
       this.renderer.glow=!this.renderer.glow;const value=this.renderer.glow?'on':'off';
       $('timeline-glow').setAttribute('aria-pressed',String(this.renderer.glow));document.documentElement.dataset.glow=value;
@@ -528,7 +579,7 @@ export class Timeline {
     syncScale();
     ['time','vertical'].forEach((axis,i)=>$('timeline-scale-'+axis).addEventListener('input',()=>{
       const value=Number($('timeline-scale-'+axis).value);
-      if(!Number.isFinite(value)||value<.25||value>(axis==='time'?10:4))return;
+      if(!Number.isFinite(value)||value<.25||value>10)return;
       this.finishCameraTransition();this.axisScale[i]=value;
       savePreference('abacus.timeline.scale.'+axis,String(value));syncScale();this.invalidate();
     }));
@@ -598,9 +649,9 @@ export class Timeline {
     });
     $('timeline-fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('main').requestFullscreen();}catch{$('timeline-renderer').textContent='Fullscreen unavailable in this browser.';}});
     const stage=$('timeline-stage');let drag=null;const pointers=new Map();
-    stage.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;this.transition=null;stage.setPointerCapture(e.pointerId);pointers.set(e.pointerId,[e.clientX,e.clientY]);drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false};});
+    stage.addEventListener('pointerdown',e=>{if(e.target.closest('button, #timeline-callout'))return;this.transition=null;stage.setPointerCapture(e.pointerId);pointers.set(e.pointerId,[e.clientX,e.clientY]);drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false};});
     stage.addEventListener('pointermove',e=>{
-      if(!pointers.has(e.pointerId)){this.hover(e);return;}
+      if(!pointers.has(e.pointerId)){if(!e.target.closest('#timeline-callout'))this.hover(e);return;}
       const old=[...pointers.values()];pointers.set(e.pointerId,[e.clientX,e.clientY]);
       if(pointers.size===2){const next=[...pointers.values()],distance=a=>Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1]);this.camera.distance=clamp(this.camera.distance*distance(old)/Math.max(1,distance(next)),5,250);drag.moved=true;this.invalidate();return;}
       if(!drag)return;

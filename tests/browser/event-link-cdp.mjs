@@ -28,7 +28,7 @@ assert.ok(await evaluate("[...document.querySelectorAll('.event-list-item')].som
 await evaluate("document.querySelector('.callout-close').click()");
 assert.equal(await evaluate("new URL(location.href).searchParams.has('event')"),false);
 await evaluate("document.getElementById('load-activity').click()");
-await until("document.querySelectorAll('#activity article').length===3");
+await until("document.querySelectorAll('#activity article').length===4");
 await evaluate("document.querySelector('#activity .show-timeline-event').click()");
 const historical=await evaluate('location.href');
 assert.ok(new URL(historical).searchParams.get('event'));

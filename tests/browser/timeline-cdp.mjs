@@ -17,7 +17,7 @@ await call('Page.navigate',{url:'http://127.0.0.1:18081/?from=2026-09-21T09%3A00
 await until('document.querySelectorAll(".lane-card").length===3 && document.getElementById("timeline-stage").dataset.frames && !document.getElementById("activity-section").hidden');
 assert.match(await evaluate('document.getElementById("timeline-renderer").textContent'),/WebGL/);
 for(const issue of ['bd-a1f','bd-b7c','bd-c3e']){
- await evaluate(`[...document.querySelectorAll('.lane-card')].find(n=>n.textContent.includes('${issue}')).click()`);
+ await evaluate(`[...document.querySelectorAll('.lane-card')].find(n=>n.dataset.issueId==='${issue}').click()`);
  await evaluate("document.getElementById('load-activity').click()");
  await until("document.querySelectorAll('#activity article').length>0 && !document.getElementById('load-activity').disabled");
 }
@@ -41,7 +41,7 @@ assert.equal(await evaluate("document.activeElement.dataset.timelineFocus"),awai
 await evaluate("{document.querySelector('.timeline-options').open=false;const b=[...document.querySelectorAll('.lane-card')].find(n=>getComputedStyle(n).visibility==='visible');b.focus();window.expectedTimelineFocus=b.dataset.timelineFocus;b.click()}");
 await delay(100);
 assert.equal(await evaluate("document.activeElement.dataset.timelineFocus"),await evaluate("window.expectedTimelineFocus"));
-await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.textContent.includes('bd-a1f')).click()");
+await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.dataset.issueId==='bd-a1f').click()");
 await evaluate("document.querySelector('.timeline-options').open=true;[...document.querySelectorAll('.event-list-item')].find(n=>n.textContent.includes('Confirmed: drag')).click();document.querySelector('.timeline-options').open=false");
 assert.equal(await evaluate("document.getElementById('timeline-callout').hidden"),false);
 // Deliberate selections animate once; identical selections never replay effects.

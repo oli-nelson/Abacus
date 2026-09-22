@@ -40,13 +40,47 @@ export function eventsFor(issue, versions=[]) {
   }
   for(const v of versions) {
     const time=stamp(v.recordedAt);
-    if(time!==null)events.push({id:v.id,issueId:issue.id,time,kind:'snapshot',source:'beads',sourceRevision:v.sourceRevision,certainty:'recorded',author:v.committer,text:v.notes || v.title,status:v.status,title:v.title,assignee:v.assignee,priority:v.priority,labels:Array.isArray(v.labels)?[...v.labels].sort():null,issueType:v.issueType,target:v.target});
+    if(time!==null)events.push({id:v.id,issueId:issue.id,time,kind:'snapshot',source:'beads',sourceRevision:v.sourceRevision,certainty:'recorded',author:v.committer,text:v.notes || v.title,notes:v.notes??'',status:v.status,title:v.title,assignee:v.assignee,priority:v.priority,labels:Array.isArray(v.labels)?[...v.labels].sort():null,issueType:v.issueType,target:v.target});
   }
   // Current closed_at is evidence of this recorded closure only, not every prior
   // closure, a Git merge, or a reliable reconstruction of intermediate states.
   const closed=stamp(issue.closedAt);
   if(issue.status==='closed' && closed!==null)events.push({id:'closure:'+issue.id+':'+closed,issueId:issue.id,time:closed,kind:'closure',source:'beads',certainty:'recorded',text:'Closed · current recorded closure; integration unverified',status:'closed'});
   return events.sort((a,b)=>a.time-b.time || a.id.localeCompare(b.id));
+}
+// Snapshots reconstruct state; only differences become user-facing events.
+export const eventKindLabel=kind=>({status:'Status change',labels:'Label change',notes:'Note change',comment:'New comment',cluster:'Issue changes',current:'Current state'}[kind]||kind);
+export function meaningfulEvents(events) {
+  const result=events.filter(e=>e.kind==='comment'),groups=new Map();
+  for(const e of events.filter(e=>['snapshot','closure'].includes(e.kind)).sort((a,b)=>a.time-b.time||a.id.localeCompare(b.id))){
+    if(!groups.has(e.time))groups.set(e.time,[]);groups.get(e.time).push(e);
+  }
+  let previous={};
+  for(const group of groups.values()){
+    const snapshots=group.filter(e=>e.kind==='snapshot'),source=snapshots[0]||group[0];
+    const consensus=(rows,key)=>{
+      const values=rows.map(e=>key==='labels'?(Array.isArray(e.labels)?[...new Set(e.labels)].sort():undefined):e[key]);
+      return values.length&&values.every(v=>v!==undefined&&JSON.stringify(v)===JSON.stringify(values[0]))?values[0]:undefined;
+    };
+    const next={status:consensus(group,'status'),labels:consensus(snapshots,'labels'),notes:consensus(snapshots,'notes')};
+    for(const kind of ['status','labels','notes']){
+      const before=previous[kind],after=next[kind];
+      if(before===undefined||after===undefined||JSON.stringify(before)===JSON.stringify(after))continue;
+      let text;
+      if(kind==='status')text='Status: '+before+' → '+after;
+      if(kind==='labels'){
+        const added=after.filter(v=>!before.includes(v)),removed=before.filter(v=>!after.includes(v));
+        text=[added.length?'Added labels: '+added.join(', '):'',removed.length?'Removed labels: '+removed.join(', '):''].filter(Boolean).join(' · ');
+      }
+      if(kind==='notes')text=!after?'Notes cleared':!before?'Notes added':'Notes updated';
+      result.push({id:source.id+':'+kind,issueId:source.issueId,time:source.time,kind,text,before,after,
+        status:kind==='status'?after:undefined,source:'beads',sourceRevision:source.sourceRevision,
+        committer:source.author,certainty:'Observed between recorded states; exact edit time and author may be unknown.'});
+    }
+    // Equal-time conflicts and missing fields break the baseline: do not invent a delta.
+    previous=next;
+  }
+  return result.sort((a,b)=>a.time-b.time||a.id.localeCompare(b.id));
 }
 export function stateAt(issue,events,time,live=false) {
   if(live)return {status:issue.status,title:issue.title,assignee:issue.assignee,priority:issue.priority,labels:issue.labels,issueType:issue.issueType,target:issue.target,certainty:'current',at:null};
@@ -78,7 +112,7 @@ export function clusterEvents(events,from,to,buckets=100) {
     if(group.length===1)return group[0];
     const statuses=[...new Set(group.map(e=>e.status).filter(Boolean))];
     return {id:'cluster:'+group[0].id,issueId:group[0].issueId,time:group[0].time,kind:'cluster',
-      status:statuses.length===1?statuses[0]:undefined,text:group.length+' recorded events · select to inspect',members:group};
+      status:statuses.length===1?statuses[0]:undefined,text:group.length+' changes · '+[...new Set(group.map(e=>e.kind))].map(kind=>group.filter(e=>e.kind===kind).length+' '+({status:'status',labels:'label',notes:'note',comment:'comment'}[kind]||kind)).join(' · '),members:group};
   });
 }
 export class TimelineProjection {
@@ -89,6 +123,7 @@ export class TimelineProjection {
       const history=histories.get(issue.id),git=gitHistories.get(issue.id),key=issue.revision+':'+(history?.key || '')+':'+(git?.key||'');
       if(this.cache.get(issue.id)?.key===key)continue;
       this.cache.set(issue.id,{key,issue,events:[...eventsFor(issue,history?.versions),...gitCommitEvents(issue,git)].sort((a,b)=>a.time-b.time||a.id.localeCompare(b.id)),slot:this.slots.get(issue.id),color:laneColors[this.slots.get(issue.id)%laneColors.length]});
+      const lane=this.cache.get(issue.id);lane.displayEvents=meaningfulEvents(lane.events);
       this.rebuilds++;
     }
     const ids=new Set(issues.map(i=>i.id));
@@ -102,10 +137,12 @@ export class TimelineProjection {
 export function nonOverlappingLabels(candidates,gap=6) {
   const accepted=[];
   for(const candidate of [...candidates].sort((a,b)=>(b.priority||0)-(a.priority||0))){
-    const {x,y,width,height}=candidate;
-    if(![x,y,width,height].every(Number.isFinite)||width<=0||height<=0)continue;
-    if(accepted.some(other=>x<other.x+other.width+gap&&x+width+gap>other.x&&y<other.y+other.height+gap&&y+height+gap>other.y))continue;
-    accepted.push(candidate);
+    for(const placement of [candidate,...(candidate.alternatives||[]).map(pos=>({...candidate,...pos}))]){
+      const {x,y,width,height}=placement;
+      if(![x,y,width,height].every(Number.isFinite)||width<=0||height<=0)continue;
+      if(accepted.some(other=>x<other.x+other.width+gap&&x+width+gap>other.x&&y<other.y+other.height+gap&&y+height+gap>other.y))continue;
+      accepted.push(placement);break;
+    }
   }
   return accepted;
 }
@@ -266,4 +303,66 @@ export function prioritizeTimelineHistory(issues,from,to) {
     return 2;
   };
   return [...issues].sort((a,b)=>rank(a)-rank(b)||a.id.localeCompare(b.id));
+}
+
+export function commentPreview(text,limit=240){
+  const characters=Array.from(text??'');
+  return characters.length>limit?characters.slice(0,limit).join('')+'…':characters.join('');
+}
+
+// Deterministic, range-local spacing by simultaneous work, never by issue ID slot.
+// A lone issue is +gap; two are +gap/-gap; further issues alternate outwards.
+export function concurrentEpisodeLayout(rows,gap=2.4) {
+  const boundaries=[...new Set(rows.flatMap(r=>[r.start,r.end]))].sort((a,b)=>a-b),tracks=new Map(rows.map(r=>[r.key,[]]));
+  for(let i=0;i<boundaries.length-1;i++){
+    const start=boundaries[i],end=boundaries[i+1];
+    const active=rows.filter(r=>r.start<=start&&r.end>start).sort((a,b)=>a.start-b.start||a.key.localeCompare(b.key));
+    const assigned=new Map(),counts={positive:0,negative:0};
+    // Keep an episode on its established side for its entire lifetime. Repacking
+    // to a symmetric set after departures can otherwise drag a live branch
+    // through the spine and make its closing curve overshoot and double back.
+    for(const sign of [1,-1]){
+      const continuing=active.filter(r=>Math.sign(tracks.get(r.key).at(-1)?.y||0)===sign)
+        .sort((a,b)=>Math.abs(tracks.get(a.key).at(-1).y)-Math.abs(tracks.get(b.key).at(-1).y)||a.key.localeCompare(b.key));
+      continuing.forEach((row,index)=>assigned.set(row.key,sign*(index+1)*gap));
+      counts[sign===1?'positive':'negative']=continuing.length;
+    }
+    for(const row of active)if(!assigned.has(row.key)){
+      const side=counts.positive<=counts.negative?'positive':'negative',sign=side==='positive'?1:-1;
+      assigned.set(row.key,sign*(++counts[side])*gap);
+    }
+    active.forEach(row=>{
+      const y=assigned.get(row.key),list=tracks.get(row.key),previous=list.at(-1);
+      list.push({start,end,y,from:previous?.y??y});
+    });
+  }
+  const offsets=[...tracks.values()].flat().map(s=>s.y);
+  const sampleTimes=[...new Set([...tracks.values()].flat().filter(s=>s.from!==s.y).flatMap(s=>Array.from({length:9},(_,i)=>s.start+Math.min((s.end-s.start)*.25,180000)*i/8)))];
+  return {sampleTimes,min:Math.min(0,...offsets),max:Math.max(gap,...offsets),offset(key,time){
+    const list=tracks.get(key)||[],segment=list.find(s=>time>=s.start&&time<s.end)||list.at(-1);
+    if(!segment)return gap;
+    const duration=Math.min((segment.end-segment.start)*.25,180000),t=clamp((time-segment.start)/Math.max(1,duration),0,1),smooth=t*t*(3-2*t);
+    return segment.from+(segment.y-segment.from)*smooth;
+  }};
+}
+
+export function isInitialWorkEntry(event,episodes){
+  return event.kind==='status'&&event.after==='in_progress'&&['open','blocked'].includes(event.before)&&event.time===episodes[0]?.start;
+}
+// Keep the branch offset through its first/last issue event. End joins are
+// unmarked connectors, including vertical joins when events share an endpoint.
+export function eventAwareEpisodePosition(x,start,end,y,closed,firstEvent=Infinity,lastEvent=-Infinity){
+  const bend=Math.min(3,Math.max(.001,(end-start)/3));
+  const forkEnd=Math.min(start+bend,firstEvent),returnStart=Math.max(end-bend,lastEvent);
+  const smooth=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
+  const fork=forkEnd<=start?1:smooth((x-start)/(forkEnd-start));
+  const merge=!closed||returnStart>=end?1:smooth((end-x)/(end-returnStart));
+  return [x,y*Math.min(fork,merge),0];
+}
+
+export function timelineAnnotations(markers,selected){
+  const candidates=markers.filter(m=>m.issueId===selected).flatMap(m=>(m.event.members||[m.event]).filter(e=>['status','comment','labels','notes'].includes(e.kind)).map(event=>({...m,event})));
+  const statuses=candidates.filter(m=>m.event.kind==='status').sort((a,b)=>Number(b.event.after==='closed')-Number(a.event.after==='closed')||b.event.time-a.event.time).slice(0,24);
+  const others=candidates.filter(m=>m.event.kind!=='status').sort((a,b)=>b.event.time-a.event.time).slice(0,Math.min(6,24-statuses.length));
+  return [...statuses,...others].sort((a,b)=>a.event.time-b.event.time||a.event.id.localeCompare(b.event.id));
 }

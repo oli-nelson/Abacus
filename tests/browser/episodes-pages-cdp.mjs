@@ -20,7 +20,7 @@ await evaluate("document.getElementById('timeline-history-next').click()");
 await until("document.getElementById('timeline-history-state').textContent.includes('9/9 issues loaded')");
 assert.equal(await evaluate("document.getElementById('timeline-stage').dataset.recordedStarts"),'9');
 assert.equal(await evaluate("document.getElementById('timeline-stage').dataset.closedEpisodes"),'9');
-assert.ok(await evaluate("[...document.querySelectorAll('.lane-card')].some(n=>n.textContent.includes('work-069'))"),'Last issue beyond first 64 is reachable');
+assert.ok(await evaluate("[...document.querySelectorAll('.lane-card')].some(n=>n.dataset.issueId==='work-069')"),'Last issue beyond first 64 is reachable');
 assert.equal(await evaluate("document.getElementById('timeline-history-next').disabled"),true);
 await evaluate("document.getElementById('timeline-history-prev').click()");
 await until("document.getElementById('timeline-history-state').textContent.includes('64/64 issues loaded')");

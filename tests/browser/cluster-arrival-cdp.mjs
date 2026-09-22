@@ -41,7 +41,7 @@ assert.ok(await evaluate("[...document.querySelectorAll('#selected-event article
 assert.ok(await evaluate("[...document.querySelectorAll('#selected-event article')].every(n=>n.textContent.includes('Source:'))"));
 await fetch(base+'/fixture/comment-arrival?id=cluster-fourth&time=11:00');
 await until("document.querySelectorAll('#selected-event article').length===4");
-assert.match(await evaluate("document.getElementById('timeline-callout').textContent"),/4 recorded events/);
+assert.match(await evaluate("document.getElementById('timeline-callout').textContent"),/4 changes/);
 assert.equal(await evaluate("document.getElementById('timeline-callout').getAnimations().length"),0,'Membership refresh does not replay entrance');
 assert.deepEqual(errors,[]);
 console.log('PASS: clustered live arrival fades once, retains individual events, reuses geometry and respects reduced motion');

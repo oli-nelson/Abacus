@@ -51,6 +51,24 @@ const server=http.createServer(async(req,res)=>{
    history.set(issue.id,[{id:issue.id+':start',sourceRevision:'fixture',recordedAt:at('09:30'),title:issue.title,status:'in_progress'},{id:issue.id+':end',sourceRevision:'fixture',recordedAt:at('11:30'),title:issue.title,status:'closed'}]);
   }return json({ok:true});
  }
+ if(path==='/fixture/entry-event'){
+  const issue=issues[0],rows=history.get(issue.id);rows.unshift({id:'entry-baseline',recordedAt:at('09:10'),status:'open',title:issue.title,notes:null,labels:[]});
+  issue.comments.push({id:'entry-comment',author:'Ollie',text:'Comment at first entry',createdAt:at('09:20')});
+  return json({ok:true});
+ }
+ if(path==='/fixture/closing-cluster'){
+  const issue=issues[0],rows=history.get(issue.id);rows.at(-1).notes='Closing note';
+  issue.comments.push({id:'closing-comment',author:'Ollie',text:'All done',createdAt:at('11:35')});return json({ok:true});
+ }
+ if(path==='/fixture/semantic-events'){
+  issues.splice(1);const issue=issues[0];issue.status='closed';issue.closedAt=at('11:35');
+  issue.comments=[{id:'semantic-comment',author:'Ollie',text:'Ready for review',createdAt:day+'T09:50:01Z'}];
+  const row=(id,time,extra={})=>({id,sourceRevision:id,recordedAt:at(time),committer:'DB committer',title:'Repeated issue title',status:'in_progress',notes:'Original note',labels:['old'],...extra});
+  history.set(issue.id,[row('baseline','09:20'),...Array.from({length:12},(_,i)=>row('noise-'+i,'09:'+String(30+i))),
+   row('changed','09:50',{status:'blocked',labels:['review'],notes:'Updated note'}),
+   row('cleared','10:20',{status:'blocked',labels:['review'],notes:''}),
+   row('closed','11:35',{status:'closed',labels:['review'],notes:''})]);return json({ok:true});
+ }
  if(path==='/fixture/history-priority'){
   for(const issue of issues){issue.status='closed';issue.createdAt=at('01:00');issue.closedAt=at(issue.id==='work-069'?'11:30':'03:00');}
   return json({ok:true});

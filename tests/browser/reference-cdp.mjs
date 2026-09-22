@@ -25,14 +25,14 @@ assert.ok(await evaluate("document.getElementById('status').getBoundingClientRec
 await evaluate("document.querySelector('#workspace-tools>summary').click()");
 
 for(const issue of ['bd-a1f','bd-b7c','bd-c3e']){
- await evaluate(`[...document.querySelectorAll('.lane-card')].find(n=>n.textContent.includes('${issue}')).click();document.getElementById('inspector-tab-git').click();document.getElementById('load-issue-git').click()`);
+ await evaluate(`[...document.querySelectorAll('.lane-card')].find(n=>n.dataset.issueId==='${issue}').click();document.getElementById('inspector-tab-git').click();document.getElementById('load-issue-git').click()`);
  await until("!document.getElementById('load-issue-history').hidden");
  await evaluate("document.getElementById('load-issue-history').click()");
  await until("document.querySelectorAll('#issue-git-history article').length===2");
  await evaluate("document.getElementById('inspector-tab-activity').click();document.getElementById('load-activity').click()");
- await until("document.querySelectorAll('#activity article').length==="+(issue==='bd-a1f'?3:2));
+ await until("document.querySelectorAll('#activity article').length==="+(issue==='bd-a1f'?4:1));
 }
-await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.textContent.includes('bd-a1f')).click();document.getElementById('inspector-tab-overview').click();document.querySelector('.timeline-options').open=true;[...document.querySelectorAll('.event-list-item')].find(n=>n.textContent.includes('Confirmed: drag')).click();document.querySelector('.timeline-options').open=false;document.getElementById('timeline-fit').click()");
+await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.dataset.issueId==='bd-a1f').click();document.getElementById('inspector-tab-overview').click();document.querySelector('.timeline-options').open=true;[...document.querySelectorAll('.event-list-item')].find(n=>n.textContent.includes('Confirmed: drag')).click();document.querySelector('.timeline-options').open=false;document.getElementById('timeline-fit').click()");
 await delay(800);
 assert.equal(await evaluate("document.querySelector('#timeline-callout .author-initials').textContent"),'O');
 assert.equal(await evaluate("document.querySelector('#timeline-callout .callout-heading strong').textContent"),'Oliver');

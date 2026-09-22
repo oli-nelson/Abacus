@@ -155,3 +155,24 @@ header nav{flex-wrap:wrap}
 .minimap-hint{display:block;color:var(--muted);font-size:10px;margin:2px 0}
 
 .axis-scale{display:inline-flex;align-items:center;gap:5px}.axis-scale input{width:85px;min-width:0}.axis-scale output{min-width:4ch;font-variant-numeric:tabular-nums}
+#selected-event pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;padding:10px;background:#071420;border-radius:6px}
+#selected-event article{padding:12px 0;border-top:1px solid var(--border)}
+#selected-event time{display:block;margin:6px 0;color:var(--muted)}
+.event-evidence{margin:10px 0;color:var(--muted)}
+
+.callout-comments{max-height:180px;overflow:auto;overscroll-behavior:contain;margin-top:10px;border-top:1px solid var(--border)}
+.callout-comment{padding:8px 0}.callout-comment+.callout-comment{border-top:1px solid var(--border)}
+#timeline-callout .callout-comment strong{padding-right:0;overflow-wrap:anywhere}
+#timeline-callout .callout-comment p{margin:4px 0}
+.callout-comments:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+.workspace.timeline-maximized{height:calc(100dvh - var(--timeline-panel-top,98px));min-height:360px;overflow:hidden;padding:12px}
+.workspace.timeline-maximized #timeline-pane{flex:1 1 0;min-height:0}
+.workspace.timeline-maximized #timeline-pane>:not(.scene-view-controls):not(#timeline-stage):not(.scene-legend){display:none!important}
+.workspace.timeline-maximized #timeline-stage{min-height:160px}
+.workspace.timeline-maximized #timeline-expand,.workspace.timeline-maximized #workspace-tools,.workspace.timeline-maximized>footer{display:none!important}
+
+#activity-evidence{margin-top:18px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+#activity .comment pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto}
+
+#inspector-mode{padding:12px;border:1px solid var(--border);border-radius:8px;margin:12px 0}#inspector-mode-message{margin-top:0}#inspector-comments{margin-bottom:12px}#comments-coverage{color:var(--muted);font-size:13px}

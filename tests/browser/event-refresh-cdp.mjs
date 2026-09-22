@@ -24,7 +24,7 @@ assert.match(await evaluate("document.getElementById('selected-event').textConte
 assert.equal(await evaluate("document.querySelector('#selected-event details').open"),true);
 assert.equal(await evaluate("document.activeElement===document.querySelector('#selected-event summary')"),true);
 assert.equal(await evaluate("document.getElementById('timeline-callout').getAnimations().length"),0,'Source updates do not replay entrance effects');
-await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.textContent.includes('bd-a1f')).click()");
+await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.dataset.issueId==='bd-a1f').click()");
 assert.equal(await evaluate("document.getElementById('timeline-callout').hidden"),true,'Selecting the issue clears the previous event');
 await evaluate("[...document.querySelectorAll('.event-list-item')].find(n=>n.textContent.includes('Updated recorded comment text')).click()");
 await fetch(base+'/fixture/comment-refresh?remove');

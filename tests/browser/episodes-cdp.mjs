@@ -24,9 +24,9 @@ await evaluate("document.getElementById('timeline-fit').click()");await delay(65
 assert.equal(await evaluate("document.getElementById('timeline-stage').dataset.recordedStarts"),'3');
 assert.equal(await evaluate("document.getElementById('timeline-stage').dataset.closedEpisodes"),'1');
 assert.equal(await evaluate("document.querySelectorAll('.observation-list-item').length"),2,'Closed episode has no current endpoint');
-assert.equal(await evaluate("document.querySelectorAll('.event-list-item').length"),11,'Only events within work episodes are listed');
-assert.equal(await evaluate("[...document.querySelectorAll('.event-list-item')].some(n=>n.textContent.includes('Created ·'))"),false);
-assert.match(await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.textContent.includes('bd-c3e')).textContent"),/Ended.*closed/);
+assert.equal(await evaluate("document.querySelectorAll('.event-list-item').length"),9,'Only meaningful changes within work episodes are listed');
+assert.equal(await evaluate("[...document.querySelectorAll('.event-list-item')].some(n=>n.textContent.includes('Created ·')||n.textContent.includes('snapshot ·'))"),false);
+assert.match(await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.dataset.issueId==='bd-c3e').textContent"),/Ended.*closed/);
 assert.ok(await evaluate("document.getElementById('timeline-labels').textContent.includes('Project activity')"));
 assert.equal(errors.length,0,JSON.stringify(errors));
 await writeFile('/tmp/abacus-work-episodes.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'));
