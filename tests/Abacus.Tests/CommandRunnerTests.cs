@@ -4,6 +4,27 @@ namespace Abacus.Tests;
 
 public sealed class CommandRunnerTests
 {
+    [Theory]
+    [InlineData("stdout")]
+    [InlineData("stderr")]
+    public async Task OutputLimitsStopNoisyChildren(string stream)
+    {
+        var runner = new CommandRunner(TextWriter.Null, TimeSpan.FromSeconds(5));
+        var script = stream == "stdout" ? "while :; do printf 0123456789; done" : "while :; do printf 0123456789 >&2; done";
+        await Assert.ThrowsAsync<CommandOutputLimitException>(() => runner.RunAsync(
+            new CommandSpec("/bin/sh", ["-c", script], Path.GetTempPath(), MaxOutputCharacters: 1024)));
+    }
+
+    [Fact]
+    public async Task OutputAtLimitIsPreserved()
+    {
+        var runner = new CommandRunner(TextWriter.Null);
+        var result = await runner.RunAsync(new CommandSpec("/bin/sh", ["-c", "printf 1234; printf 5678 >&2"],
+            Path.GetTempPath(), MaxOutputCharacters: 4));
+        Assert.Equal("1234", result.StandardOutput);
+        Assert.Equal("5678", result.StandardError);
+    }
+
     [Fact]
     public async Task PassesLiteralArgumentsAndScopesActorToChild()
     {

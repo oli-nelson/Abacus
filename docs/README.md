@@ -12,6 +12,7 @@ complete rather than reading every page in order.
 | [Shared-file tree demo](tree-demo.md) | Demonstrating parent-first tasks, human attention, and multiple agents editing one HTML file |
 | [Ticket targets](targets.md) | Configuring release tracks, auditing metadata, and recovering bound branches |
 | [Run configurations](run-config.md) | Editing saved settings, Save As, draft warnings, and CLI overrides |
+| [Web dashboard preview](dashboard.md) | Interactive preview, runtime controls and live Git/issue views; full dashboard under construction |
 | [CLI reference](cli-reference.md) | Looking up commands, modes, and option behavior |
 | [Events and stdio control](events-and-stdio.md) | Recording JSONL activity and controlling Abacus from another agent |
 | [Maintenance supervisor](supervisor.md) | Opt-in workspace/Beads repair, recovery retries, prompt policy, and controls |
@@ -29,6 +30,7 @@ complete rather than reading every page in order.
 | [External CLI contracts](contracts/cli-contracts.md) | Captured assumptions for Beads, Git, tmux, and agent-harness subprocesses |
 | [Create and install releases](releases.md) | Version tags, native builds, GitHub uploads, and recovery |
 | [Release smoke-test record](smoke-test.md) | Manual evidence from the latest recorded release exercise |
+| [Dashboard acceptance audit](dashboard-acceptance.md) | Current evidence and open gates for all 13 web-dashboard acceptance criteria |
 | [Engineering backlog](../TODO.md) | Small follow-up work not yet represented elsewhere |
 
 ## Bundled agent skills

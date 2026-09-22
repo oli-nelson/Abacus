@@ -1,0 +1,62 @@
+// Requires fixture-server.mjs and a local Chrome DevTools endpoint (default 19222).
+import assert from 'node:assert/strict';
+import {writeFile} from 'node:fs/promises';
+const pages=await (await fetch(`http://127.0.0.1:${process.env.CDP_PORT||19222}/json/list`)).json();
+const ws=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);
+await new Promise(r=>ws.addEventListener('open',r,{once:true}));
+let id=0;const pending=new Map(),errors=[];let apiCalls=0;
+ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.method==='Network.requestWillBeSent'&&m.params.request.url.includes('/api/v1/'))apiCalls++;if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);}});
+function call(method,params={}){return new Promise((resolve,reject)=>{const n=++id;pending.set(n,{resolve,reject});ws.send(JSON.stringify({id:n,method,params}));});}
+async function evaluate(expression){const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(JSON.stringify(r.exceptionDetails));return r.result.value;}
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(expression){for(let i=0;i<100;i++){if(await evaluate(expression))return;await delay(100);}throw new Error('Timed out: '+expression+' errors: '+JSON.stringify(errors));}
+await call('Page.enable');await call('Runtime.enable');await call('Network.enable');
+await call('Emulation.setDeviceMetricsOverride',{width:1280,height:941,deviceScaleFactor:1,mobile:false});
+await call('Page.navigate',{url:'http://127.0.0.1:18081/?view=issues&issue=bd-a1f'});
+await until("document.querySelectorAll('#issues tr').length===3");
+await fetch('http://127.0.0.1:18081/fixture/many');
+await until("document.querySelectorAll('#issues tr').length===50");
+const calls=apiCalls;
+await evaluate("document.getElementById('issues-next').click()");
+assert.equal(await evaluate("document.querySelectorAll('#issues tr').length"),50);
+assert.match(await evaluate("document.getElementById('issues-page').textContent"),/Page 2 of 3/);
+assert.match(await evaluate("document.getElementById('issues-selection').textContent"),/outside/);
+assert.equal(await evaluate("document.getElementById('selected-id').textContent"),'bd-a1f');
+await evaluate("document.getElementById('issues-next').click()");
+assert.equal(await evaluate("document.querySelectorAll('#issues tr').length"),23);
+assert.equal(await evaluate("document.getElementById('issues-next').disabled"),true);
+await evaluate("document.querySelector('[data-issue-sort=priority]').click();document.querySelector('[data-issue-sort=priority]').click()");
+assert.equal(await evaluate("document.querySelector('[data-issue-sort=priority]').parentElement.getAttribute('aria-sort')"),'descending');
+assert.equal(await evaluate("document.querySelector('#issues tr').children[3].textContent"),'P4');
+assert.equal(await evaluate("new URL(location.href).searchParams.get('sort')"),'priority');
+await evaluate("document.getElementById('issues-page-size').value=25;document.getElementById('issues-page-size').dispatchEvent(new Event('change'))");
+assert.equal(await evaluate("document.querySelectorAll('#issues tr').length"),25);
+await evaluate("document.getElementById('search').value='many-11';document.getElementById('search').dispatchEvent(new Event('input'))");
+assert.equal(await evaluate("document.querySelectorAll('#issues tr').length"),10);
+assert.equal(await evaluate("document.getElementById('issues-next').disabled"),true);
+await evaluate("document.getElementById('search').value='no matches';document.getElementById('search').dispatchEvent(new Event('input'))");
+assert.equal(await evaluate("document.querySelectorAll('#issues tr').length"),0);
+assert.equal(await evaluate("document.getElementById('empty').hidden"),false);
+assert.equal(apiCalls,calls,'Table sort/page/filter must not request source data');
+await evaluate("document.getElementById('search').value='';document.getElementById('search').dispatchEvent(new Event('input'));const u=new URL(location.href);u.searchParams.set('page','2');history.pushState(null,'',u);window.dispatchEvent(new PopStateEvent('popstate'))");
+assert.match(await evaluate("document.getElementById('issues-page').textContent"),/Page 3 of 5/);
+await call('Page.reload');await until("document.querySelectorAll('#issues tr').length===25");
+assert.match(await evaluate("document.getElementById('issues-page').textContent"),/Page 3 of 5/);
+assert.equal(await evaluate("document.querySelector('[data-issue-sort=priority]').parentElement.getAttribute('aria-sort')"),'descending');
+async function filter(key,value){await evaluate(`document.getElementById('filter-${key}').value=${JSON.stringify(value)};document.getElementById('filter-${key}').dispatchEvent(new Event('input'))`);}
+await filter('type','task');await filter('target','main');await filter('assignee','Agent 2');await filter('label','visualisation');await filter('priority','1');await filter('attention','clear');
+assert.equal(await evaluate("document.querySelectorAll('#issues tr').length"),1);
+assert.equal(await evaluate("document.querySelector('#issues tr button').textContent"),'bd-b7c');
+assert.equal(await evaluate("new URL(location.href).searchParams.get('filter-assignee')"),'Agent 2');
+await evaluate("document.getElementById('timeline-view').click()");await until("document.querySelectorAll('.lane-card').length===1");
+await evaluate("document.getElementById('timeline-scrub').value=100;document.getElementById('timeline-scrub').dispatchEvent(new Event('input'))");
+await until("document.querySelectorAll('.lane-card').length===0");
+assert.match(await evaluate("document.getElementById('timeline-counts').textContent"),/metadata.*unknown/i);
+await evaluate("document.getElementById('timeline-live').click()");await until("document.querySelectorAll('.lane-card').length===1");
+await evaluate("document.getElementById('issues-view').click()");assert.equal(await evaluate("document.querySelectorAll('#issues tr').length"),1);
+await call('Page.reload');await until("document.querySelectorAll('#issues tr').length===1");
+assert.equal(await evaluate("document.getElementById('filter-assignee').value"),'Agent 2');
+await evaluate("document.getElementById('clear-issue-filters').click()");assert.equal(await evaluate("document.querySelectorAll('#issues tr').length"),25);
+assert.equal(errors.length,0,JSON.stringify(errors));
+console.log('Issue table browser: bounded pages, sorting/aria state, page sizes, filters, selection retention and no extra source calls passed');
+await call('Browser.close');ws.close();

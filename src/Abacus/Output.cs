@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 
 namespace Abacus;
@@ -193,7 +194,25 @@ internal static class OutputExtensions
 public sealed class ConsoleOutput : TextWriter, IAgentOutput
 {
     private readonly HashSet<string> supervisorNames = new(StringComparer.Ordinal);
-    internal void EnableSupervisor(string name = MaintenanceSupervisor.Name) { lock (gate) supervisorNames.Add(name); }
+    internal void EnableSupervisor(string name = MaintenanceSupervisor.Name) { lock (gate) { if (supervisorNames.Add(name)) RuntimeChanged?.Invoke(); } }
+    internal void SynchronizeClaimGate(bool enabled)
+    {
+        lock (gate)
+        {
+            if (claimingEnabled == enabled) return;
+            claimingEnabled = enabled;
+            if (interactive) RenderDashboard();
+        }
+    }
+
+    internal event Action? RuntimeChanged;
+    internal System.Collections.Immutable.ImmutableArray<Dashboard.RuntimeWorker> ReadRuntimeWorkers()
+    {
+        lock (gate) return agents.Values.OrderBy(row => row.Name, StringComparer.Ordinal)
+            .Select(row => new Dashboard.RuntimeWorker(row.Name, row.Activity.ToString(), row.IssueId,
+                row.Branch, row.IsDirty, row.RunActive, row.HasExitObservation ? row.LastExitCode : null,
+                row.RetryCount, IsSupervisor(row.Name))).ToImmutableArray();
+    }
     private bool IsSupervisor(string name) => supervisorNames.Contains(name);
     /// <summary>A notice is only useful while its condition is current; stale rows are noise.</summary>
     private static readonly TimeSpan DefaultAlertLifetime = TimeSpan.FromMinutes(1);
@@ -469,7 +488,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 RetryCount = retryCount,
             };
 
-            if (changed) Events?.Emit("agent.state", agents[agentName]);
+            if (changed) { Events?.Emit("agent.state", agents[agentName]); RuntimeChanged?.Invoke(); }
             if (interactive)
             {
                 RenderDashboard();
@@ -1512,7 +1531,7 @@ public sealed class ConsoleOutput : TextWriter, IAgentOutput
                 ? current
                 : AgentRow.Create(agentName);
             agents[agentName] = update(row);
-            if (agents[agentName] != row) Events?.Emit("agent.state", agents[agentName]);
+            if (agents[agentName] != row) { Events?.Emit("agent.state", agents[agentName]); RuntimeChanged?.Invoke(); }
             if (interactive)
             {
                 RenderDashboard();

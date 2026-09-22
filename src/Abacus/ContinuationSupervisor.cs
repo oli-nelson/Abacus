@@ -17,17 +17,30 @@ public sealed class ContinuationSupervisor(
     private int generation;
     private readonly object forceGate = new();
     private string? forcedPrompt;
+    private SupervisorForceReceipt? queuedForceReceipt;
+    private bool forceClosed;
     private bool forcedRunActive;
 
     public bool IsForcedRun { get { lock (forceGate) return forcedRunActive; } }
 
-    public void ForceRun(string prompt)
+    public void ForceRun(string prompt) => QueueForce(prompt, null);
+
+    internal SupervisorForceReceipt ForceRunTracked(string prompt)
+    {
+        var receipt = new SupervisorForceReceipt();
+        QueueForce(prompt, receipt);
+        return receipt;
+    }
+
+    private void QueueForce(string prompt, SupervisorForceReceipt? receipt)
     {
         if (string.IsNullOrWhiteSpace(prompt)) throw new ArgumentException("force-run prompt must not be empty");
         lock (forceGate)
         {
+            if (forceClosed) throw new InvalidOperationException("Supervisor has finished.");
             if (forcedPrompt is not null) throw new InvalidOperationException("continuation already has a pending force run");
             forcedPrompt = prompt;
+            queuedForceReceipt = receipt;
             Volatile.Write(ref enabled, true);
         }
     }
@@ -37,6 +50,14 @@ public sealed class ContinuationSupervisor(
         SoundPlayer.TryStart(clip)?.ContinueInBackground();
         return Task.CompletedTask;
     };
+
+    internal AgentControlReceipt RequestTracked(AgentControlAction action)
+    {
+        if (action is not (AgentControlAction.Stop or AgentControlAction.Restart))
+            throw new ArgumentException("Supervisors support tracked Stop/Restart only; main-checkout cleanup is forbidden.");
+        return control.TryRequestTracked(action)
+            ?? throw new InvalidOperationException("Supervisor already has a pending control request.");
+    }
 
     public void Request(AgentControlAction action)
     {
@@ -57,7 +78,17 @@ public sealed class ContinuationSupervisor(
                 if (!workersFinished()) await Task.Delay(interval, token);
             }
         }
-        finally { control.Dispose(); }
+        finally
+        {
+            lock (forceGate)
+            {
+                forceClosed = true;
+                queuedForceReceipt?.Finish("outcome-unknown");
+                queuedForceReceipt = null;
+                forcedPrompt = null;
+            }
+            control.Dispose();
+        }
     }
 
     public async Task<bool> CheckFiniteCompletionAsync(string name, CancellationToken token)
@@ -80,8 +111,14 @@ public sealed class ContinuationSupervisor(
             if (action == AgentControlAction.Stop)
             {
                 enabled = false;
-                lock (forceGate) forcedPrompt = null;
+                lock (forceGate)
+                {
+                    forcedPrompt = null;
+                    queuedForceReceipt?.Finish("cancelled");
+                    queuedForceReceipt = null;
+                }
                 await log.SetAgentAsync(Name, AgentActivity.Stopped, "Disabled by operator; Restart to enable");
+                control.CompleteTrackedAction(AgentControlAction.Stop);
             }
             else if (action == AgentControlAction.Restart)
             {
@@ -89,6 +126,7 @@ public sealed class ContinuationSupervisor(
                 attemptedInFiniteRun = false;
                 enabled = true;
                 await log.ClearPersistentAlertAsync(Name);
+                control.CompleteTrackedAction(AgentControlAction.Restart);
             }
             if (!Volatile.Read(ref enabled)) return;
             using var operation = control.CreateOperationCancellation(token);
@@ -106,9 +144,14 @@ public sealed class ContinuationSupervisor(
                     && !schedule.CanClaimAt(TimeProvider.System.GetUtcNow(), out _)))) return;
                 if (extraPrompt is null && preflight.Options.ExecutionMode != ExecutionMode.Continuous && attemptedInFiniteRun) return;
                 if (extraPrompt is null && !state.TryConsume()) return;
+                SupervisorForceReceipt? forceReceipt = null;
                 lock (forceGate)
                 {
-                    if (extraPrompt is not null) { forcedPrompt = null; forcedRunActive = true; }
+                    if (extraPrompt is not null)
+                    {
+                        forcedPrompt = null; forcedRunActive = true;
+                        forceReceipt = queuedForceReceipt; queuedForceReceipt = null;
+                    }
                 }
                 attemptedInFiniteRun = true;
                 try
@@ -126,8 +169,14 @@ public sealed class ContinuationSupervisor(
                     await log.SetAgentAsync(Name, failed ? AgentActivity.Stopped : AgentActivity.Idle, detail);
                     if (failed) await log.SetPersistentAlertAsync(Name, detail);
                     else await log.ClearPersistentAlertAsync(Name);
+                    forceReceipt?.Finish(deferred ? "deferred" : failed ? "failed" : "completed");
                 }
-                finally { lock (forceGate) forcedRunActive = false; lock (finiteChecks) generation++; }
+                finally
+                {
+                    forceReceipt?.Finish("outcome-unknown");
+                    lock (forceGate) forcedRunActive = false;
+                    lock (finiteChecks) generation++;
+                }
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {

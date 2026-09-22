@@ -1,0 +1,36 @@
+[
+  {
+    "CommitHash": "ku9rtvg51ra4n33igep0pd9oo3rdad1i",
+    "Committer": "root",
+    "CommitDate": "2026-09-21T21:03:01.818+02:00",
+    "Issue": {
+      "id": "web-cuh",
+      "title": "Timeline renderer",
+      "notes": "Camera controls added",
+      "status": "open",
+      "priority": 1,
+      "issue_type": "task",
+      "owner": "fixture@example.invalid",
+      "created_at": "2026-09-21T19:02:48Z",
+      "created_by": "Dashboard Fixture",
+      "updated_at": "2026-09-21T19:03:01Z"
+    }
+  },
+  {
+    "CommitHash": "i1s9bnb1n701k4f4p5ack4f2htav0ndm",
+    "Committer": "root",
+    "CommitDate": "2026-09-21T21:03:00.923+02:00",
+    "Issue": {
+      "id": "web-cuh",
+      "title": "Timeline renderer",
+      "notes": "Camera controls added",
+      "status": "open",
+      "priority": 1,
+      "issue_type": "task",
+      "owner": "fixture@example.invalid",
+      "created_at": "2026-09-21T19:02:48Z",
+      "created_by": "Dashboard Fixture",
+      "updated_at": "2026-09-21T19:03:01Z"
+    }
+  }
+]

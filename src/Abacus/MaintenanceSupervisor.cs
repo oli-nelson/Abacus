@@ -25,6 +25,8 @@ public sealed class MaintenanceSupervisor(
     private int generation;
     private bool enabled = true;
     private string? forcedPrompt;
+    private SupervisorForceReceipt? queuedForceReceipt;
+    private bool forceClosed;
     internal Func<SoundClip, Task> StartSound { get; init; } = clip =>
     {
         SoundPlayer.TryStart(clip)?.ContinueInBackground();
@@ -42,6 +44,14 @@ public sealed class MaintenanceSupervisor(
 
     private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    internal AgentControlReceipt RequestTracked(AgentControlAction action)
+    {
+        if (action is not (AgentControlAction.Stop or AgentControlAction.Restart))
+            throw new ArgumentException("Supervisors support tracked Stop/Restart only; main-checkout cleanup is forbidden.");
+        return control.TryRequestTracked(action)
+            ?? throw new InvalidOperationException("Supervisor already has a pending control request.");
+    }
+
     public void Request(AgentControlAction action)
     {
         if (action == AgentControlAction.CleanWorkspace)
@@ -49,13 +59,24 @@ public sealed class MaintenanceSupervisor(
         if (!control.TryRequest(action)) throw new InvalidOperationException("Supervisor already has a pending request");
     }
 
-    public void ForceRun(string prompt)
+    public void ForceRun(string prompt) => QueueForce(prompt, null);
+
+    internal SupervisorForceReceipt ForceRunTracked(string prompt)
+    {
+        var receipt = new SupervisorForceReceipt();
+        QueueForce(prompt, receipt);
+        return receipt;
+    }
+
+    private void QueueForce(string prompt, SupervisorForceReceipt? receipt)
     {
         if (string.IsNullOrWhiteSpace(prompt)) throw new ArgumentException("force-run prompt must not be empty");
         lock (gate)
         {
+            if (forceClosed) throw new InvalidOperationException("Supervisor has finished.");
             if (forcedPrompt is not null) throw new InvalidOperationException("maintenance already has a pending force run");
             forcedPrompt = prompt;
+            queuedForceReceipt = receipt;
             Volatile.Write(ref enabled, true);
         }
     }
@@ -134,8 +155,14 @@ public sealed class MaintenanceSupervisor(
                 if (action is AgentControlAction.Stop)
                 {
                     enabled = false;
-                    lock (gate) forcedPrompt = null;
+                    lock (gate)
+                    {
+                        forcedPrompt = null;
+                        queuedForceReceipt?.Finish("cancelled");
+                        queuedForceReceipt = null;
+                    }
                     await log.SetAgentAsync(Name, AgentActivity.Stopped, "Cancelled by operator; Restart to enable supervision");
+                    control.CompleteTrackedAction(AgentControlAction.Stop);
                 }
                 else if (action is AgentControlAction.Restart)
                 {
@@ -146,6 +173,7 @@ public sealed class MaintenanceSupervisor(
                         foreach (var failure in failures.Values) failure.Consumed = false;
                     }
                     await log.SetAgentAsync(Name, AgentActivity.Idle, "Explicit retry requested; checking triggers");
+                    control.CompleteTrackedAction(AgentControlAction.Restart);
                 }
                 using var operation = control.CreateOperationCancellation(token);
                 try
@@ -176,6 +204,13 @@ public sealed class MaintenanceSupervisor(
         finally
         {
             initialScan.TrySetCanceled(token.IsCancellationRequested ? token : new CancellationToken(true));
+            lock (gate)
+            {
+                forceClosed = true;
+                queuedForceReceipt?.Finish("outcome-unknown");
+                queuedForceReceipt = null;
+                forcedPrompt = null;
+            }
             control.Dispose();
         }
     }
@@ -185,6 +220,7 @@ public sealed class MaintenanceSupervisor(
         var issues = await beads.GetIssuesNeedingUserAttentionAsync(preflight.RepositoryRoot, Name, token);
         var eligible = issues.Where(issue => issue.Labels?.Contains(CannotResolveLabel) != true).ToArray();
         bool shouldRun;
+        SupervisorForceReceipt? forceReceipt;
         string? extraPrompt;
         lock (gate)
         {
@@ -195,6 +231,7 @@ public sealed class MaintenanceSupervisor(
             if (!shouldRun) return;
             busy = true;
             forcedPrompt = null;
+            forceReceipt = queuedForceReceipt; queuedForceReceipt = null;
             attemptedIssues.UnionWith(eligible.Select(issue => issue.Id));
             foreach (var failure in failures.Values.Where(failure => failure.Failed)) failure.Consumed = true;
         }
@@ -235,6 +272,7 @@ public sealed class MaintenanceSupervisor(
             if (failed) await log.SetPersistentAlertAsync(Name, detail);
             else await log.ClearPersistentAlertAsync(Name);
             if (failed) await PlayAsync(SoundClip.SupervisorFailed);
+            forceReceipt?.Finish(failed ? "failed" : "completed");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -247,6 +285,7 @@ public sealed class MaintenanceSupervisor(
         }
         finally
         {
+            forceReceipt?.Finish("outcome-unknown");
             lock (gate) { busy = false; generation++; }
         }
     }

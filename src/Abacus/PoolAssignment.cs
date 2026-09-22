@@ -127,11 +127,16 @@ public sealed partial class WorktreePool
     {
         if (!IsSlotName(slot)) throw new ArgumentException("invalid slot ID");
         var path = AssignmentPath(slot);
+        if (Directory.Exists(path)) throw new WorkspacePreparationException($"{slot}: assignment path is a directory; preserved for review");
         if (!File.Exists(path)) return null;
         try
         {
             if (new FileInfo(path).Length > 16384) throw new JsonException("oversized assignment");
-            var value = JsonSerializer.Deserialize<AssignmentRecord>(File.ReadAllText(path));
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                document.RootElement.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != document.RootElement.EnumerateObject().Count())
+                throw new JsonException("ambiguous assignment record");
+            var value = document.RootElement.Deserialize<AssignmentRecord>();
             if (value is null || value.Version != 1 || value.SlotId != slot
                 || !Guid.TryParseExact(value.Id, "N", out _) || !Guid.TryParseExact(value.RunId, "N", out _)
                 || !Guid.TryParseExact(value.WorkerId, "N", out _) || string.IsNullOrWhiteSpace(value.AgentName)
@@ -162,6 +167,9 @@ public sealed partial class WorktreePool
     {
         lock (activeAssignments)
         {
+            // Fence only new reservations. Existing execution-stop/cleanup state
+            // updates must remain possible while the guard inspects reservations.
+            if (value.IssueId is not null && value.IssueId == mutationIssue) return false;
             foreach (var slot in ReadManifest()!.Slots)
                 if (slot.Name != value.SlotId && ReadAssignment(slot.Name)?.IssueId == value.IssueId) return false;
             UpdateAssignment(value);

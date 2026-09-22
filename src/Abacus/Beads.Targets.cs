@@ -6,7 +6,7 @@ public sealed partial class Beads
 {
     private static readonly JsonSerializerOptions BindingJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    private static BeadsIssue ReadRoutingMetadata(BeadsIssue issue, JsonElement element)
+    internal static BeadsIssue ReadRoutingMetadata(BeadsIssue issue, JsonElement element)
     {
         if (!element.TryGetProperty("metadata", out var metadata) || metadata.ValueKind == JsonValueKind.Null)
             return issue;

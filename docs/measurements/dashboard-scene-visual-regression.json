@@ -1,0 +1,64 @@
+{
+  "recordedAt": "2026-09-22T01:47:14.514Z",
+  "sourceHashes": {
+    "tests/browser/scale-cdp.mjs": "8b76702ac6ceb142bd5a898bcd7df02e89b7cc0da42a1aee30aeffa5511b6f79",
+    "tests/browser/fixture-server.mjs": "41b4649135fb4089c8d8d8d67d80dc02e0e274e1253534d723320d929d9791b0",
+    "src/Abacus/Dashboard/Assets/timeline.js": "907e0f51b48165cf9a1dcb88c9079126159b7519e0abdd39b13d0aaf6e04c483",
+    "src/Abacus/Dashboard/Assets/timeline-model.js": "b720cdf13f542b602bb434229dd2e445a42670e4c963972e9a58cda695d0fd77",
+    "src/Abacus/Dashboard/Assets/timeline-gl.js": "378e86c25127baa8b65a25a5e133125b58707c629b44d6b898398a13aa67a7b6"
+  },
+  "idle": {
+    "observedMs": 1000,
+    "frameDelta": 0
+  },
+  "scope": "Synthetic browser scene only: one rendered client plus nine stream-only clients. Not real Beads/Git, ten rendered clients, isolated CPU, peak memory or native-GPU acceptance.",
+  "environment": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "cpu": "Apple M4 Pro",
+    "logicalCpus": 14,
+    "totalMemoryBytes": 51539607552,
+    "browser": {
+      "protocolVersion": "1.3",
+      "product": "Chrome/153.0.8010.53",
+      "revision": "@792bf6722e73a45aa9e47c163b9901bdc17f3230",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+      "jsVersion": "15.3.76.13"
+    },
+    "graphics": "Headless Chrome with SwiftShader software rendering"
+  },
+  "dataset": {
+    "issues": 1000,
+    "recordedEvents": 10000,
+    "concurrentStreams": 10
+  },
+  "viewport": {
+    "width": 1671,
+    "height": 941
+  },
+  "warmViewportMs": 43.5,
+  "labelLayout": {
+    "visible": 11,
+    "overlaps": 0,
+    "accessibleLanes": 24,
+    "culled": 21
+  },
+  "displayedEventListItems": 240,
+  "motion": {
+    "elapsedMs": 8009.199999988079,
+    "renderedFrames": 481,
+    "framesPerSecond": 60.055935674064315,
+    "p95ObservedFrameIntervalMs": 17.400000035762787,
+    "bufferUploads": 0,
+    "sourceRequests": 0
+  },
+  "rendererTaskSeconds": 0.17089100000000013,
+  "jsHeapUsedBytes": 9838628,
+  "visibleLaneCards": 24,
+  "domNodes": 2376,
+  "thresholds": {
+    "warmViewportUnder2s": true,
+    "motionAtLeast30fps": true
+  },
+  "errors": []
+}

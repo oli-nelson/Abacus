@@ -79,7 +79,9 @@ public sealed record Options(
     string ContinuationEffort = "high",
     IReadOnlyList<string>? ContinuationExtraArguments = null,
     TimeSpan? ContinuationTimeout = null,
-    string? ContinuationPromptFile = null)
+    string? ContinuationPromptFile = null,
+    bool DashboardEnabled = false,
+    Abacus.Dashboard.DashboardOptions? DashboardSettings = null)
 {
     public TimeSpan EffectiveContinuationTimeout => ContinuationTimeout ?? TimeSpan.FromMinutes(90);
     public bool HasSupervisors => SupervisorModel is not null || ContinuationModel is not null;
@@ -222,10 +224,23 @@ public sealed record Options(
         {
             if (repositoryPath is not null) seen.Add("--repo");
             var configuration = RunConfiguration.Load(path).ResolveInheritance();
-            var configured = configuration.Arguments(command, seen, overriddenTiers);
+            var configuredDashboard = configuration.Document["dashboard"]?.GetValue<bool>() ?? false;
+            var dashboardEnabled = seen.Contains("--dashboard") ? optionValues.Contains("--dashboard") : configuredDashboard;
+            var tuning = new[] { "--dashboard-bind", "--dashboard-port", "--dashboard-actor", "--dashboard-poll-interval" };
+            if (!dashboardEnabled && tuning.Any(seen.Contains)) throw new OptionsException("explicit dashboard tuning requires --dashboard");
+            var dormant = !dashboardEnabled || command == "preflight" ? Abacus.Dashboard.DashboardOptions.Parse(
+                configuration.Document["dashboardBind"]?.GetValue<string>(),
+                configuration.Document["dashboardPort"]?.ToString(),
+                configuration.Document["dashboardActor"]?.GetValue<string>(),
+                configuration.Document["dashboardPollInterval"]?.GetValue<string>()) : null;
+            var effectiveSeen = new HashSet<string>(seen, StringComparer.Ordinal);
+            if (!dashboardEnabled || command == "preflight") foreach (var option in tuning) effectiveSeen.Add(option);
+            var configured = configuration.Arguments(command, effectiveSeen, overriddenTiers);
             if (repositoryPath is not null) configured.AddRange(["--repo", repositoryPath]);
             // No callback here: a selected/explicit config gets exactly one validation attempt.
             var result = Parse([command, .. configured, .. optionValues]);
+            if (result.Value is not null && (!dashboardEnabled || command == "preflight"))
+                result = result with { Value = result.Value with { DashboardEnabled = dashboardEnabled, DashboardSettings = dormant } };
             // The schedule is config-only: it has no CLI option to round-trip through,
             // so it is resolved from the same composed document that produced the arguments.
             var schedule = ClaimSchedule.FromDocument(configuration.Document[ClaimSchedule.ConfigurationName]);
@@ -253,6 +268,11 @@ public sealed record Options(
             }
             switch (command)
             {
+                case "dashboard":
+                    if (positionals.Count != 0) throw new OptionsException("dashboard does not accept positional arguments");
+                    parsed = new(null, false, Dashboard: Abacus.Dashboard.DashboardOptions.Parse(
+                        Value("--bind"), Value("--port"), Value("--actor"), Value("--poll-interval")));
+                    break;
                 case "worktrees list":
                 case "worktrees prune":
                 case "worktrees reclaim":
@@ -370,11 +390,14 @@ public sealed record Options(
                 "--remote-control" or "--notify-sound" or "--verbose" => 0,
                 "--once" or "--drain" or "--stdio" or "--no-intro" or "--tui-audio" or "--start-paused"
                     or "--disown-tmux-session" when command == "run" => 0,
+                "--dashboard" when command == "run" => 0,
+                "--dashboard-bind" or "--dashboard-port" or "--dashboard-actor" or "--dashboard-poll-interval" when command == "run" => 1,
                 "--event-log" when command == "run" => 1,
                 _ => -1,
             };
         return (command, option) switch
         {
+            ("dashboard", "--bind" or "--port" or "--actor" or "--poll-interval") => 1,
             ("config edit", "--output") or ("new", "--agents") or ("attention resolve", "--message") or ("targets set", "--start-commit") => 1,
             ("worktrees recover", "--confirm") or ("worktrees remove", "--confirm") or ("attention resolve", "--reopen") or ("targets set", "--adopt-existing-branch") => 0,
             _ => -1,
@@ -396,6 +419,8 @@ public sealed record Options(
         var noIntro = false;
         var tuiAudio = false;
         var startPaused = false;
+        var dashboard = false;
+        string? dashboardBind = null, dashboardPort = null, dashboardActor = null, dashboardInterval = null;
         var disownTmuxSession = false;
         string? eventLogPath = null;
         var once = false;
@@ -440,6 +465,11 @@ public sealed record Options(
                 case "--stdio": stdio = true; break;
                 case "--no-intro": noIntro = true; break;
                 case "--tui-audio": tuiAudio = true; break;
+                case "--dashboard": dashboard = true; break;
+                case "--dashboard-bind": dashboardBind = ReadValue(arguments, ref index, argument); break;
+                case "--dashboard-port": dashboardPort = ReadValue(arguments, ref index, argument); break;
+                case "--dashboard-actor": dashboardActor = ReadValue(arguments, ref index, argument); break;
+                case "--dashboard-poll-interval": dashboardInterval = ReadValue(arguments, ref index, argument); break;
                 case "--start-paused": startPaused = true; break;
                 case "--disown-tmux-session": disownTmuxSession = true; break;
                 case "--event-log":
@@ -646,7 +676,10 @@ public sealed record Options(
                 "--tmux-layout must be one of even-horizontal, even-vertical, main-horizontal, main-vertical, or tiled");
         }
 
-        if (startPaused && verbose) throw new OptionsException("--start-paused cannot be combined with --verbose; use the interactive dashboard or --stdio");
+        if (!dashboard && (dashboardBind is not null || dashboardPort is not null || dashboardActor is not null || dashboardInterval is not null))
+            throw new OptionsException("explicit dashboard tuning requires --dashboard");
+        var dashboardSettings = Abacus.Dashboard.DashboardOptions.Parse(dashboardBind, dashboardPort, dashboardActor, dashboardInterval);
+        if (startPaused && verbose && !dashboard) throw new OptionsException("--start-paused cannot be combined with --verbose; use the interactive dashboard or --stdio");
         if (stdio && (verbose || notificationMode != NotificationMode.Off || notificationSound))
             throw new OptionsException("--stdio cannot be combined with --verbose or desktop notifications");
 
@@ -801,7 +834,7 @@ public sealed record Options(
                 SupervisorPromptFile: supervisorPromptFile, ManagedAgentCount: managedAgentCount,
                 ContinuationModel: continuationModel, ContinuationEffort: continuationEffort,
                 ContinuationExtraArguments: continuationArguments, ContinuationTimeout: continuationTimeout,
-                ContinuationPromptFile: continuationPromptFile),
+                ContinuationPromptFile: continuationPromptFile, DashboardEnabled: dashboard, DashboardSettings: dashboardSettings),
             ShowHelp: false);
     }
 
@@ -967,7 +1000,8 @@ public sealed record OptionsParseResult(
     string? ConfigurationInput = null,
     string? ConfigurationOutput = null,
     IReadOnlyList<string>? RetrySupervisorIssues = null,
-    string? WorktreeCommand = null, string? WorktreeSlot = null)
+    string? WorktreeCommand = null, string? WorktreeSlot = null,
+    Abacus.Dashboard.DashboardOptions? Dashboard = null)
 {
     public static OptionsParseResult Help { get; } = new(null, ShowHelp: true);
     public static OptionsParseResult InstallSkillsOnly { get; } = new(null, ShowHelp: false, InstallSkills: true);

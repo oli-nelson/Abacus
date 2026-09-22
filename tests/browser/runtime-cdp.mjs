@@ -1,0 +1,49 @@
+// Requires runtime-fixture-server.mjs and a local Chrome DevTools endpoint (default 19222).
+import assert from 'node:assert/strict';
+import {writeFile} from 'node:fs/promises';
+const pages=await (await fetch(`http://127.0.0.1:${process.env.CDP_PORT||19222}/json/list`)).json();
+const ws=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);
+await new Promise(r=>ws.addEventListener('open',r,{once:true}));
+let id=0;const pending=new Map(),errors=[];let apiCalls=0;
+ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.method==='Network.requestWillBeSent'&&m.params.request.url.includes('/api/v1/'))apiCalls++;if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);}});
+function call(method,params={}){return new Promise((resolve,reject)=>{const n=++id;pending.set(n,{resolve,reject});ws.send(JSON.stringify({id:n,method,params}));});}
+async function evaluate(expression){const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(JSON.stringify(r.exceptionDetails));return r.result.value;}
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(expression){for(let i=0;i<100;i++){if(await evaluate(expression))return;await delay(100);}throw new Error('Timed out: '+expression+' errors: '+JSON.stringify(errors));}
+await call('Page.enable');await call('Runtime.enable');
+await call('Page.addScriptToEvaluateOnNewDocument',{source:`window.confirmations=[];window.confirm=s=>{confirmations.push(s);return true};window.prompt=()=>"--literal fixture prompt\\nnot a shell";`});
+await call('Emulation.setDeviceMetricsOverride',{width:1280,height:1000,deviceScaleFactor:1,mobile:false});
+await call('Page.navigate',{url:'http://127.0.0.1:18082/'});
+const button=command=>`document.querySelector('[data-worker-action="maintenance:${command}"]')`;
+await until(`${button('force-run')} && !${button('force-run')}.disabled`);
+assert.equal(await evaluate("document.querySelector('[data-worker-action=\"maintenance:clean-workspace\"]')"),null);
+await evaluate(`${button('force-run')}.click()`);
+await until(`${button('force-run')}.textContent.includes('Retry same') && !${button('force-run')}.disabled`);
+assert.equal(await evaluate(`${button('stop')}.disabled`),false,'Pending force must remain interruptible');
+await evaluate(`${button('stop')}.click()`);
+await until(`!${button('stop')}.disabled`);
+await delay(200);
+assert.equal(await evaluate(`${button('stop')}.disabled`),false,'Stale accepted HTTP must not overwrite terminal SSE');
+await evaluate(`${button('force-run')}.click()`);
+await until(`!${button('force-run')}.textContent.includes('Retry same') && ${button('force-run')}.disabled`);
+const requests=await (await fetch('http://127.0.0.1:18082/fixture/requests')).json();
+const forces=requests.filter(r=>r.command==='force-run');
+assert.equal(forces.length,2);assert.deepEqual(forces[0],forces[1]);
+assert.ok(forces[0].confirm);assert.match(forces[0].prompt,/--literal fixture prompt/);
+assert.ok(await evaluate("confirmations.every(s=>s.includes('fixture operator'))"));
+await fetch('http://127.0.0.1:18082/fixture/complete');
+await until(`!${button('force-run')}.disabled`);
+assert.ok(await evaluate("document.getElementById('timeline-pane').getBoundingClientRect().bottom<=document.getElementById('runtime-panel').getBoundingClientRect().top"),'Runtime must not overlap timeline');
+await evaluate("document.getElementById('runtime-panel').scrollIntoView({block:'end'})");
+const shot=await call('Page.captureScreenshot',{format:'png'});await writeFile('/tmp/abacus-runtime-controls.png',Buffer.from(shot.data,'base64'));
+await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+await delay(200);
+assert.ok(await evaluate("document.getElementById('timeline-pane').getBoundingClientRect().bottom<=document.getElementById('runtime-panel').getBoundingClientRect().top"),'Narrow runtime must not overlap timeline');
+await fetch('http://127.0.0.1:18082/fixture/disconnect');
+await until("document.getElementById('connection').textContent==='Disconnected'");
+assert.equal(await evaluate(`${button('force-run')}.disabled`),true);
+assert.equal(await evaluate(`${button('stop')}.disabled`),true);
+assert.equal(await evaluate("document.getElementById('stop-run').disabled"),true);
+assert.equal(errors.length,0,JSON.stringify(errors));
+console.log('Runtime browser: force confirmation, lost-response same-ID retry, Stop during force, SSE/HTTP race and disconnected disabling passed');
+await call('Browser.close');ws.close();

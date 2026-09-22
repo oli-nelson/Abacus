@@ -7,7 +7,8 @@ public sealed record CommandSpec(
     IReadOnlyList<string> Arguments,
     string WorkingDirectory,
     IReadOnlyDictionary<string, string?>? Environment = null,
-    string? AgentName = null);
+    string? AgentName = null,
+    int? MaxOutputCharacters = null);
 
 public sealed record CommandResult(int ExitCode, string StandardOutput, string StandardError)
 {
@@ -27,6 +28,8 @@ public sealed class CommandRunner(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);
+        if (command.MaxOutputCharacters is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(command.MaxOutputCharacters));
 
         var startInfo = new ProcessStartInfo
         {
@@ -69,18 +72,39 @@ public sealed class CommandRunner(
             throw new CommandStartException(command.FileName, exception);
         }
 
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
         using var deadline = new CancellationTokenSource(timeout);
+        using var outputExceeded = new CancellationTokenSource();
         using var commandCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
-            deadline.Token);
+            deadline.Token, outputExceeded.Token);
+        var stdout = ReadOutputAsync(process.StandardOutput);
+        var stderr = ReadOutputAsync(process.StandardError);
+
+        async Task<string> ReadOutputAsync(StreamReader reader)
+        {
+            var output = new System.Text.StringBuilder();
+            var buffer = new char[8192];
+            while (true)
+            {
+                var count = await reader.ReadAsync(buffer.AsMemory(), commandCancellation.Token);
+                if (count == 0) return output.ToString();
+                if (command.MaxOutputCharacters is int limit && output.Length > limit - count)
+                {
+                    outputExceeded.Cancel();
+                    throw new CommandOutputLimitException(command.FileName, limit);
+                }
+                output.Append(buffer, 0, count);
+            }
+        }
 
         try
         {
             await process.WaitForExitAsync(commandCancellation.Token);
+            // A child can inherit the pipes after the original process exits.
+            // Keep draining under the same deadline rather than waiting forever.
+            await Task.WhenAll(stdout, stderr).WaitAsync(commandCancellation.Token);
         }
-        catch (OperationCanceledException)
+        catch (Exception exception) when (exception is OperationCanceledException or CommandOutputLimitException)
         {
             TryKillProcessTree(process);
             try
@@ -92,7 +116,14 @@ public sealed class CommandRunner(
                 // The original cancellation or deadline remains the useful failure.
             }
 
-            if (!cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
+            // Observe both reader tasks, including when one stream exceeded its cap.
+            try { await Task.WhenAll(stdout, stderr); }
+            catch (Exception readException) when (readException is OperationCanceledException or CommandOutputLimitException) { }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (outputExceeded.IsCancellationRequested)
+                throw new CommandOutputLimitException(command.FileName, command.MaxOutputCharacters!.Value);
+            if (deadline.IsCancellationRequested)
             {
                 throw new CommandTimeoutException(command.FileName, timeout);
             }
@@ -139,3 +170,6 @@ public sealed class CommandStartException(string fileName, Exception innerExcept
 
 public sealed class CommandTimeoutException(string fileName, TimeSpan timeout)
     : Exception($"'{fileName}' exceeded its {timeout.TotalSeconds:0.###}-second command deadline");
+
+public sealed class CommandOutputLimitException(string fileName, int limit)
+    : Exception($"'{fileName}' exceeded its {limit}-character per-stream output limit");

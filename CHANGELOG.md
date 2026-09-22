@@ -6,7 +6,237 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+- Draw timeline curves from recorded issue-status work episodes: in-progress
+  starts leave the activity spine, blocked spans are marked, and closed spans
+  return at closure without extending to now. Git proof is not required to draw
+  status curves; inactive gaps remain empty on the scene and minimap. Reopened
+  work creates a separate segment, and playback updates at recorded status
+  boundaries without revealing future closures.
+  Timeline automatically reads bounded status histories with two concurrent
+  requests and reports coverage/failures with an explicit retry control. Larger
+  projects can navigate 64-issue history batches instead of leaving later issues
+  permanently without history. Selecting a closed issue checks optional Git
+  integration and shows confirmation separately from its status-based return.
+  Closed issues without a recorded end time stop at their last known working
+  state and explicitly report the missing timestamp instead of appearing active.
+  Prioritize likely in-range issue histories before allocating 64-issue batches,
+  rather than loading solely by ID. Changing the range returns to the first
+  prioritized batch; uncertain and older histories remain available.
+
+
+- Add a live “last N hours” timeline control with fractional-hour offsets, rolling
+  bounds and shareable URLs; custom historical ranges remain fixed.
+  Drag across the minimap to select a fixed time range with a highlighted preview,
+  in either direction using mouse or touch. Escape cancels; clicks still seek.
+
+
+### Dashboard navigation
+
+- Add independent Time width and Vertical spacing sliders for 2D/3D timelines,
+  with remembered time stretching up to 10× and vertical stretching up to 4×,
+  plus a reset control, without changing the time range.
+- Move live workers and registered worktree controls into dedicated Workers and
+  Worktrees tabs, keeping issue and branch views focused.
+- Allow the timeline workspace to scroll; ordinary wheel gestures scroll the
+  page, while Ctrl/⌘+wheel zooms the camera. Vertical touch swipes scroll without
+  moving the camera.
+- Add **First event → now** directly to the timeline toolbar: set the exact
+  earliest available event as the start, return to live now, and fit the camera.
+  Filters do not restrict the range; empty timelines do not invent a start date.
+
+
+### Fixed
+
+- Connect selected recorded timeline events to the time grid with subtle dashed
+  guides in both 3D and fallback views, matching the reference without adding
+  synthetic events or continuous animation. Fallback playback now clips branch
+  lines at the exact playhead instead of stepping between geometry samples.
+
+- Expose current-state and verified-containment timeline markers in the keyboard
+  event list, clearly separated from recorded events and omitted during playback.
+  Inspector details identify Beads working-set versus Git-ancestry provenance and
+  source revision; containment callouts no longer look like unattributed comments.
+  Current-marker timestamps are labeled as display time, not source observation time.
+
+- Add a reference-style pause badge at blocked live-lane endpoints, with keyboard
+  access to current state and no misleading historical waiting indicator.
+
+- Fade timeline regrouping after range changes and preserve pinned recorded events
+  that remain in range, without replaying their speech-bubble entrance.
+
+- Give newly received events inside timeline clusters a restrained fade, keeping
+  existing clusters visible and all individual events accessible. Cluster inspector
+  details preserve each member’s author, exact timestamp and source provenance,
+  with local 50-member pages so large clusters do not create unbounded inspector DOM.
+  Source refreshes retain the selected page, expanded details and pager focus,
+  clamping safely when members are removed.
+
+- Fade a newly verified return connector into the main timeline without replaying
+  the whole branch or inventing a merge timestamp; initial evidence loads stay static
+  and transitions require the same recorded branch, target and start commit.
+
+- Fade newly observed live issue lanes, beads and cards together without replaying
+  snapshot baselines; reduced motion suppresses the effect and offscreen lanes
+  do not accumulate an animation backlog. Finished effects release their draw
+  ranges even with glow disabled or after switching to the 2D fallback.
+
+- Fade timeline filter changes briefly while keeping lane slots and timestamps
+  fixed; rapid changes replace the effect and reduced motion cancels it.
+
+- Anchor timeline speech bubbles to their projected events as the camera moves;
+  keep bubbles inside the scene and detach their pointers for offscreen events.
+
+- Smooth timeline tube joins and rounded bead lighting without increasing scene
+  geometry, keeping curved branches continuous around bends.
+
+- Select timeline events directly from the minimap, sharing the issue, inspector
+  and exact event time; respect event-kind filters and retain blank-space scrubbing.
+
+- Add a persistent Glow toggle that disables scene halos and interface shadows
+  while preserving status colors, borders, focus outlines and 2D fallback.
+
+- Blend live current-status marker colors once while updating status text
+  immediately; reuse geometry and suppress replay for identical updates,
+  reduced motion, stale sources and reconnect baselines.
+
+- Fade newly observed live event beads into their recorded positions once,
+  without replaying loaded history or rebuilding geometry on animation frames.
+  Reduced motion and hidden/playback views suppress these finite effects; finished
+  or cancelled fades return immediately to batched rendering. Automatic stream
+  reconnects refresh the snapshot baseline rather than replaying missed arrivals.
+  Large live bursts animate visible lanes only, without an offscreen backlog;
+  stale reads and the first recovered state never replay arrival effects.
+
+- Add subtle inspector panel fades and a gliding tab indicator, with immediate
+  selection, interruption-safe switching and reduced-motion support.
+
+- Finish interrupted camera transitions immediately when reduced motion is
+  enabled or the timeline is hidden, avoiding half-switched projections and
+  delayed animation replay when returning. Hidden playback pauses at a saved
+  playhead and returns with accurate Play/Pause controls. Playback updates filtered
+  lanes as recorded states change and settles the inspector, scrubber and shared
+  URL at the exact end of the range.
+
+- Keep pinned timeline events synchronized with loaded source evidence, clearing
+  invalidated selections and preserving event-detail focus across refreshes
+  without replaying entrance animations. Show exact UTC timestamps in event
+  evidence and tooltips alongside readable local display times.
+
+- Make the desktop inspector resizable by dragging or keyboard, remember its
+  width locally, and preserve the stacked layout on narrow screens. Author-first
+  speech bubbles use local initials; expandable selected-event evidence keeps the
+  overview readable without hiding access to full provenance.
+
+- Restore recorded timeline event selections from shared links, with an explicit
+  unloaded-history notice rather than inferred events; clear stale callouts when
+  scrubbing or returning to live. Browser back/forward restores the time range,
+  and live links stay live after reload rather than reopening as fixed playback.
+  Remember the camera pose and pan/orbit preference locally, with shareable
+  `camera=2d` or `camera=3d` links overriding the local projection preference.
+
+- Preserve loaded Git inspector evidence while switching views or selecting events
+  on the same issue; still invalidate it on source refresh or playback changes.
+
+- Cull overlapping timeline labels at dense zoom levels, prioritizing selected or
+  focused cards while preserving every visible lane in the accessible event list.
+  Preserve logical keyboard focus when timeline cards or event controls rebuild.
+
+- Reject ambiguous assignment journals and directory-shaped journal paths rather
+  than accepting conflicting ownership fields or treating them as missing records.
+
+- Reuse unchanged worktree patches after bounded content fingerprint checks,
+  while detecting repeated dirty-file edits and Git attribute/config changes;
+  report externally filtered content as unavailable rather than guessing its inputs.
+
+- Close worktree subscriptions and reject new observers when dashboard shutdown
+  starts; prevent late reads from republishing into retired observations.
+
+- Submit only changed issue content fields from the web editor, preserving external
+  changes during label-only edits and unsent edit drafts when comments complete.
+
+- Reject worker/supervisor control requests once run shutdown begins, and reject
+  requests to completed supervisors instead of accepting work that cannot run.
+
+- Close rejected oversized HTTP/1 request connections explicitly so subsequent
+  dashboard requests do not reuse a transport being discarded.
+- Preserve leading-option text literally in standalone attention response comments,
+  without treating it as Beads command-line flags.
+
 ### Added
+
+- Refine the dashboard’s reference-led layout with a scene-first layout, keyboard-accessible filter/source
+  disclosure, luminous navigation, flat inspector tabs and speech-bubble
+  callouts, bounded selected-branch event captions, left-aligned lane cards that leave branch curves visible, compact inspector facts and label chips, bright-core timeline tubes and restrained depth-tested halos.
+  Straight-segment simplification keeps glow geometry bounded; hover/focus
+  transitions respect reduced-motion preferences. Deliberately selected callouts
+  enter with a short, interruptible fade/slide without replaying identical selections.
+
+- Navigate from recorded inspector snapshots and dated comments to their timeline
+  event, with playback, lane focus and an expanded range when needed.
+
+- Show explicitly loaded, validated Git branch and file-change summaries on
+  timeline lane cards, with comparison provenance and current containment status;
+  discard stale evidence and keep current Git facts out of historical playback.
+  Explicitly loaded Git commits appear as dated, selectable timeline events with
+  author/parent provenance, without implying issue authorship or merge time.
+  Verified current containment curves the issue path back onto a central silver target rail;
+  it is excluded from playback and never placed at the issue closure timestamp.
+  Recorded start curves require the exact dated start commit in loaded history;
+  commit timestamps are not presented as claim or branch-creation times.
+
+- Publication review reports bounded transitive dependency coverage, distinguishing
+  missing issues and unknown collections without treating coverage as approval.
+
+- Document the proposed interactive HTTP dashboard in `ABACUS_WEB_SERVER_SPEC.md`,
+  with a bundled visual reference, 3D issue/Git timeline, smooth accessible motion,
+  configurable binding, and change-driven refresh. Specify in-process `run --dashboard` with live agent
+  controls and standalone `dashboard` without agents. A standalone
+  preview now provides issue/branch browsing, search, inspectors with recorded
+  incoming/outgoing relationships and explicit coverage gaps, keyboard-accessible
+  Overview/Activity/Git tabs, related ongoing tickets, and target-aware
+  triple-dot comparisons and patches, explicitly loaded issue-binding evidence
+  checked against target policy and recorded start ancestry with lazy bounded
+  patches and reachable commit history, collected worktree clean/dirty/unknown
+  states and bounded staged/unstaged/untracked content with shared live
+  reconciliation for visible worktrees and read-only collection-cost diagnostics, bounded committed issue history with explicit
+  coverage gaps, a WebGL timeline with 2D fallback, local playback and independent
+  issue lanes, and shared live updates that reuse unchanged issue serialization
+  and build aggregate snapshots only on demand, with configurable
+  IPv4/IPv6 binding. Read-only Git commit history preserves topology and labels clock
+  skew. History, comparisons and patches refresh after shallow-clone deepening
+  without a branch-tip change. Comments, content edits and plain attention requests/resolution include revision checks, verified
+  outcomes, explicit recovery of partial attention changes, and bounded same-request retries. Access is unauthenticated: use a
+  trusted network. Other editing actions, complete Git/timeline integration and integrated run
+  controls remain under construction. `run --dashboard` now hosts the same preview
+  in-process, with inherited saved settings, explicit enablement, bind-before-worker
+  startup and isolated web failures. Live worker/supervisor rows come directly from
+  this run through bounded, change-driven updates, with separate manual-pause and
+  schedule-gate visibility and session-scoped, retry-safe claim Pause/Resume.
+  Headless `--start-paused` runs can resume through HTTP. Worker Stop/Restart and
+  confirmed Clean Workspace use tracked acceptance/completion and bounded retries;
+  confirmed Stop Run follows normal worker recovery and cleanup. Supervisor
+  Stop/Restart report explicit acknowledgement; confirmed supervisor Force Run uses
+  bounded same-request retries and tracks its own cleanup/verification. Runtime
+  controls remain interruptible and no longer overlap timeline playback. Graceful
+  dashboard shutdown drains accepted issue writes before closing the listener,
+  rejecting new writes and preserving uncertain outcomes if the grace period expires. Ordinary
+  label edits use verified add/remove deltas while protecting reserved control labels.
+  A browser draft composer and creation API validate target/reasoning policy, stage
+  new issues non-ready from creation, preserve input across navigation, and share
+  mutation retry/shutdown safeguards. A read-only publication review API separates
+  content/target/reasoning checks, lifecycle concerns, cycle evidence, dependency
+  coverage and unverified ownership/integration, with a review revision covering
+  the full observed source and policy rather than only the selected issue;
+  explicit publication remains under construction.
+  The issue table adds accessible column sorting, bounded pagination and URL-retained
+  table settings without additional source reads. Shared view-only assignee, label,
+  priority and attention filters persist in URLs and preserve unknown historical
+  metadata rather than substituting current values. Available recorded metadata
+  now drives historical filtering; conflicting same-time fields stay unknown.
+  Type and explicitly declared target filters are also available. Issue/table search
+  shares loaded note/comment text with explicit coverage, excluding future and
+  undated current content during historical playback. Framework-dependent builds now require the
+  .NET 10 ASP.NET Core runtime; self-contained packages include it.
 
 - Force-run either supervisor from its dashboard menu with a typed one-run
   instruction, or via the `force-supervisor` stdio command. The instruction is

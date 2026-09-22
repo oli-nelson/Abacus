@@ -54,6 +54,11 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         new("eventLog", "--event-log", "path", "JSONL event log path (relative to config)"),
         new("noIntro", "--no-intro", "bool", "Skip startup animation"),
         new("tuiAudio", "--tui-audio", "bool", "Play startup animation and attention audio"),
+        new("dashboard", "--dashboard", "bool", "Enable the in-process unauthenticated HTTP dashboard"),
+        new("dashboardBind", "--dashboard-bind", "string", "IPv4/IPv6/hostname; default 127.0.0.1"),
+        new("dashboardPort", "--dashboard-port", "int", "HTTP port 1–65535; default 8080"),
+        new("dashboardActor", "--dashboard-actor", "string", "Self-declared edit attribution; default abacus-web"),
+        new("dashboardPollInterval", "--dashboard-poll-interval", "string", "Shared source poll duration; minimum 1s, default 5s"),
         new("startPaused", "--start-paused", "bool", "Start with claims paused"),
         new("schedule", "", "schedule", "Optional claim windows to block, e.g. provider peak hours"),
     ];
@@ -264,7 +269,13 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
 
             try
             {
-                Options.Parse(["run", .. effective.Arguments("run")]);
+                Abacus.Dashboard.DashboardOptions.Parse(
+                    effective.Document["dashboardBind"]?.GetValue<string>(), effective.Document["dashboardPort"]?.ToString(),
+                    effective.Document["dashboardActor"]?.GetValue<string>(), effective.Document["dashboardPollInterval"]?.GetValue<string>());
+                var dormant = effective.Document["dashboard"]?.GetValue<bool>() != true
+                    ? new HashSet<string>(StringComparer.Ordinal) { "--dashboard-bind", "--dashboard-port", "--dashboard-actor", "--dashboard-poll-interval" }
+                    : null;
+                Options.Parse(["run", .. effective.Arguments("run", dormant)]);
             }
             catch (OptionsException exception)
             {

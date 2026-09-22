@@ -29,6 +29,17 @@ public sealed class AbacusApplication(
             return RunOutcome.Deferred;
         }
 
+        var claimGate = new ClaimGate();
+        claimGate.SetEnabled(!preflight.Options.StartPaused);
+
+        // Bind before taking ownership or starting workers. Once running, HTTP
+        // failures are isolated; the normal run retains sole lifecycle authority.
+        await using var webDashboard = preflight.Options.DashboardEnabled
+            ? await Dashboard.DashboardRunLifetime.StartAsync(preflight.RepositoryRoot,
+                preflight.Options.DashboardSettings ?? Dashboard.DashboardOptions.Parse(null, null, null, null),
+                Console.Error, cancellationToken, log as ConsoleOutput, claimGate, schedule)
+            : null;
+
         var pool = await WorktreePool.OpenAsync(runner, preflight.RepositoryRoot, cancellationToken, preflight.Tools.Git);
         using var poolLease = pool.AcquireLease();
         // An old execution can still own the repository's merge slot or be integrating in the
@@ -89,8 +100,6 @@ public sealed class AbacusApplication(
             (log as ConsoleOutput)?.Events);
 
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var claimGate = new ClaimGate();
-        claimGate.SetEnabled(!preflight.Options.StartPaused);
         var initialClaimBarrier = new InitialClaimBarrier(preflight.Agents.Count);
         var agentControls = preflight.Agents.ToDictionary(
             static agent => agent.Name,
@@ -229,42 +238,30 @@ public sealed class AbacusApplication(
             if (continuation is not null)
                 continuationMonitor = continuation.RunAsync(() => loops.All(loop => loop.IsCompleted), linkedCancellation.Token);
 
+            var controlWorkers = preflight.Agents.Select((agent, index) => new
+            {
+                agent.Name, Worker = new RunControlWorker(agentControls[agent.Name], loops[index]),
+            }).ToDictionary(item => item.Name, item => item.Worker, StringComparer.Ordinal);
+            var controlSupervisors = new Dictionary<string, RunControlSupervisor>(StringComparer.Ordinal);
+            if (continuation is not null)
+                controlSupervisors.Add(ContinuationSupervisor.Name, new(continuation.Request, continuation.ForceRun, continuationMonitor, continuation.RequestTracked, continuation.ForceRunTracked));
+            if (maintenance is not null)
+                controlSupervisors.Add(MaintenanceSupervisor.Name, new(maintenance.Request, maintenance.ForceRun, maintenanceMonitor, maintenance.RequestTracked, maintenance.ForceRunTracked));
+            var controlRouter = new RunControlRouter(controlWorkers, controlSupervisors, linkedCancellation.Token);
+            webDashboard?.BindWorkerControls(controlRouter);
+            void RequestShutdown()
+            {
+                controlShutdown = true;
+                linkedCancellation.Cancel();
+            }
+            webDashboard?.BindRunControls(RequestShutdown);
+
             if (log is ConsoleOutput consoleOutput)
             {
-                void RequestAction(string name, AgentControlAction action)
-                {
-                    if (name == ContinuationSupervisor.Name && continuation is not null)
-                    {
-                        continuation.Request(action);
-                        return;
-                    }
-                    if (name == MaintenanceSupervisor.Name && maintenance is not null)
-                    {
-                        maintenance.Request(action);
-                        return;
-                    }
-                    if (!agentControls.TryGetValue(name, out var control))
-                        throw new ArgumentException($"unknown agent '{name}'");
-                    var index = preflight.Agents.ToList().FindIndex(agent => agent.Name == name);
-                    if (loops[index].IsCompleted)
-                        throw new InvalidOperationException($"agent '{name}' has finished; start a new run");
-                    if (!control.TryRequest(action))
-                        throw new InvalidOperationException($"agent '{name}' already has a pending control request");
-                }
-                void ForceSupervisor(string name, string prompt)
-                {
-                    if (name == ContinuationSupervisor.Name && continuation is not null) continuation.ForceRun(prompt);
-                    else if (name == MaintenanceSupervisor.Name && maintenance is not null) maintenance.ForceRun(prompt);
-                    else throw new ArgumentException($"unknown or disabled supervisor '{name}'");
-                }
                 inputMonitor = preflight.Options.Stdio
-                    ? new StdioControl(Console.In, consoleOutput, claimGate, RequestAction, () =>
-                    {
-                        controlShutdown = true;
-                        linkedCancellation.Cancel();
-                    }, ForceSupervisor).RunAsync(linkedCancellation.Token)
+                    ? new StdioControl(Console.In, consoleOutput, claimGate, controlRouter.Request, RequestShutdown, controlRouter.ForceSupervisor).RunAsync(linkedCancellation.Token)
                     : consoleOutput.MonitorDashboardInputAsync(claimGate,
-                        RequestAction, ForceSupervisor, linkedCancellation.Token);
+                        controlRouter.Request, controlRouter.ForceSupervisor, linkedCancellation.Token);
             }
 
             foreach (var loop in loops.Append(maintenanceMonitor).Append(continuationMonitor))
@@ -308,6 +305,7 @@ public sealed class AbacusApplication(
         }
         finally
         {
+            webDashboard?.StopControls();
             linkedCancellation.Cancel();
             try
             {

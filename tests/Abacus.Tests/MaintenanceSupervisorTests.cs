@@ -239,20 +239,25 @@ public sealed class MaintenanceSupervisorTests
         await fixture.Supervisor.RunAsync(() => fixture.Host.Stops > 0, fixture.Token);
         Assert.Equal(1, fixture.Host.Starts);
         Assert.Equal(1, fixture.Host.Stops);
-        Assert.Contains("resolved", fixture.Log.ToString());
+        Assert.Contains("resolved", fixture.LogText);
         Assert.Empty(Directory.GetFiles(fixture.Root, "supervisor-*.json"));
     }
 
-    [Fact]
-    public async Task ForceRunWithoutAttentionAppendsToNormalPrompt()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ForceRunWithoutAttentionAppendsToNormalPrompt(bool tracked)
     {
         using var fixture = new Fixture();
         fixture.Host.OnStart = (_, issue) => fixture.Complete(issue.Id);
-        fixture.Supervisor.ForceRun("Inspect the idle merge slot.");
+        var receipt = tracked ? fixture.Supervisor.ForceRunTracked("Inspect the idle merge slot.") : null;
+        if (!tracked) fixture.Supervisor.ForceRun("Inspect the idle merge slot.");
+        if (receipt is not null) Assert.False(receipt.Completion.IsCompleted);
         await fixture.Supervisor.RunAsync(() => fixture.Host.Stops > 0, fixture.Token);
         Assert.Equal(1, fixture.Host.Starts);
         Assert.Contains("You are Abacus's optional maintenance supervisor", fixture.Host.LastPrompt);
         Assert.EndsWith("Additional instructions for this operator-requested run:\nInspect the idle merge slot.", fixture.Host.LastPrompt);
+        if (receipt is not null) Assert.Equal("completed", (await receipt.Completion.WaitAsync(fixture.Token)).Outcome);
     }
 
     [Fact]
@@ -276,11 +281,11 @@ public sealed class MaintenanceSupervisorTests
         await retry.WaitAsync(fixture.Token);
         Assert.Contains("claim permission error", fixture.Host.LastPrompt);
         var secondFailure = fixture.Supervisor.FailedAsync("alice", "still broken", fixture.Token);
-        await fixture.Until(() => fixture.Log.ToString().Contains("Last run:"));
+        await fixture.Until(() => fixture.LogText.Contains("Last run:"));
         await Task.Delay(100, fixture.Token);
         Assert.Equal(1, fixture.Host.Starts);
         Assert.False(secondFailure.IsCompleted);
-        Assert.Contains(timeout ? "timed out" : "without completion", fixture.Log.ToString());
+        Assert.Contains(timeout ? "timed out" : "without completion", fixture.LogText);
         fixture.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => monitor);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => secondFailure);
@@ -295,7 +300,7 @@ public sealed class MaintenanceSupervisorTests
         var monitor = fixture.Supervisor.RunAsync(() => false, fixture.Token);
         await retry;
         fixture.Supervisor.Healthy("alice", working: true);
-        await fixture.Until(() => fixture.Log.ToString().Contains("Last run:"));
+        await fixture.Until(() => fixture.LogText.Contains("Last run:"));
         var retryAgain = fixture.Supervisor.FailedAsync("alice", "broken again", fixture.Token);
         await retryAgain;
         fixture.Supervisor.Healthy("alice", working: true);
@@ -317,17 +322,21 @@ public sealed class MaintenanceSupervisorTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => retry);
     }
 
-    [Fact]
-    public async Task CancelledSupervisorDoesNotRetryFailedAgents()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancelledSupervisorDoesNotRetryFailedAgents(bool tracked)
     {
         using var fixture = new Fixture();
         var retry = fixture.Supervisor.FailedAsync("alice", "broken", fixture.Token);
         var monitor = fixture.Supervisor.RunAsync(() => false, fixture.Token);
         await fixture.Until(() => fixture.Host.Starts > 0);
-        fixture.Supervisor.Request(AgentControlAction.Stop);
-        await fixture.Until(() => fixture.Log.ToString().Contains("Cancelled by operator"));
+        var stop = tracked ? fixture.Supervisor.RequestTracked(AgentControlAction.Stop) : null;
+        if (!tracked) fixture.Supervisor.Request(AgentControlAction.Stop);
+        await fixture.Until(() => fixture.LogText.Contains("Cancelled by operator"));
         Assert.False(retry.IsCompleted);
         Assert.Equal(1, fixture.Host.Stops);
+        if (stop is not null) Assert.Equal("completed", (await stop.Completion.WaitAsync(fixture.Token)).Outcome);
         fixture.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => monitor);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => retry);
@@ -371,7 +380,7 @@ public sealed class MaintenanceSupervisorTests
         fixture.Attention();
         fixture.Host.OnStart = (_, issue) => { fixture.Attention(cannotResolve: true); fixture.Complete(issue.Id); };
         var monitor = fixture.Supervisor.RunAsync(() => false, fixture.Token);
-        await fixture.Until(() => fixture.Log.ToString().Contains("Last run:"));
+        await fixture.Until(() => fixture.LogText.Contains("Last run:"));
         await Task.Delay(50, fixture.Token);
         Assert.Equal(1, fixture.Host.Starts);
         fixture.Attention(); // Equivalent to the standalone command removing only cannot-resolve.
@@ -380,20 +389,87 @@ public sealed class MaintenanceSupervisorTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => monitor);
     }
 
-    [Fact]
-    public async Task ExplicitSupervisorRestartRetriesAnUnchangedIncompleteIssue()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExplicitSupervisorRestartRetriesAnUnchangedIncompleteIssue(bool tracked)
     {
         using var fixture = new Fixture();
         fixture.Attention();
         fixture.Host.Exited = true;
         var monitor = fixture.Supervisor.RunAsync(() => false, fixture.Token);
-        await fixture.Until(() => fixture.Log.ToString().Contains("Last run:"));
+        await fixture.Until(() => fixture.LogText.Contains("Last run:"));
         await Task.Delay(50, fixture.Token);
         Assert.Equal(1, fixture.Host.Starts);
-        fixture.Supervisor.Request(AgentControlAction.Restart);
+        var restart = tracked ? fixture.Supervisor.RequestTracked(AgentControlAction.Restart) : null;
+        if (!tracked) fixture.Supervisor.Request(AgentControlAction.Restart);
         await fixture.Until(() => fixture.Host.Starts == 2);
+        if (restart is not null) Assert.Equal("completed", (await restart.Completion.WaitAsync(fixture.Token)).Outcome);
         fixture.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => monitor);
+    }
+
+    [Fact]
+    public async Task TrackedStopIsUnknownWhenActiveHarnessCleanupFails()
+    {
+        using var fixture = new Fixture();
+        fixture.Attention();
+        fixture.Host.CleanupFailure = true;
+        var monitor = fixture.Supervisor.RunAsync(() => false, fixture.Token);
+        await fixture.Until(() => fixture.Host.Starts > 0);
+        var stop = fixture.Supervisor.RequestTracked(AgentControlAction.Stop);
+        await Assert.ThrowsAsync<SupervisorCleanupException>(() => monitor);
+        Assert.Equal("outcome-unknown", (await stop.Completion.WaitAsync(fixture.Token)).Outcome);
+    }
+
+    [Fact]
+    public async Task QueuedForceBelongsToNextRunNotActiveAutomaticRun()
+    {
+        using var fixture = new Fixture();
+        fixture.Attention();
+        SupervisorForceReceipt? receipt = null;
+        fixture.Host.OnStart = (_, issue) =>
+        {
+            if (fixture.Host.Starts == 1)
+            {
+                receipt = fixture.Supervisor.ForceRunTracked("Next run only");
+                fixture.Attention(false);
+            }
+            else Assert.False(receipt!.Completion.IsCompleted);
+            fixture.Complete(issue.Id);
+        };
+        await fixture.Supervisor.RunAsync(() => fixture.Host.Stops >= 2, fixture.Token);
+        Assert.Equal(2, fixture.Host.Starts);
+        Assert.EndsWith("Next run only", fixture.Host.LastPrompt);
+        Assert.Equal("completed", (await receipt!.Completion.WaitAsync(fixture.Token)).Outcome);
+    }
+
+    [Fact]
+    public async Task StopCancelsQueuedForceWithoutStartingHarness()
+    {
+        using var fixture = new Fixture();
+        var receipt = fixture.Supervisor.ForceRunTracked("Queued prompt");
+        Assert.Throws<InvalidOperationException>(() => fixture.Supervisor.ForceRun("Duplicate"));
+        fixture.Supervisor.Request(AgentControlAction.Stop);
+        await fixture.Supervisor.RunAsync(() => true, fixture.Token);
+        Assert.Equal("cancelled", (await receipt.Completion.WaitAsync(fixture.Token)).Outcome);
+        Assert.Equal(0, fixture.Host.Starts);
+        Assert.Throws<InvalidOperationException>(() => fixture.Supervisor.ForceRunTracked("Too late"));
+    }
+
+    [Theory]
+    [InlineData(false, "failed")]
+    [InlineData(true, "outcome-unknown")]
+    public async Task ForceReceiptDoesNotClaimSuccessForCrashOrFailedCleanup(bool cleanupFailure, string expected)
+    {
+        using var fixture = new Fixture();
+        fixture.Host.Exited = true;
+        fixture.Host.CleanupFailure = cleanupFailure;
+        var receipt = fixture.Supervisor.ForceRunTracked("Check failure");
+        if (cleanupFailure)
+            await Assert.ThrowsAsync<SupervisorCleanupException>(() => fixture.Supervisor.RunAsync(() => fixture.Host.Stops > 0, fixture.Token));
+        else await fixture.Supervisor.RunAsync(() => fixture.Host.Stops > 0, fixture.Token);
+        Assert.Equal(expected, (await receipt.Completion.WaitAsync(fixture.Token)).Outcome);
     }
 
     private sealed class Fixture : IDisposable
@@ -401,13 +477,18 @@ public sealed class MaintenanceSupervisorTests
         private readonly CancellationTokenSource cancellation = new(TimeSpan.FromSeconds(10));
         public string Root { get; } = Directory.CreateTempSubdirectory("abacus-supervisor-test-").FullName;
         public CancellationToken Token => cancellation.Token;
-        public StringWriter Log { get; } = new();
+        private readonly StringWriter logBuffer = new();
+        public TextWriter Log { get; }
+        // Polling assertions race background supervisor output; use the same
+        // monitor as TextWriter.Synchronized rather than reading StringBuilder raw.
+        public string LogText { get { lock (Log) return logBuffer.ToString(); } }
         public FakeHost Host { get; } = new();
         public MaintenanceSupervisor Supervisor { get; }
         private readonly ConsoleOutput? output;
         public List<SoundClip> Clips { get; } = [];
         public Fixture(TimeSpan? timeout = null, bool audio = false, bool? interactive = null)
         {
+            Log = TextWriter.Synchronized(logBuffer);
             Attention(false);
             var bd = Path.Combine(Root, "bd");
             File.WriteAllText(bd, "#!/bin/sh\ncase \"$*\" in\n *abacus:supervisor-cannot-resolve*) echo '[]';;\n *) cat \"" + Path.Combine(Root, "issues.json") + "\";;\nesac\n");

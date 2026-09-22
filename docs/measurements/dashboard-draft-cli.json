@@ -1,0 +1,57 @@
+{
+  "run": "b8cc0f540b2046408d47427b0e8a4ad2",
+  "repository": "/private/tmp/abacus-web-contract",
+  "issues": [
+    {
+      "id": "web-f6a",
+      "type": "task"
+    },
+    {
+      "id": "web-3xl",
+      "type": "epic"
+    },
+    {
+      "id": "web-xxg",
+      "type": "task"
+    }
+  ],
+  "checks": [
+    "task: persisted deferred creation is non-ready with exact content and target",
+    "task: blocked plus deferred survives a fresh read",
+    "task: clearing only the staging deferral leaves a non-ready draft",
+    "epic: persisted deferred creation is non-ready with exact content and target",
+    "epic: blocked plus deferred survives a fresh read",
+    "epic: clearing only the staging deferral leaves a non-ready draft",
+    "unsupported epic/task dependency is rejected without adding an edge",
+    "task: persisted deferred creation is non-ready with exact content and target",
+    "task: blocked plus deferred survives a fresh read",
+    "task: clearing only the staging deferral leaves a non-ready draft",
+    "explicit publication preserves the real dependency and does not imply readiness",
+    "explicit publication exposes only the dependency-free first wave"
+  ],
+  "scope": "Real CLI draft staging and dependency-aware publication; no HTTP/runtime acceptance.",
+  "beadsVersion": "bd version 1.2.2 (Homebrew)",
+  "lastCommand": [
+    "--readonly",
+    "show",
+    "web-xxg",
+    "--json"
+  ],
+  "commandFailures": [
+    {
+      "args": [
+        "dep",
+        "add",
+        "web-3xl",
+        "web-f6a",
+        "--json"
+      ],
+      "exitCode": 1,
+      "stdout": "{\n  \"error\": \"epics can only block other epics, not tasks\",\n  \"schema_version\": 1\n}\n",
+      "stderr": ""
+    }
+  ],
+  "contractPassed": true,
+  "cleanupErrors": [],
+  "passed": true
+}

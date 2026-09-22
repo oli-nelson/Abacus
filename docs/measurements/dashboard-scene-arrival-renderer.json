@@ -1,0 +1,69 @@
+{
+  "recordedAt": "2026-09-22T02:43:35.587Z",
+  "sourceHashes": {
+    "tests/browser/scale-cdp.mjs": "12b476681ca33d2ce4317374cf789854182f4f09fdbb6f38569656c83b867b67",
+    "tests/browser/fixture-server.mjs": "f3af7c99a27affdc43c87f049c5592b9bce3656ac5518d1413abd0215410071f",
+    "src/Abacus/Dashboard/Assets/timeline.js": "99f3f34f7029fb8f63a7bf8f4ce65504b9e13dc335c4547a1d79a61c47c6c256",
+    "src/Abacus/Dashboard/Assets/timeline-model.js": "8778842cb1c281cd8aa0fe335520cb6b16598bc74632b86f1daef59f482f8e04",
+    "src/Abacus/Dashboard/Assets/timeline-gl.js": "d8a62113a797ac50c3633f661561942e93da43a385959997fd62fc3bbd293731",
+    "src/Abacus/Dashboard/Assets/dashboard.js": "4fe9729bed372acb01952874dd136436003a08f5aab8a9370b54b34722e4a433",
+    "src/Abacus/Dashboard/Assets/dashboard.css": "95918ab093dd4d1f6d86c7b969b2a777fd0c0a2507c0413917efa044318a510c",
+    "src/Abacus/Dashboard/Assets/index.html": "78a893fe811835cdfaaf3265f26eb68f29d8bf055bebafebcf95103046d7ca71",
+    "src/Abacus/Dashboard/Assets/inspector-resize.js": "7ac9265ce67045999df66be6cbef384b002ba9f8acf69b8bd831f84e3fb01af1"
+  },
+  "idle": {
+    "observedMs": 1000,
+    "frameDelta": 0
+  },
+  "scope": "Synthetic browser scene only: one rendered client plus nine stream-only clients. Not real Beads/Git, ten rendered clients, isolated CPU, peak memory or native-GPU acceptance.",
+  "environment": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "cpu": "Apple M4 Pro",
+    "logicalCpus": 14,
+    "totalMemoryBytes": 51539607552,
+    "browser": {
+      "protocolVersion": "1.3",
+      "product": "Chrome/153.0.8010.53",
+      "revision": "@792bf6722e73a45aa9e47c163b9901bdc17f3230",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+      "jsVersion": "15.3.76.13"
+    },
+    "graphics": "Headless Chrome with SwiftShader software rendering"
+  },
+  "dataset": {
+    "issues": 1000,
+    "recordedEvents": 10000,
+    "concurrentStreams": 10
+  },
+  "viewport": {
+    "width": 1671,
+    "height": 941
+  },
+  "warmViewportMs": 1037.699999988079,
+  "labelLayout": {
+    "visible": 11,
+    "overlaps": 0,
+    "accessibleLanes": 24,
+    "culled": 21
+  },
+  "displayedEventListItems": 240,
+  "motion": {
+    "elapsedMs": 8012.199999988079,
+    "cameraChanges": 427,
+    "renderedFrames": 427,
+    "framesPerSecond": 53.293727066303305,
+    "p95ObservedFrameIntervalMs": 29.200000047683716,
+    "bufferUploads": 0,
+    "sourceRequests": 0
+  },
+  "rendererTaskSeconds": 0.2936779999999999,
+  "jsHeapUsedBytes": 10672896,
+  "visibleLaneCards": 24,
+  "domNodes": 2386,
+  "thresholds": {
+    "warmViewportUnder2s": true,
+    "motionAtLeast30fps": true
+  },
+  "errors": []
+}

@@ -20,6 +20,51 @@ public sealed class RunConfigurationTests : IDisposable
         """;
 
     [Fact]
+    public void DashboardSettingsInheritOverrideAndRemainDormantWhenDisabled()
+    {
+        Write("""{"version":1,"model":"provider/saved","dashboard":true,"dashboardPort":8181,"dashboardBind":"::1","dashboardActor":"base actor","dashboardPollInterval":"2s"}""", "base.json");
+        var path = Write("""{"version":1,"baseConfig":"base.json","dashboardActor":"child actor"}""");
+        var enabled = Options.Parse(["run", "--config", path, "--dashboard-port", "8282"]).Value!;
+        Assert.True(enabled.DashboardEnabled);
+        Assert.Equal(8282, enabled.DashboardSettings!.Port);
+        Assert.Equal("::1", enabled.DashboardSettings.Bind);
+        Assert.Equal("child actor", enabled.DashboardSettings.Actor);
+        Assert.Equal(TimeSpan.FromSeconds(2), enabled.DashboardSettings.PollInterval);
+        Assert.Empty(RunConfiguration.Load(path).Warnings());
+        var disabled = Options.Parse(["run", "--config", path, "--dashboard=false"]).Value!;
+        Assert.False(disabled.DashboardEnabled);
+        Assert.Equal(8181, disabled.DashboardSettings!.Port);
+        Assert.Throws<OptionsException>(() => Options.Parse(["run", "--config", path, "--dashboard=false", "--dashboard-port", "8282"]));
+        var preflight = Options.Parse(["preflight", "--config", path]).Value!;
+        Assert.True(preflight.CheckOnly);
+        Assert.True(preflight.DashboardEnabled);
+        Assert.Equal(8181, preflight.DashboardSettings!.Port);
+    }
+
+    [Fact]
+    public void DashboardDormantSettingsAreValidatedAndCliCanOverrideEnabledSavedValues()
+    {
+        var path = Write("""{"version":1,"model":"provider/saved","dashboard":false,"dashboardPort":0}""");
+        Assert.Throws<OptionsException>(() => Options.Parse(["run", "--config", path]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["preflight", "--config", path]));
+        var enabled = Options.Parse(["run", "--config", path, "--dashboard", "--dashboard-port", "8383"]).Value!;
+        Assert.Equal(8383, enabled.DashboardSettings!.Port);
+    }
+
+    [Theory]
+    [InlineData("--dashboard-bind", "0.0.0.0")]
+    [InlineData("--dashboard-port", "8080")]
+    [InlineData("--dashboard-actor", "actor")]
+    [InlineData("--dashboard-poll-interval", "1s")]
+    public void ExplicitDashboardTuningRequiresEnablementAndRunScope(string option, string value)
+    {
+        Assert.Throws<OptionsException>(() => Options.Parse(["run", "--model", "provider/saved", option, value]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["dashboard", option, value]));
+        Assert.Throws<OptionsException>(() => Options.Parse(["preflight", "--model", "provider/saved", option, value]));
+        Assert.True(Options.Parse(["run", "--model", "provider/saved", "--dashboard", option, value]).Value!.DashboardEnabled);
+    }
+
+    [Fact]
     public void LoadsConfigRelativePathsAndDefaultValues()
     {
         var options = Options.Parse(["run", "--config=" + Write(Complete)]).Value!;

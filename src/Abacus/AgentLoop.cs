@@ -641,6 +641,7 @@ public sealed class AgentLoop(
                         cleaned
                             ? "Workspace cleaned; press Enter and choose Restart to resume"
                             : "Workspace cleanup failed; review the persistent alert before retrying");
+                    control.CompleteTrackedAction(AgentControlAction.CleanWorkspace, cleaned);
                     action = await control.WaitForRequestedActionAsync(cancellationToken);
                     continue;
                 }
@@ -652,6 +653,7 @@ public sealed class AgentLoop(
                         agent.Name,
                         AgentActivity.Stopped,
                         "Stopped by operator; press Enter and choose Restart to resume");
+                    control.CompleteTrackedAction(AgentControlAction.Stop);
                     action = await control.WaitForRequestedActionAsync(cancellationToken);
                     continue;
                 }
@@ -661,6 +663,8 @@ public sealed class AgentLoop(
                     maintenance?.OperatorStopped(agent.Name);
                     await log.ClearPersistentAlertAsync(agent.Name);
                     await log.SetAgentAsync(agent.Name, AgentActivity.Starting, "Restart requested by operator");
+                    // Completion means dispatch is resumed, not that a harness has started.
+                    control.CompleteTrackedAction(AgentControlAction.Restart);
                 }
 
                 action = null;
@@ -693,7 +697,7 @@ public sealed class AgentLoop(
             await log.SetAgentAsync(agent.Name, AgentActivity.Stopped, "Shutting down");
             throw;
         }
-        finally { ReleaseWorkspace(); }
+        finally { control.AbandonTrackedActions(); ReleaseWorkspace(); }
     }
 
     private async Task RunActiveAsync(CancellationToken cancellationToken)

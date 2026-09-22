@@ -190,41 +190,27 @@ public sealed partial class Beads(CommandRunner runner, string executable = "bd"
         return result;
     }
 
-    public async Task<CommandResult> ResolveUserAttentionAsync(
-        string workspace,
-        string issueId,
-        string? message,
-        bool reopen,
+    public Task<CommandResult> ResolveUserAttentionAsync(
+        string workspace, string issueId, string? message, bool reopen, CancellationToken cancellationToken) =>
+        ResolveUserAttentionAsync(issueId, message, reopen,
+            (arguments, token) => RunAsync(workspace, agentName: null, arguments, token), cancellationToken);
+
+    // Shared sequence for standalone CLI and bounded dashboard execution. A failed
+    // comment must prevent label removal/reopening; callers may verify each step.
+    internal static async Task<CommandResult> ResolveUserAttentionAsync(
+        string issueId, string? message, bool reopen,
+        Func<IReadOnlyList<string>, CancellationToken, Task<CommandResult>> execute,
         CancellationToken cancellationToken)
     {
         if (message is not null)
         {
-            var comment = await RunAsync(
-                workspace,
-                agentName: null,
-                ["comment", issueId, message, "--json"],
-                cancellationToken);
+            var comment = await execute(["comment", "--json", issueId, "--", message], cancellationToken);
             EnsureCommandSuccess(comment, $"record user response for '{issueId}'");
         }
-
-        var updateArguments = new List<string>
-        {
-            "update",
-            issueId,
-            "--remove-label",
-            NeedsUserAttentionLabel,
-        };
-        if (reopen)
-        {
-            updateArguments.AddRange(["--status", "open", "--assignee", ""]);
-        }
-
-        updateArguments.Add("--json");
-        var result = await RunAsync(
-            workspace,
-            agentName: null,
-            updateArguments,
-            cancellationToken);
+        var arguments = new List<string> { "update", issueId, "--remove-label", NeedsUserAttentionLabel };
+        if (reopen) arguments.AddRange(["--status", "open", "--assignee", ""]);
+        arguments.Add("--json");
+        var result = await execute(arguments, cancellationToken);
         EnsureCommandSuccess(result, $"resolve user attention for '{issueId}'");
         return result;
     }

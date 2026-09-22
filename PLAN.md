@@ -26,6 +26,16 @@ Build the smallest useful Abacus: a Unix-oriented C# console application that co
 
 Abacus should own only the orchestration state machine. It should not reimplement or directly integrate with the internals of any of those tools.
 
+## Web-dashboard hosting exception
+
+The interactive server in ABACUS_WEB_SERVER_SPEC.md extends the original no-web
+scope. Its HTTP host uses the .NET 10 `Microsoft.AspNetCore.App` shared framework
+(Kestrel), in the same executable, with explicit IP listeners rather than hostname
+URL wildcards. This is an intentional exception to the standard-library-only rule:
+no production NuGet package, runtime Node server, vendor SDK or database is added.
+Framework-dependent deployments also need the ASP.NET Core runtime; self-contained
+release packages include it. Review native release packaging/size before release.
+
 ## Simplicity rules
 
 - Use one .NET console application and the .NET standard library.

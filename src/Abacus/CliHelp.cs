@@ -7,6 +7,7 @@ internal static class CliHelp
         Usage: abacus <command> [options]
 
         Commands:
+          dashboard            Host the interactive Beads/Git dashboard without starting agents.
           run                  Run agents continuously, or with --once / --drain.
           config edit [file] [--output <file>]
                                Create/edit a run config in the TUI, with Save As.
@@ -132,6 +133,20 @@ internal static class CliHelp
 
     public static string For(string command) => command switch
     {
+        "dashboard" => """
+            Usage: abacus dashboard [--repo <main-checkout>] [options]
+            Host the interactive Beads/Git dashboard without starting agents.
+
+              --bind <ip-or-host>       Default 127.0.0.1; IPv4, IPv6 or resolvable hostname.
+              --port <port>             Default 8080; range 1–65535, no automatic fallback.
+              --actor <display-name>    Default abacus-web; self-declared audit attribution.
+              --poll-interval <duration> Default 5s; minimum 1s (s/m/h suffix).
+
+            WARNING: unauthenticated read/write access. Use trusted networks only;
+            HTTP is not encrypted. No browser is opened automatically.
+            Implementation preview: issue/branch browsing, comparisons and live updates;
+            comments, content/attention edits, bounded history and a WebGL timeline. Integrated runs also expose live workers and claim Pause/Resume.
+            """,
         "" => Overview,
         "run" => """
             Usage: abacus run [options] --model <model[#effort]> [--agents <count>]
@@ -143,15 +158,24 @@ internal static class CliHelp
             dirty issue workspaces; ambiguous workspaces stop with an alert, never automatic cleaning.
               --once   Process at most one currently ready ticket per agent, then exit.
               --drain  Process ready work until each agent observes an empty queue, then exit.
+              --dashboard             Also host the HTTP issue/Git preview inside this run.
+              --dashboard-bind <host>  Default 127.0.0.1; explicit tuning requires --dashboard.
+              --dashboard-port <port>  Default 8080; occupied ports fail before workers start.
+              --dashboard-actor <name> Self-declared edit attribution; default abacus-web.
+              --dashboard-poll-interval <duration> Shared source polling; default 5s, minimum 1s.
               --stdio                 JSONL events on stdout; JSONL commands on stdin, no TUI.
               --event-log <path>      Append the same structured activity events to a JSONL file.
-              --start-paused          Pause claims initially; resume with Shift-Tab or stdio resume.
+              --start-paused          Pause claims initially; resume with Shift-Tab, stdio, or --dashboard HTTP controls.
               --no-intro              Skip the interactive ASCII startup animation.
               --tui-audio             Play the bundled startup and attention audio; off by default.
             Stdio commands: status, pause, resume, stop, restart, clean-workspace, shutdown.
             Use {"id":"1","command":"status"}; agent actions require "agent".
             clean-workspace also requires "confirm":true. EOF gracefully shuts down.
             --stdio rejects --verbose and desktop notifications.
+            HTTP access is unauthenticated read/write; use a trusted network. Claim Pause/Resume
+            and worker Stop/Restart/confirmed Clean plus confirmed Stop Run are available;
+            supervisor Stop/Restart and confirmed Force Run use tracked outcomes.
+            Saved dashboard settings inherit normally; --dashboard=false disables listening.
             --once and --drain are mutually exclusive; finite modes fail on orchestration errors.
             A run config may schedule claim windows (timezone, block, minWindowRemaining) that
             block new tickets during recurring hours such as a provider's peak prices. Those

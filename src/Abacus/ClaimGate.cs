@@ -4,6 +4,7 @@ public sealed class ClaimGate
 {
     private readonly object gate = new();
     private bool enabled = true;
+    internal event Action? Changed;
     private TaskCompletionSource enabledSignal = CompletedSignal();
 
     public bool IsEnabled
@@ -23,6 +24,16 @@ public sealed class ClaimGate
         {
             SetEnabledCore(!enabled);
             return enabled;
+        }
+    }
+
+    internal bool TrySetEnabled(bool expected, bool value)
+    {
+        lock (gate)
+        {
+            if (enabled != expected) return false;
+            SetEnabledCore(value);
+            return true;
         }
     }
 
@@ -53,6 +64,7 @@ public sealed class ClaimGate
         }
 
         enabled = value;
+        Changed?.Invoke();
         if (enabled)
         {
             enabledSignal.TrySetResult();

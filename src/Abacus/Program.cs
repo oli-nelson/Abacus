@@ -40,6 +40,9 @@ public static class Program
                 workingDirectory = await new Git(new CommandRunner(TextWriter.Null))
                     .ResolveMainRepositoryAsync(workingDirectory, parsed.RepositoryPath, CancellationToken.None);
 
+            if (parsed.Dashboard is { } dashboard)
+                return await Abacus.Dashboard.DashboardApplication.RunAsync(workingDirectory, dashboard);
+
             if (parsed.WorktreeCommand is { } worktreeCommand)
             {
                 var runner = new CommandRunner(TextWriter.Null);
@@ -353,7 +356,7 @@ public static class Program
                 effort: options.Effort,
                 effortIsRequested: options.AgentMode == AgentMode.OpenCode,
                 schedule: options.Schedule);
-            if (options.StartPaused && !options.Stdio && !output.IsInteractiveDashboard)
+            if (options.StartPaused && !options.Stdio && !output.IsInteractiveDashboard && !options.DashboardEnabled)
                 throw new InvalidOperationException(
                     "--start-paused requires an interactive dashboard or --stdio so claims can be resumed");
             await using var notifier = new DesktopNotifier(

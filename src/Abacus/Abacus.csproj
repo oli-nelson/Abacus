@@ -11,6 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <EmbeddedResource Include="Dashboard/Assets/*" LogicalName="Abacus.Dashboard.%(Filename)%(Extension)" />
     <EmbeddedResource Include="../../media/abacus_supervisor_maintanence.mp3" LogicalName="Abacus.Media.abacus_supervisor_maintanence.mp3" />
     <EmbeddedResource Include="../../media/abacus_supervisor_continue.mp3" LogicalName="Abacus.Media.abacus_supervisor_continue.mp3" />
     <EmbeddedResource Include="../../media/abacus_supervisor_failed.mp3" LogicalName="Abacus.Media.abacus_supervisor_failed.mp3" />

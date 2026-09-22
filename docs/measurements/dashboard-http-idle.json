@@ -1,0 +1,33 @@
+{
+  "clients": 10,
+  "sseConnections": 20,
+  "visibleWorktrees": 1,
+  "seconds": 60.02,
+  "dataEvents": 0,
+  "repeatHistoryDiffQueries": 0,
+  "snapshotBytes": 3698,
+  "snapshotUnchanged": true,
+  "projectionRebuilds": 0,
+  "issueSerializations": 0,
+  "snapshotBuilds": 0,
+  "sourceCommands": 280,
+  "exportCalls": 10,
+  "exportBytes": 26520,
+  "exportCommandSeconds": 4.0809,
+  "exportHashSeconds": 0.0017146000000000002,
+  "worktreeFingerprintBytes": 100400,
+  "worktreeFingerprintSeconds": 2.7537344999999998,
+  "hashObjectCalls": 20,
+  "hashObjectCommandSeconds": 0.1042,
+  "stdoutBytes": 0,
+  "scope": "Real standalone HTTP + Beads + Git. Small fixture; not integrated runtime or large-scene benchmark. Stage times include CLI latency, not isolated CPU.",
+  "environment": {
+    "system": "Darwin",
+    "architecture": "arm64",
+    "git": "git version 2.55.0",
+    "beads": "bd version 1.2.2 (Homebrew)",
+    "dotnetSdk": "10.0.101"
+  },
+  "sourceFingerprint": "36ea7b93ce1b6a625ce7227eb349671605b28b4c1435a81164cb696ae5dea46a",
+  "sourceFingerprintScope": "src/Abacus .cs/.csproj/.js/.css/.html excluding bin/obj; uncommitted working tree"
+}

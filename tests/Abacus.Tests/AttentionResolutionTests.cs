@@ -78,9 +78,10 @@ public sealed class AttentionResolutionTests
         Assert.Equal(
             [
                 "comment",
-                "ab-456",
-                message,
                 "--json",
+                "ab-456",
+                "--",
+                message,
                 "update",
                 "ab-456",
                 "--remove-label",
@@ -134,9 +135,10 @@ public sealed class AttentionResolutionTests
         Assert.Equal(
             [
                 "comment",
-                "ab-789",
-                "Need another revision",
                 "--json",
+                "ab-789",
+                "--",
+                "Need another revision",
             ],
             await File.ReadAllLinesAsync(fixture.CallsPath));
     }
@@ -193,9 +195,10 @@ public sealed class AttentionResolutionTests
         Assert.Equal(
             [
                 "comment",
-                "ab-654",
-                "Approved option B",
                 "--json",
+                "ab-654",
+                "--",
+                "Approved option B",
                 "update",
                 "ab-654",
                 "--remove-label",

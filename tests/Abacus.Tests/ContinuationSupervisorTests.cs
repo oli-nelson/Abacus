@@ -90,19 +90,24 @@ public sealed class ContinuationSupervisorTests
         Assert.Empty(Directory.GetFiles(fixture.Root, "continuation-*.json"));
     }
 
-    [Fact]
-    public async Task ForceRunBypassesAutomaticGatesAndAppendsToNormalPrompt()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ForceRunBypassesAutomaticGatesAndAppendsToNormalPrompt(bool tracked)
     {
         using var fixture = new Fixture();
         fixture.Epic("open");
         fixture.Gate.SetEnabled(false);
         var supervisor = fixture.Supervisor();
-        supervisor.ForceRun("Review epic-1 specifically.");
+        var receipt = tracked ? supervisor.ForceRunTracked("Review epic-1 specifically.") : null;
+        if (!tracked) supervisor.ForceRun("Review epic-1 specifically.");
+        if (receipt is not null) Assert.False(receipt.Completion.IsCompleted);
         Assert.True(await supervisor.CheckFiniteCompletionAsync("alice", fixture.Token));
         Assert.Equal(1, fixture.Host.Starts);
         Assert.Contains("You are Abacus's optional continuation supervisor", fixture.Host.LastPrompt);
         Assert.EndsWith("Additional instructions for this operator-requested run:\nReview epic-1 specifically.", fixture.Host.LastPrompt);
         Assert.Contains("regardless of epic backlog", fixture.Host.LastPrompt);
+        if (receipt is not null) Assert.Equal("completed", (await receipt.Completion.WaitAsync(fixture.Token)).Outcome);
     }
 
     [Fact]
@@ -185,24 +190,31 @@ public sealed class ContinuationSupervisorTests
         Assert.False(fixture.State.IsArmed());
     }
 
-    [Fact]
-    public async Task OperatorStopCancelsActivePlanningWithoutRearmingIt()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OperatorStopCancelsActivePlanningWithoutRearmingIt(bool tracked)
     {
         using var fixture = new Fixture();
         fixture.Host.Failure = "timeout";
         var supervisor = fixture.Supervisor();
         var check = supervisor.CheckFiniteCompletionAsync("alice", fixture.Token);
         while (fixture.Host.Starts == 0) await Task.Delay(1, fixture.Token);
-        supervisor.Request(AgentControlAction.Stop);
+        var stop = tracked ? supervisor.RequestTracked(AgentControlAction.Stop) : null;
+        if (!tracked) supervisor.Request(AgentControlAction.Stop);
         await check;
         Assert.Equal(1, fixture.Host.Stops);
+        if (stop is not null) Assert.False(stop.Completion.IsCompleted);
         Assert.False(fixture.State.IsArmed());
         await supervisor.CheckFiniteCompletionAsync("alice", fixture.Token); // Consume Stop; remain disabled.
         Assert.Equal(1, fixture.Host.Starts);
+        if (stop is not null) Assert.Equal("completed", (await stop.Completion.WaitAsync(fixture.Token)).Outcome);
         fixture.Host.Failure = null;
-        supervisor.Request(AgentControlAction.Restart);
+        var restart = tracked ? supervisor.RequestTracked(AgentControlAction.Restart) : null;
+        if (!tracked) supervisor.Request(AgentControlAction.Restart);
         await supervisor.CheckFiniteCompletionAsync("alice", fixture.Token);
         Assert.Equal(2, fixture.Host.Starts);
+        if (restart is not null) Assert.Equal("completed", (await restart.Completion.WaitAsync(fixture.Token)).Outcome);
     }
 
     [Fact]
@@ -286,6 +298,53 @@ public sealed class ContinuationSupervisorTests
         Assert.Equal("../custom.md", RunConfiguration.Load(path).DocumentFor(Path.Combine(fixture.Root, "sub", "new.json"))["continuationPromptFile"]!.GetValue<string>());
         File.Delete(custom);
         await Assert.ThrowsAsync<PreflightException>(() => ContinuationSupervisor.ReadAdditivePromptAsync(fixture.Root, custom, fixture.Token));
+    }
+
+    [Fact]
+    public async Task TrackedStopIsUnknownWhenActivePlanningCleanupFails()
+    {
+        using var fixture = new Fixture();
+        fixture.Host.Failure = "timeout";
+        fixture.Host.FailCleanup = true;
+        var supervisor = fixture.Supervisor();
+        var monitor = supervisor.RunAsync(() => false, fixture.Token);
+        while (fixture.Host.Starts == 0) await Task.Delay(1, fixture.Token);
+        var stop = supervisor.RequestTracked(AgentControlAction.Stop);
+        await Assert.ThrowsAsync<SupervisorCleanupException>(() => monitor);
+        Assert.Equal("outcome-unknown", (await stop.Completion.WaitAsync(fixture.Token)).Outcome);
+    }
+
+    [Fact]
+    public async Task QueuedForceIsCancelledByStopOrUnknownOnLoopExit()
+    {
+        using var fixture = new Fixture();
+        var supervisor = fixture.Supervisor();
+        var cancelled = supervisor.ForceRunTracked("Pending prompt");
+        Assert.Throws<InvalidOperationException>(() => supervisor.ForceRunTracked("Replacement"));
+        supervisor.Request(AgentControlAction.Stop);
+        await supervisor.CheckFiniteCompletionAsync("alice", fixture.Token);
+        Assert.Equal("cancelled", (await cancelled.Completion.WaitAsync(fixture.Token)).Outcome);
+        Assert.Equal(0, fixture.Host.Starts);
+        var abandoned = supervisor.ForceRunTracked("New request");
+        await supervisor.RunAsync(() => true, fixture.Token);
+        Assert.Equal("outcome-unknown", (await abandoned.Completion.WaitAsync(fixture.Token)).Outcome);
+        Assert.Throws<InvalidOperationException>(() => supervisor.ForceRun("Too late"));
+    }
+
+    [Theory]
+    [InlineData(false, "failed")]
+    [InlineData(true, "outcome-unknown")]
+    public async Task ForceReceiptDoesNotClaimSuccessForCrashOrFailedCleanup(bool cleanupFailure, string expected)
+    {
+        using var fixture = new Fixture();
+        fixture.Host.Failure = "crash";
+        fixture.Host.FailCleanup = cleanupFailure;
+        var supervisor = fixture.Supervisor();
+        var receipt = supervisor.ForceRunTracked("Check failure");
+        if (cleanupFailure)
+            await Assert.ThrowsAsync<SupervisorCleanupException>(() => supervisor.CheckFiniteCompletionAsync("alice", fixture.Token));
+        else await supervisor.CheckFiniteCompletionAsync("alice", fixture.Token);
+        Assert.Equal(expected, (await receipt.Completion.WaitAsync(fixture.Token)).Outcome);
     }
 
     private sealed class Fixture : IDisposable
