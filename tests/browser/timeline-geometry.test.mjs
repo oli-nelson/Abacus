@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {TimelineRenderer} from '../../src/Abacus/Dashboard/Assets/timeline-gl.js';
+import {TimelineRenderer,farClipDistance,clipDepthCoefficients} from '../../src/Abacus/Dashboard/Assets/timeline-gl.js';
 function geometry(scale,paths,markers){
  let data;
  const renderer=Object.create(TimelineRenderer.prototype);
@@ -36,4 +36,15 @@ test('path tubes carry their radius for the screen-space minimum at distant zoom
  const glowOffset=(counts[0]+counts[1]+counts[2])*11;
  assert.ok(data.length>glowOffset);
  assert.ok(Math.abs(data[glowOffset+10]-(2+.07*2.2))<1e-6);
+});
+test('far clip tracks zoomed-out camera and stretched scene paths',()=>{
+ const bounds={min:[-12,-4,-5],max:[12,4,5]};
+ const camera={distance:9000,target:[0,0,0],axisScale:[40,1,1]};
+ const far=farClipDistance(bounds,camera);
+ assert.ok(far>camera.distance+480);
+ const [a,b]=clipDepthCoefficients(far);
+ const projectedDepth=depth=>a-b/depth;
+ assert.ok(projectedDepth(camera.distance+480)<1,'distant paths must remain before the far plane');
+ assert.ok(Math.abs(projectedDepth(.1)+1)<1e-5,'near plane remains unchanged');
+ assert.ok(farClipDistance(bounds,{...camera,distance:30,axisScale:[1,1,1]})>=500);
 });

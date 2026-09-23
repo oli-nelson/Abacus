@@ -6,6 +6,18 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+- Keep WebGL timeline paths visible at extreme zoom-out by sizing the far depth
+  plane to the camera and stretched scene instead of clipping at a fixed distance.
+
+- Add an Attention Center web-dashboard tab showing every attention-labelled
+  issue, its three latest comments in chronological order, and shortcuts to
+  Resolve Attention or Resolve Attention & Reopen through the existing
+  review-and-submit workflow. The tab
+  shows a red pending-issue count, while Workers shows yellow for manually
+  paused claims or green when claims are enabled and allowed by the schedule.
+  Worker cards show the current issue title alongside its ID, truncating long
+  titles to fit.
+
 - Keep work that returns from Blocked through Open to In progress on the same
   timeline lane, marking the inactive Open interval with a dashed connector
   instead of drawing a confusing second fork from project history. Closed work

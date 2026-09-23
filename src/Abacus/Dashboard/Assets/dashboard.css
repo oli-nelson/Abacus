@@ -51,6 +51,10 @@ button{transition:background var(--motion-fast) var(--ease-out),border-color var
 header{position:relative;min-height:58px;padding:8px 20px;box-shadow:0 1px 22px #001a2b66;z-index:3}
 header nav button{border-color:transparent;background:transparent}
 header nav button[aria-current]{background:linear-gradient(#132b40,#0b1c2c);box-shadow:0 2px 0 #00bfea,0 5px 18px #00bfea12}
+.nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:5px;border-radius:999px;font-size:11px;font-weight:750;line-height:1;color:#111927;vertical-align:middle}
+.attention-badge{background:#ff7377;box-shadow:0 0 0 2px #ff73772b}
+.workers-badge[data-state=paused]{background:#ffd16e;box-shadow:0 0 0 2px #ffd16e2b}
+.workers-badge[data-state=active]{background:#44dfaa;box-shadow:0 0 0 2px #44dfaa2b}
 .warning{padding:4px 20px;font-size:11px;background:#181a18;color:#c4b58c}
 main{height:calc(100dvh - 81px);grid-template-columns:minmax(0,2.8fr) minmax(330px,1fr)}
 .workspace{padding:12px 18px;background:radial-gradient(ellipse at 48% 65%,#0b2235,transparent 72%)}
@@ -128,6 +132,21 @@ html[data-motion=reduce] .inspector-tab-indicator{transition:none!important}
 
 /* Keep borders, status colors and explicit focus outlines when glow is disabled. */
 html[data-glow=off] *,html[data-glow=off] *::before,html[data-glow=off] *::after{box-shadow:none!important;text-shadow:none!important}
+
+/* Attention Center keeps the latest conversation visible before an operator acts. */
+.attention-scroll{flex:1;min-height:0;overflow:auto;padding:8px 4px 22px}
+#attention-summary{color:var(--muted);font-size:13px;margin:5px 0 16px}
+#attention-empty{padding:32px 18px;border:1px dashed var(--border);border-radius:10px;color:var(--muted);text-align:center}
+#attention-list{display:grid;gap:16px}
+.attention-card{border:1px solid #36536b;border-left:3px solid #ff9a71;border-radius:10px;background:linear-gradient(135deg,#102338,#0a1726);padding:16px 18px;overflow-wrap:anywhere}
+.attention-card.selected{border-color:var(--cyan)}
+.attention-heading{display:flex;gap:12px;align-items:center;justify-content:space-between}
+.attention-issue{border:0;background:none;padding:2px 0;text-align:left;font-size:16px;font-weight:650;color:#e8f4ff;overflow-wrap:anywhere}
+.attention-comments{margin:12px 0}.attention-comments .comment{margin:9px 0;border-left-color:#4d9eb7}.attention-comments .comment p{margin:5px 0 0}
+.attention-no-comments{color:var(--muted);font-size:13px}
+.attention-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}.attention-actions button{padding:8px 12px;font-size:13px}
+.attention-actions button:first-child{border-color:#3d7885}.attention-actions button:last-child{border-color:#986948}
+@media(max-width:720px){.attention-card{padding:12px}.attention-heading{align-items:flex-start}.attention-actions button{flex:1}}
 #timeline-glow[aria-pressed=true]{border-color:#258caf;color:var(--cyan)}
 html[data-glow=off] button{transition-property:background-color,border-color,color}
 
@@ -378,7 +397,8 @@ body[data-view=workers] .runtime-help{grid-column:2;grid-row:1;align-self:center
 #runtime-workers{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));align-items:start;gap:14px;list-style:none;margin:6px 0 0;padding:0}
 #runtime-workers .worker-card{margin:0;padding:16px;border:1px solid #2c5571;border-radius:11px;background:linear-gradient(145deg,#142e47,#0d2136);box-shadow:inset 0 1px #ffffff0b,0 10px 28px #0003;min-width:0}
 .worker-heading{display:flex;align-items:center;gap:8px;min-width:0}.worker-heading strong{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.worker-heading .worker-state{margin-left:auto;color:#66dec6;font-size:12px}.worker-type{border:1px solid #52678d;border-radius:12px;padding:2px 7px;color:#b9c9ed;font-size:10px}
-#runtime-workers .worker-context{font-size:13px;color:#c6dfef;margin:14px 0 3px}
+#runtime-workers .worker-context{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:13px;color:#c6dfef;margin:14px 0 3px}
+.worker-issue-id{flex:none;color:#89dff4}.worker-issue-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #runtime-workers .worker-branch{font-size:11px;color:#93b4cc;margin:3px 0;overflow-wrap:anywhere}
 .worker-facts{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 14px}.worker-fact{border:1px solid #35556b;border-radius:14px;padding:3px 8px;color:#aac6d7;font-size:10px}.worker-fact[data-dirty=true]{border-color:#a05e5c;color:#ffb2a8}.worker-fact[data-dirty=false]{border-color:#347e6a;color:#8ee2bd}
 .worker-actions{display:flex;gap:7px;flex-wrap:wrap;padding-top:12px;border-top:1px solid #2c4a62}.worker-actions:empty{display:none}.worker-actions button{padding:7px 10px;font-size:11px}.worker-actions [data-worker-action$=":clean-workspace"]{border-color:#92556a;color:#ffb6c2}.worker-actions [data-worker-action$=":force-run"]{border-color:#3d8aac;color:#8ee3ff}

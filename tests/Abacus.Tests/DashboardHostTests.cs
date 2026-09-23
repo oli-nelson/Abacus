@@ -51,6 +51,11 @@ public sealed class DashboardHostTests
         Assert.Contains("default-src 'none'", page.Headers.GetValues("Content-Security-Policy").Single());
         var html = await page.Content.ReadAsStringAsync();
         Assert.Contains("SELECTED ISSUE", html);
+        Assert.Contains("id=\"attention-view\"", html);
+        Assert.Contains("id=\"attention-pane\"", html);
+        Assert.Contains("id=\"attention-list\"", html);
+        Assert.Contains("id=\"attention-badge\"", html);
+        Assert.Contains("id=\"workers-badge\"", html);
         foreach (var tab in new[] { "overview", "activity", "git" })
         {
             Assert.Contains($"id=\"inspector-tab-{tab}\" role=\"tab\"", html);
@@ -59,6 +64,13 @@ public sealed class DashboardHostTests
         Assert.DoesNotContain("onerror", await page.Content.ReadAsStringAsync());
         var js = await client.GetStringAsync("/dashboard.js");
         Assert.DoesNotContain("innerHTML", js);
+        Assert.Contains("function renderAttention()", js);
+        Assert.Contains("const latest=(issue.comments||[]).slice(-3);", js);
+        Assert.Contains("function updateTabBadges()", js);
+        Assert.Contains("claims?.gateAllows===true?'active'", js);
+        Assert.Contains("issues.get(worker.issueId)", js);
+        Assert.Contains("worker-issue-title", js);
+        Assert.Contains("attention-resolve-reopen", js);
         foreach (var asset in new[] { "timeline.js", "inspector-resize.js", "timeline-gl.js", "timeline-model.js", "issue-table.js", "issue-filters.js", "issue-relations.js", "dependency-tree.js" })
         {
             var module = await client.GetAsync("/" + asset);

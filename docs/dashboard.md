@@ -16,6 +16,8 @@ current worker/claim associations, and complete historical integration topology
 are **not available yet**.
 `run --dashboard` now hosts the same issue/Git preview in-process alongside workers.
 It exposes live worker rows and manual claim Pause/Resume from this run.
+Worker cards show the current issue ID and its title from the Beads snapshot;
+long titles truncate within the card, with the full title available on hover.
 Worker Stop/Restart and confirmed Clean Workspace are available with tracked
 completion. Confirmed Stop Run uses the same normal cancellation/recovery path as
 stdio shutdown. Supervisor Stop/Restart use explicit acknowledgement; confirmed Force Run tracks
@@ -41,6 +43,20 @@ trackpad pinch zooms at the pointer, and with the tree focused arrow keys pan,
 selected as alternatives. Unknown or out-of-snapshot
 relationships are counted rather than inferred, and this view is current-only,
 not timeline playback.
+
+### Attention Center
+
+The **Attention Center** lists every issue with the
+`abacus:needs-user-attention` label, including closed issues. Each card shows
+its three newest recorded comments (author, time, and full text) in chronological
+order, with the newest at the bottom, so the latest conversation is visible
+without opening the inspector. **Resolve attention** and
+**Resolve attention & reopen** select that issue and action in the existing
+review-and-submit composer; an optional response and the usual revision and
+retry safeguards still apply. The tab's red badge counts pending issues. The
+**Workers** shows a yellow badge while the manual claim gate is paused, or a
+green badge when claims are enabled and the schedule allows them. Schedule
+closure alone shows neither badge.
 
 ### Timeline and inspector navigation
 
@@ -891,7 +907,8 @@ browser; **Reset stretch** restores both to 1×. **Fit view** fits the stretched
 scene without resetting these settings. The sliders also support keyboard arrows.
 Zooming out is bounded in proportion to the stretch, so a high-stretch **Fit view**
 stays reachable by zoom and is remembered; lowering the stretch pulls a far camera
-back to the smaller scene's limit.
+back to the smaller scene's limit. The WebGL depth range expands with the camera
+and visible scene, so zooming out does not clip away distant paths.
 
 Vertical placement follows concurrent work among the displayed episodes, not
 issue IDs: one issue uses +X, two use +X/−X, and additional issues alternate

@@ -56,13 +56,22 @@ export function pickScreenMarker(markers,camera,width,height,x,y,radius){
   }
   return best;
 }
+export function farClipDistance(bounds,camera){
+  const scale=camera.axisScale||[1,1,1];
+  const radius=Math.hypot(...[0,1,2].map(i=>Math.max(Math.abs(bounds.min[i]-camera.target[i]),Math.abs(bounds.max[i]-camera.target[i]))*scale[i]));
+  return Math.max(500,camera.distance+radius+10);
+}
+export function clipDepthCoefficients(far){
+  const near=.1;
+  return [(far+near)/(far-near),2*far*near/(far-near)];
+}
 const vertex=`
 attribute vec3 a_position;
 attribute vec3 a_normal;
 attribute vec4 a_color;
 attribute float a_timed;
 uniform vec3 u_eye,u_right,u_up,u_forward,u_target,u_axisScale;
-uniform float u_aspect,u_distance,u_perspective,u_viewHeight;
+uniform float u_aspect,u_distance,u_perspective,u_viewHeight,u_clipA,u_clipB;
 varying vec4 v_color;
 varying float v_time,v_timed,v_light;
 void main(){
@@ -75,7 +84,7 @@ void main(){
   float minRadius=1.75*2.0*w/(1.9*u_viewHeight);
   p+=a_normal*max(0.0,minRadius-(a_timed-2.0));
  }
- gl_Position=vec4(dot(p,u_right)*1.9/u_aspect,dot(p,u_up)*1.9, (1.0004*depth-0.20004)*w/depth,w);
+ gl_Position=vec4(dot(p,u_right)*1.9/u_aspect,dot(p,u_up)*1.9, (u_clipA*depth-u_clipB)*w/depth,w);
  float light=length(a_normal)<0.1 ? 1.0 : 0.85+0.3*max(0.0,dot(normalize(a_normal),normalize(vec3(-0.2,0.8,1.0))));
  v_color=vec4(a_color.rgb*light,a_color.a);v_time=a_position.x;v_timed=a_timed;v_light=light;
 }`;
@@ -104,11 +113,17 @@ export class TimelineRenderer {
       gl.attachShader(this.program,vs);gl.attachShader(this.program,fs);gl.linkProgram(this.program);gl.deleteShader(vs);gl.deleteShader(fs);
       if(!gl.getProgramParameter(this.program,gl.LINK_STATUS))throw new Error();
       this.gl=gl;this.buffer=gl.createBuffer();this.locations={};
-      for(const name of ['eye','right','up','forward','target','axisScale','aspect','distance','perspective','viewHeight','playhead','fade','colorMix','fromColor'])this.locations[name]=gl.getUniformLocation(this.program,'u_'+name);
+      for(const name of ['eye','right','up','forward','target','axisScale','aspect','distance','perspective','viewHeight','clipA','clipB','playhead','fade','colorMix','fromColor'])this.locations[name]=gl.getUniformLocation(this.program,'u_'+name);
     }catch{this.gl=null;}
   }
   setScene(scene) {
     this.scene=scene;
+    const min=[-12,scene.floor,-5],max=[12,scene.ceiling,5];
+    const include=p=>p.forEach((value,i)=>{min[i]=Math.min(min[i],value);max[i]=Math.max(max[i],value);});
+    for(const path of scene.paths)for(const point of path.points)include(point);
+    for(const marker of scene.markers)include(marker.pos);
+    for(const guide of scene.guides||[])include(guide.pos);
+    this.bounds={min,max};
     if(!this.gl)return;
     const scale=this.geometryScale||[1,1,1];
     const solid=[],lines=[],planes=[],glow=[];this.arrivalRanges=[];this.glowArrivalRanges=[];
@@ -208,6 +223,8 @@ export class TimelineRenderer {
     for(const name of ['eye','right','up','forward'])gl.uniform3fv(this.locations[name],b[name]);
     gl.uniform3fv(this.locations.target,camera.target);gl.uniform3fv(this.locations.axisScale,camera.axisScale||[1,1,1]);
     gl.uniform1f(this.locations.aspect,width/height);gl.uniform1f(this.locations.distance,camera.distance);gl.uniform1f(this.locations.perspective,camera.perspective);gl.uniform1f(this.locations.viewHeight,height);gl.uniform1f(this.locations.playhead,playheadX);
+    const [clipA,clipB]=clipDepthCoefficients(farClipDistance(this.bounds,camera));
+    gl.uniform1f(this.locations.clipA,clipA);gl.uniform1f(this.locations.clipB,clipB);
     gl.depthMask(true);gl.uniform1f(this.locations.fade,1);gl.uniform1f(this.locations.colorMix,0);gl.uniform3fv(this.locations.fromColor,[0,0,0]);
     let cursor=0;
     for(const range of this.arrivalRanges||[]){

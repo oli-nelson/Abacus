@@ -25,7 +25,7 @@ let currentInspectorRevision = null, issueRevision = 0;
 const workerRequests=new Map();
 let stopRunRequest=null,stopRunBusy=false,stopRunAccepted=false;
 let runtimeOnline=false,runtimeSession=null,canControlClaims=false,currentRuntime=null,claimRequest=null,claimBusy=false;
-let canEdit=false, operator='Git user', editorId=null;
+let canEdit=false, canResolveAttention=false, operator='Git user', editorId=null;
 const drafts=new Map();
 const descriptionOpen=new Map();
 let labelChoicesKey=null;
@@ -299,7 +299,7 @@ function updateHistory(state) {
   }
   if(reload)loadActivity();else resetActivity();
 }
-let view = ['dependency','branches','issues','workers','worktrees'].includes(new URL(location.href).searchParams.get('view')) ? new URL(location.href).searchParams.get('view') : 'timeline';
+let view = ['dependency','branches','issues','attention','workers','worktrees'].includes(new URL(location.href).searchParams.get('view')) ? new URL(location.href).searchParams.get('view') : 'timeline';
 let gitState = null, branch = new URL(location.href).searchParams.get('branch'), gitRenderKey = null, comparisonRequest, comparisonKey = null;
 let gitHistoryRequest=null,gitHistoryKey=null;
 const metadataFields=['assignee','label','priority','attention','type','target'];
@@ -308,6 +308,60 @@ function restoreMetadataFilters(){const url=new URL(location.href);for(const key
 restoreMetadataFilters();
 const statusLabel = value => ({closed:'Completed',in_progress:'In progress',blocked:'Blocked',open:'Open'})[value]||value;
 function text(tag, value, className) { const node = document.createElement(tag); node.textContent = value ?? 'Unknown'; if (className) node.className = className; return node; }
+function updateTabBadges(){
+  const count=[...issues.values()].filter(issue=>issue.labels?.includes('abacus:needs-user-attention')).length;
+  $('attention-badge').hidden=!count;
+  $('attention-badge').textContent=count>99?'99+':String(count);
+  $('attention-view').setAttribute('aria-label',count?`Attention Center, ${count} issues require attention`:'Attention Center');
+  const claims=currentRuntime?.claims;
+  const state=claims?.manualEnabled===false?'paused':claims?.gateAllows===true?'active':null;
+  $('workers-badge').hidden=!state;
+  $('workers-badge').dataset.state=state||'';
+  $('workers-badge').textContent=state==='active'?'✓':'!';
+  $('workers-view').setAttribute('aria-label',state==='paused'?'Workers, claims paused':state==='active'?'Workers, claims active':'Workers');
+}
+function renderAttention(){
+  const list=$('attention-list');list.replaceChildren();
+  const pending=[...issues.values()].filter(issue=>issue.labels?.includes('abacus:needs-user-attention'));
+  const recent=issue=>issue.comments?.at(-1)?.createdAt||issue.createdAt||'';
+  pending.sort((a,b)=>recent(b).localeCompare(recent(a))||a.id.localeCompare(b.id));
+  $('attention-summary').textContent=issuesLoaded?`${pending.length} issue${pending.length===1?'':'s'} waiting for your attention · latest comments from the current Beads snapshot`:'Loading attention issues…';
+  $('attention-empty').hidden=!issuesLoaded||pending.length>0;
+  for(const issue of pending){
+    const card=text('article','', 'attention-card');card.classList.toggle('selected',selected===issue.id);
+    const heading=text('div','', 'attention-heading');
+    const open=text('button',`${issue.id} · ${issue.title}`,'attention-issue');open.type='button';open.addEventListener('click',()=>select(issue.id));
+    const badge=text('span',statusLabel(issue.status),'status');badge.dataset.status=issue.status;
+    heading.append(open,badge);card.append(heading);
+    const comments=text('div','', 'attention-comments');
+    const latest=(issue.comments||[]).slice(-3);
+    if(!latest.length)comments.append(text('p','No comments recorded for this issue. Open it to review its description and notes.','attention-no-comments'));
+    for(const comment of latest){
+      const entry=text('article','', 'comment');
+      const when=comment.createdAt?new Date(comment.createdAt).toLocaleString():'Time not recorded';
+      entry.append(text('small',`${comment.author||'Author not recorded'} · ${when}`),text('p',comment.text));comments.append(entry);
+    }
+    card.append(comments);
+    const actions=text('div','', 'attention-actions');
+    for(const [action,label] of [['attention-resolve','Resolve attention'],['attention-resolve-reopen','Resolve attention & reopen']]){
+      const button=text('button',label);button.type='button';
+      button.disabled=!canEdit||!canResolveAttention||!timeline.live||liveReadPending||$('source').classList.contains('stale');
+      button.title=button.disabled?'Return to live with a healthy issue source to edit':'Review and submit in the issue inspector';
+      button.addEventListener('click',()=>openAttentionAction(issue.id,action));actions.append(button);
+    }
+    card.append(actions);list.append(card);
+  }
+}
+function openAttentionAction(id,action){
+  if(!canEdit||!canResolveAttention||!timeline.live||liveReadPending||$('source').classList.contains('stale'))return;
+  const existing=drafts.get(id);
+  if(existing?.pending||existing?.request){select(id);$('issue-form').scrollIntoView({block:'start'});return;}
+  select(id);
+  const draft=drafts.get(id);if(!draft)return;
+  draft.action=action;draft.result='Review the latest comments, optionally add a response, then submit.';
+  $('write-action').value=action;editorFeedback(draft);
+  $('issue-form').scrollIntoView({block:'start'});$('write-text').focus();
+}
 let issueGitRequest=null,issueGitInspectorKey=null;
 let selectedEvent=null, inspectorSourceKey=null, liveReadPending=false, liveReadError=false;
 const inspectorTabs=['overview','activity','git'];
@@ -652,13 +706,14 @@ $('dependency-focus').addEventListener('click',()=>dependencyTree.focus(selected
 $('dependency-fit').addEventListener('click',()=>dependencyTree.fit());
 $('dependency-reset').addEventListener('click',()=>dependencyTree.setScale(1));
 function render() {
+  updateTabBadges();
   if(document.body.dataset.view!==view)$('workspace-tools').open=view!=='timeline'||$('source').classList.contains('stale');
   document.body.dataset.view=view;
   $('source-coverage').hidden=view==='branches';
   creationFeedback();
   if(view!=='worktrees')stopWorktreeWatch();
   if(['branches','workers','worktrees'].includes(view))cancelInspectorMotion();
-  $('workers-pane').hidden=view!=='workers';$('worktrees-pane').hidden=view!=='worktrees';
+  $('workers-pane').hidden=view!=='workers';$('worktrees-pane').hidden=view!=='worktrees';$('attention-pane').hidden=view!=='attention';
   $('workspace-tools').hidden=['workers','worktrees'].includes(view);
   $('inspector').hidden=['workers','worktrees'].includes(view);
   $('inspector-resizer').hidden=['workers','worktrees'].includes(view);
@@ -667,16 +722,18 @@ function render() {
   timeline.setData([...issues.values()],selected,$('search').value,$('status').value,metadataFilters());
   $('issue-pane').hidden = view !== 'issues'; $('branch-pane').hidden = view !== 'branches';
   $('issue-inspector').hidden = view === 'branches'; $('branch-inspector').hidden = view !== 'branches';
-  $('issues-title').textContent = view === 'branches' ? 'Branches' : view==='timeline'?'Issue timeline':view==='dependency'?'Dependency Tree':'Issues';
-  $('status').parentElement.hidden = view === 'branches';
+  $('issues-title').textContent = view === 'branches' ? 'Branches' : view==='timeline'?'Issue timeline':view==='dependency'?'Dependency Tree':view==='attention'?'Attention Center':'Issues';
+  $('status').parentElement.hidden = view === 'branches'||view==='attention';
   $('source').hidden = view === 'branches';
-  $('search-coverage').hidden=view==='branches';timeline.updateSearchCoverage();
-  $('issue-filters').hidden=view==='branches';
+  $('search-coverage').hidden=view==='branches'||view==='attention';timeline.updateSearchCoverage();
+  $('issue-filters').hidden=view==='branches'||view==='attention';
+  $('search').parentElement.hidden=view==='attention';
   $('search').placeholder = view === 'branches' ? 'Search local branches…' : 'Search issues…';
   $('inspector').setAttribute('aria-labelledby',view === 'branches' ? 'branch-title' : 'selected-title');
-  for (const name of ['timeline','dependency','issues','branches','workers','worktrees']) { if(view === name) $(name+'-view').setAttribute('aria-current','page'); else $(name+'-view').removeAttribute('aria-current'); }
+  for (const name of ['timeline','dependency','issues','attention','branches','workers','worktrees']) { if(view === name) $(name+'-view').setAttribute('aria-current','page'); else $(name+'-view').removeAttribute('aria-current'); }
   if(view === 'branches'||view==='worktrees') { renderBranches(); return; }
-  if(view==='workers')return;
+  if(view==='workers'){if(currentRuntime)updateRuntime(currentRuntime);return;}
+  if(view==='attention'){$('count').textContent='';renderAttention();inspect();return;}
   if(view==='timeline'){$('count').textContent=issues.size+' issues';inspect();return;}
   if(view==='dependency'){
     $('count').textContent=issues.size+' issues';
@@ -728,7 +785,7 @@ async function snapshot() {
   const data = await response.json(); issueRevision=data.revision; issues = new Map(data.issues.map(i => [i.id,i])); issuesLoaded=true; currentInspectorRevision=null;health(data.beads); timeline.clearGitEvidence();invalidateIssueGit('Source snapshot refreshed; reload Git evidence.');gitState = data.git; updateHistory(data.history); updateRuntime(data.runtime); render(); return data.cursor;
 }
 function updateRuntime(runtime) {
-  currentRuntime=runtime;renderClaimControls();
+  currentRuntime=runtime;updateTabBadges();renderClaimControls();
   $('runtime-panel').hidden=!runtime;
   $('workers-empty').hidden=!!runtime;
   if(!runtime)return;
@@ -739,7 +796,14 @@ function updateRuntime(runtime) {
     const row=text('li','','worker-card'),heading=text('div','','worker-heading'),facts=text('div','','worker-facts'),actions=text('div','','worker-actions');
     heading.append(text('strong',worker.name),text('span',worker.activity,'worker-state'));
     if(worker.supervisor)heading.append(text('span','Supervisor','worker-type'));
-    row.append(heading,text('p',worker.issueId||'No assigned issue','worker-context'));
+    row.append(heading);
+    const issue=worker.issueId?issues.get(worker.issueId):null;
+    const context=text('p','', 'worker-context');
+    if(worker.issueId){
+      context.append(text('span',worker.issueId,'worker-issue-id'));
+      if(issue?.title){const title=text('span',issue.title,'worker-issue-title');title.title=issue.title;context.append(title);}
+    }else context.textContent='No assigned issue';
+    row.append(context);
     if(worker.branch)row.append(text('p',worker.branch,'worker-branch'));
     const dirt=text('span',worker.dirty===true?'Workspace dirty':worker.dirty===false?'Workspace clean':'Workspace status unknown','worker-fact');dirt.dataset.dirty=worker.dirty===true?'true':worker.dirty===false?'false':'unknown';facts.append(dirt);
     if(worker.retryCount)facts.append(text('span',`${worker.retryCount} retries`,'worker-fact'));
@@ -876,13 +940,14 @@ for(const button of document.querySelectorAll('[data-issue-sort]'))button.addEve
 for(const [id,delta] of [['issues-prev',-1],['issues-next',1]])$(id).addEventListener('click',()=>{tableState.page+=delta;render();updateTableUrl();});
 $('issues-page-size').addEventListener('change',()=>{tableState.pageSize=Number($('issues-page-size').value);tableState.page=0;render();updateTableUrl();});
 $('search').addEventListener('input',()=>{tableState.page=0;render();}); $('status').addEventListener('change',()=>{tableState.page=0;render();});
-window.addEventListener('popstate',() => { showInspectorTab(readInspectorTab());restoreMetadataFilters();const url=new URL(location.href);tableState={sort:url.searchParams.get('sort')||'id',direction:url.searchParams.get('order')||'asc',page:Number(url.searchParams.get('page'))||0,pageSize:Number(url.searchParams.get('size'))||50}; view = ['dependency','branches','issues','workers','worktrees'].includes(new URL(location.href).searchParams.get('view')) ? new URL(location.href).searchParams.get('view') : 'timeline'; branch = new URL(location.href).searchParams.get('branch'); selected = url.searchParams.get('issue');selectedEvent=null;currentInspectorRevision=null;timeline.restoreLocation(url); render(); });
+window.addEventListener('popstate',() => { showInspectorTab(readInspectorTab());restoreMetadataFilters();const url=new URL(location.href);tableState={sort:url.searchParams.get('sort')||'id',direction:url.searchParams.get('order')||'asc',page:Number(url.searchParams.get('page'))||0,pageSize:Number(url.searchParams.get('size'))||50}; view = ['dependency','branches','issues','attention','workers','worktrees'].includes(new URL(location.href).searchParams.get('view')) ? new URL(location.href).searchParams.get('view') : 'timeline'; branch = new URL(location.href).searchParams.get('branch'); selected = url.searchParams.get('issue');selectedEvent=null;currentInspectorRevision=null;timeline.restoreLocation(url); render(); });
 function changeView(next) {
   view = next; currentInspectorRevision=null;const url = new URL(location.href); url.searchParams.set('view',view); history.replaceState(null,'',url); render();
 }
 $('timeline-view').addEventListener('click',() => changeView('timeline'));
 $('dependency-view').addEventListener('click',() => changeView('dependency'));
 $('issues-view').addEventListener('click',() => changeView('issues'));
+$('attention-view').addEventListener('click',() => changeView('attention'));
 $('branches-view').addEventListener('click',() => changeView('branches'));
 $('workers-view').addEventListener('click',()=>changeView('workers'));
 $('worktrees-view').addEventListener('click',()=>changeView('worktrees'));
@@ -1149,7 +1214,7 @@ $('issue-form').addEventListener('submit',async event => {
   } catch(error) {draft.result=`${error.message.startsWith('HTTP ') ? error.message+'. ' : ''}Result unavailable. Do not create another append blindly. Retry the SAME request, or review current content first.`;}
   finally {draft.pending=false;if(editorId===id)editorFeedback(draft);}
 });
-fetch('/api/v1/project').then(r => { if(!r.ok) throw new Error(); return r.json(); }).then(p => { runtimeSession=p.runtimeSession;canControlClaims=!!p.capabilities.claimControl;renderClaimControls();for(const option of $('write-action').options)if(option.value.startsWith('attention-'))option.disabled=!p.capabilities.attention;canReadHistory=p.capabilities.history;canReadProjectHistory=!!p.capabilities.projectHistory;canEdit=p.capabilities.editIssues;$('create-issue').hidden=!p.capabilities.createDrafts;operator=p.actor;const avatar=$('operator-avatar');avatar.textContent=String(p.actor||'?').trim().split(/\s+/).slice(0,2).map(part=>part[0]?.toLocaleUpperCase()||'?').join('');avatar.title=`${p.actor} · self-declared display identity; not signed in`;currentInspectorRevision=null;inspectorSourceKey=null;render();$('project').textContent=p.name;$('runtime-status').textContent=p.runtimeExplanation||'Runtime state unavailable'; $('actor').textContent=`Operator attribution: ${p.actor} (self-declared, not signed in)`; }).catch(() => $('project').textContent='Project unavailable');
+fetch('/api/v1/project').then(r => { if(!r.ok) throw new Error(); return r.json(); }).then(p => { runtimeSession=p.runtimeSession;canControlClaims=!!p.capabilities.claimControl;renderClaimControls();for(const option of $('write-action').options)if(option.value.startsWith('attention-'))option.disabled=!p.capabilities.attention;canReadHistory=p.capabilities.history;canReadProjectHistory=!!p.capabilities.projectHistory;canEdit=p.capabilities.editIssues;canResolveAttention=!!p.capabilities.attention;$('create-issue').hidden=!p.capabilities.createDrafts;operator=p.actor;const avatar=$('operator-avatar');avatar.textContent=String(p.actor||'?').trim().split(/\s+/).slice(0,2).map(part=>part[0]?.toLocaleUpperCase()||'?').join('');avatar.title=`${p.actor} · self-declared display identity; not signed in`;currentInspectorRevision=null;inspectorSourceKey=null;render();$('project').textContent=p.name;$('runtime-status').textContent=p.runtimeExplanation||'Runtime state unavailable'; $('actor').textContent=`Operator attribution: ${p.actor} (self-declared, not signed in)`; }).catch(() => $('project').textContent='Project unavailable');
 connect();
 
 $('load-git-history').addEventListener('click',async()=>{
