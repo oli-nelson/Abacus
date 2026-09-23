@@ -9,10 +9,14 @@ test('every episode open at the needle is captioned, because parallel work is th
  const rows=[span('a',0,Infinity),span('b',5,Infinity),span('c',0,8)];
  assert.deepEqual(ids(needleLabels(rows,10,null)),['a','b']);
 });
-test('a selection narrows the captions to that issue, open at the needle or not',()=>{
+test('selection does not hide parallel work open at the needle',()=>{
  const rows=[span('a',0,Infinity),span('b',5,Infinity),span('c',0,8)];
- assert.deepEqual(ids(needleLabels(rows,10,'c')),['c']);
- assert.deepEqual(ids(needleLabels(rows,10,'a')),['a']);
+ assert.deepEqual(ids(needleLabels(rows,10,'c')),['a','b']);
+ assert.deepEqual(ids(needleLabels(rows,10,'a')),['a','b']);
+});
+test('selection is preferred when no work remains open',()=>{
+ const rows=[span('old',0,2),span('recent',0,7)];
+ assert.deepEqual(ids(needleLabels(rows,10,'old')),['old']);
 });
 test('a selection with nothing at the needle falls back to the whole scene',()=>{
  // Selecting an issue whose work has not started yet must not blank the captions.

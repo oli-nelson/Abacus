@@ -64,9 +64,7 @@ assert.match(await evaluate("document.querySelector('.waiting-marker').getAttrib
 const visible=await evaluate("[...document.querySelectorAll('.lane-card')].filter(n=>getComputedStyle(n).visibility==='visible').map(n=>n.dataset.issueId)");
 await writeFile('/tmp/abacus-reference-scene.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'));
 assert.ok(await evaluate("[...document.querySelectorAll('.event-annotation')].some(n=>getComputedStyle(n).visibility==='visible')"),'Selected branch has readable event captions');
-// bd-a1f is selected here, so the scene captions that lane and no other: the
-// reference composition is about the issue under inspection, not a roll call.
-assert.deepEqual(visible,['bd-a1f'],'A selected lane is the only captioned lane');
+assert.deepEqual(visible,['bd-a1f','bd-b7c'],'Selection keeps both parallel live work captions');
 assert.equal(await evaluate("document.querySelectorAll('.lane-card').length"),3,'Every lane keeps an accessible card behind the caption');
 assert.equal(await evaluate("document.documentElement.scrollWidth<=1671"),true);
 
@@ -117,5 +115,5 @@ await evaluate("document.getElementById('timeline-scrub').value='500';document.g
 assert.equal(await evaluate("document.querySelectorAll('.waiting-marker').length"),0,'Current waiting glyph must not invent historical state');
 assert.equal(await evaluate("document.querySelectorAll('.observation-list-item').length"),0,'Playback must not expose current observations as historical events');
 assert.deepEqual(errors,[]);
-console.log('Reference scene: three recorded starts, one verified current return, the selected lane captioned alone, loaded snapshots and pinned comment passed');
+console.log('Reference scene: recorded starts, parallel current captions, loaded snapshots and pinned comment passed');
 await call('Browser.close');ws.close();

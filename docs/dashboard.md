@@ -1,7 +1,8 @@
 # Web dashboard (implementation preview)
 
 `abacus dashboard` currently serves an **interactive issue browser**, with shared
-Beads/Git collectors, live updates, search/status filtering, issue selection and
+Beads/Git collectors, live updates, issue search, status filtering on Issues and
+the dependency map (not the timeline), issue selection and
 deep links. Branches lists actual local refs and registered worktrees, with
 target-aware triple-dot file summaries, ancestry checks, and lazy bounded patches. The complete interactive 3D/Git dashboard in
 [ABACUS_WEB_SERVER_SPEC.md](../ABACUS_WEB_SERVER_SPEC.md) is still under construction.
@@ -844,10 +845,18 @@ moving the camera. Horizontal drags remain available for camera interaction.
 ### Lane captions
 
 Lane captions report what is happening at the playhead needle, not every lane in
-the scene. With an issue selected, only that issue is captioned. With nothing
-selected, every work episode open at the needle is captioned — all of them, so
-parallel work stays legible instead of one arbitrary lane winning the space. When
-no work is open at the needle, the most recently ended episode is captioned.
+the scene. Every work episode open at the needle is captioned, even if one issue
+is selected, so parallel work stays legible. When no work is open at the needle,
+the selected issue is captioned if it has started; otherwise the most recently
+ended episode is captioned.
+Captions follow their episode toward the needle rather than remaining at its
+start, with nearby placements when cards would overlap. Each shows an agent icon
+and its assignee alongside the issue status, beneath the title; start dates and
+other details stay in the inspector or tooltip. The assignee is the current owner
+in live mode, or the recorded owner in
+playback. Missing historical ownership is shown as unknown, never copied from
+today. An older card left pointer-focused does not override the live captions
+after its selection is cleared.
 
 Every lane keeps its card in the accessible event list and in the DOM regardless,
 so keyboard and screen-reader access to uncaptioned lanes is unaffected.

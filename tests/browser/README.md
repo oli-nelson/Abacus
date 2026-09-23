@@ -282,7 +282,10 @@ lane is dropped, and that scrubbing back restores the same page.
 fixture. Advancing the playhead is not a change of playback context: it asserts a
 pinned recorded event survives playback in the inspector, the callout and the URL,
 that **Return to live** still clears it, and that a lane caption holding keyboard
-focus is never culled when the needle stops reporting on that lane.
+focus is never culled when the needle stops reporting on that lane. It also
+checks that parallel captions remain visible with one issue selected during
+playback, displays the recorded or current assignee, and that clearing a
+pointer-selected old issue removes its stale caption and inspector details.
 
 ## Whole-project history fallback
 
@@ -299,10 +302,8 @@ capabilities are read once at page load.
 Run `CDP_PORT=19222 node tests/browser/reference-cdp.mjs` against a fresh fixture
 and disposable Chrome. It explicitly loads all three recorded bindings, commit
 histories and issue snapshots, pins the recorded comment, then fits the scene.
-UTC matches the reference clock labels. It asserts three recorded starts, exactly
-one verified current return and that the selected lane is the only captioned one
-(lane captions follow the playhead needle: the selected issue when there is one,
-otherwise every episode open at the needle), and saves
+UTC matches the reference clock labels. It asserts three recorded starts, checks
+current-work captions (selection does not suppress parallel work), and saves
 `/tmp/abacus-reference-scene.png`. The fixture is synthetic visual evidence, not
 proof of production Git integration or worker ownership. Restart it before other
 browser tests because this mode changes containment facts.
@@ -356,8 +357,9 @@ no source requests, and no resumed animation after the view-resize redraw settle
 ### Playback filters and completion
 
 `CDP_PORT=<port> node tests/browser/playback-filter-cdp.mjs` loads recorded history,
-plays across a blocked transition with a status filter, and checks lane/count
-updates, final inspector/transport state and exact URL playhead with no new source
+sets a status filter on Issues, then plays across a blocked transition and checks
+that timeline lanes remain unfiltered while counts, final inspector/transport state
+and exact URL playhead update with no new source
 requests.
 
 ### Inspector motion

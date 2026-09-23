@@ -15,7 +15,7 @@ await call('Page.navigate',{url:'http://127.0.0.1:18081/?from=2026-09-21T09:00:0
 await until("document.readyState==='complete'&&!!document.getElementById('timeline-stage')");
 await until("document.getElementById('timeline-history-state').textContent.includes('3/3 issues loaded')");
 await fetch('http://127.0.0.1:18081/fixture/live-close?undated');
-await until("[...document.querySelectorAll('.lane-card')].some(n=>n.textContent.includes('closed now · end time unknown'))");
+await until("[...document.querySelectorAll('.lane-card')].some(n=>n.title.includes('End time unknown'))");
 assert.equal(await evaluate("document.getElementById('timeline-stage').dataset.closedEpisodes"),'1','No invented dated closure');
 assert.equal(await evaluate("[...document.querySelectorAll('.observation-list-item')].some(n=>n.dataset.timelineFocus.includes('bd-a1f'))"),false);
 assert.equal(errors.length,0,JSON.stringify(errors));

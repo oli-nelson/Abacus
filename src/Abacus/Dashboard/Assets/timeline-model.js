@@ -335,16 +335,16 @@ export function prioritizeTimelineHistory(issues,from,to) {
 }
 
 // Lane captions answer "what is happening at the needle", not "name every lane".
-// A selection narrows that to the selected issue. With nothing selected the work
-// open at the needle is captioned — all of it, because parallel work is the point
-// and picking one arbitrary winner would hide the others. When nothing is open,
+// Work open at the needle is captioned — all of it, even when one issue is
+// selected, because parallel work must not disappear behind that selection.
+// When nothing is open, prefer the selected issue if it has started; otherwise
 // the most recently ended work is the closest thing the needle has to report.
 // Entries are opaque: only their span matters, so callers keep their own shape.
 export function needleLabels(entries,needle,selected){
   const spans=entries.filter(s=>s.start<=needle);
-  const scoped=selected!==null&&selected!==undefined&&spans.some(s=>s.id===selected)?spans.filter(s=>s.id===selected):spans;
-  const open=scoped.filter(s=>s.end>=needle);
+  const open=spans.filter(s=>s.end>=needle);
   if(open.length)return new Set(open.map(s=>s.entry));
+  const scoped=selected!==null&&selected!==undefined&&spans.some(s=>s.id===selected)?spans.filter(s=>s.id===selected):spans;
   if(!scoped.length)return new Set();
   const latest=Math.max(...scoped.map(s=>s.end));
   return new Set(scoped.filter(s=>s.end===latest).map(s=>s.entry));

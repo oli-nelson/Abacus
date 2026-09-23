@@ -161,7 +161,7 @@ function scheduleProjectHistory(generation){
       }
       projectHistoryAttempt=attempt;
       projectHistoryResult=page.coverage?.limitReached?'older history beyond the read limit is missing':stale?stale+' issues changed during the read; they reload shortly':null;
-      timeline.setData([...issues.values()],selected,$('search').value,$('status').value,metadataFilters());
+      timeline.setData([...issues.values()],selected,$('search').value,metadataFilters());
     }catch(error){
       if(error.name==='AbortError')return;
       projectHistoryAttempt=attempt;projectHistoryResult=error.message;projectHistoryFailed=true;
@@ -210,7 +210,7 @@ function scheduleTimelineHistory(){
         }while(continuation&&versions.length<1000);
         if(request.signal.aborted||issues.get(issue.id)?.revision!==issue.revision||historyState?.revision!==generation||!timeline.historyScope.has(issue.id))return;
         timeline.setHistory(issue.id,{...page,versions});
-        timeline.setData([...issues.values()],selected,$('search').value,$('status').value,metadataFilters());
+        timeline.setData([...issues.values()],selected,$('search').value,metadataFilters());
         timelineHistoryAttempts.set(key,'loaded');
       }catch(error){if(error.name==='AbortError')timelineHistoryAttempts.delete(key);else timelineHistoryAttempts.set(key,'failed');}
       finally{
@@ -235,7 +235,7 @@ $('timeline-history-retry').addEventListener('click',()=>{projectHistoryAttempt=
 document.addEventListener('visibilitychange',scheduleTimelineHistory);
 document.addEventListener('timeline-range-change',()=>queueMicrotask(()=>{
   scheduleTimelineHistory();timeline.dataKey=null;
-  timeline.setData([...issues.values()],selected,$('search').value,$('status').value,metadataFilters());
+  timeline.setData([...issues.values()],selected,$('search').value,metadataFilters());
 }));
 function resetActivity() {
   activityRequest?.abort(); activityRequest=null; activityKey=null; activityCursor=null; activityLoaded=false;
@@ -258,7 +258,7 @@ async function loadActivity(more=false) {
     const data=await response.json();if(activityRequest!==request || selected!==issue.id || activityKey!==key)return;
     // Merge into the revision-fenced cache: inspector paging must not replace
     // a fuller timeline history or duplicate changes across page boundaries.
-    timeline.setHistory(issue.id,data,true);timeline.setData([...issues.values()],selected,$('search').value,$('status').value,metadataFilters());
+    timeline.setHistory(issue.id,data,true);timeline.setData([...issues.values()],selected,$('search').value,metadataFilters());
     const lane=timeline.projection.cache.get(issue.id),events=(lane?.displayEvents||[]).filter(e=>e.kind!=='comment').sort((a,b)=>b.time-a.time||a.id.localeCompare(b.id));
     const onTimeline=new Set(lane?timeline.episodeEvents(lane).map(e=>e.id):[]);
     $('activity').replaceChildren();
@@ -521,7 +521,7 @@ function inspect() {
   const historical=view==='timeline'&&!timeline.live;
   inspectRelations(issue,historical);
   const key = issue ? `${issue.id}:${issue.revision}:${historical?Math.floor(timeline.playhead):'live'}` : null;
-  if (key === currentInspectorRevision) return;
+  if (key === currentInspectorRevision && (issue || !$('selected-id').textContent)) return;
   currentInspectorRevision = key;
   const sourceKey=issue?issue.id+':'+issue.revision:null;
   if(sourceKey!==inspectorSourceKey){
@@ -719,11 +719,11 @@ function render() {
   $('inspector-resizer').hidden=['workers','worktrees'].includes(view);
   $('timeline-pane').hidden=view!=='timeline';timeline.show(view==='timeline');scheduleTimelineHistory();
   $('dependency-pane').hidden=view!=='dependency';
-  timeline.setData([...issues.values()],selected,$('search').value,$('status').value,metadataFilters());
+  timeline.setData([...issues.values()],selected,$('search').value,metadataFilters());
   $('issue-pane').hidden = view !== 'issues'; $('branch-pane').hidden = view !== 'branches';
   $('issue-inspector').hidden = view === 'branches'; $('branch-inspector').hidden = view !== 'branches';
   $('issues-title').textContent = view === 'branches' ? 'Branches' : view==='timeline'?'Issue timeline':view==='dependency'?'Dependency Tree':view==='attention'?'Attention Center':'Issues';
-  $('status').parentElement.hidden = view === 'branches'||view==='attention';
+  $('status').parentElement.hidden = view === 'timeline'||view === 'branches'||view==='attention';
   $('source').hidden = view === 'branches';
   $('search-coverage').hidden=view==='branches'||view==='attention';timeline.updateSearchCoverage();
   $('issue-filters').hidden=view==='branches'||view==='attention';

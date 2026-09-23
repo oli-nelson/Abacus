@@ -3,6 +3,13 @@ import {needleLabels,timelineAnnotations,isInitialWorkEntry,eventAwareEpisodePos
 import {TimelineRenderer,projectPoint,pickScreenMarker,rgb} from './timeline-gl.js';
 const $=id=>document.getElementById(id);
 const node=(tag,value,className)=>{const n=document.createElement(tag);n.textContent=value ?? '';if(className)n.className=className;return n;};
+const agentIcon=()=>{
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');
+  const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d','M12 3v3m-3-3h6M6 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Zm2 5h.01M16 13h.01M9 17h6');
+  svg.append(path);return svg;
+};
 const localInput=t=>{const d=new Date(t);return new Date(t-d.getTimezoneOffset()*60000).toISOString().slice(0,16);};
 const display=t=>new Date(t).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 const readPreference=(key,fallback)=>{try{return localStorage.getItem(key)||fallback;}catch{return fallback;}};
@@ -44,6 +51,7 @@ export class Timeline {
     savePreference('abacus.timeline.layout','concurrent-v1');
     $('timeline-camera').value=readPreference('abacus.timeline.control','orbit')==='pan'?'pan':'orbit';
     this.lastEventKind=$('timeline-kind').value;this.bindControls();this.syncTimeInputs();
+    $('timeline-stage').addEventListener('keydown',()=>{this.pointerFocusedCard=null;});
     new ResizeObserver(()=>this.invalidate()).observe($('timeline-stage'));
     document.addEventListener('visibilitychange',()=>{if(document.hidden){this.cancelRangeBrush();this.pausePlayback();cancelAnimationFrame(this.frame);this.frame=null;this.finishCameraTransition();this.calloutAnimation?.cancel();this.cancelFilterMotion();}else{this.lastPlayback=performance.now();this.tickNow();this.invalidate();}});
     setInterval(()=>{if(!document.hidden)this.tickNow();},30000);
@@ -87,14 +95,14 @@ export class Timeline {
     this.filterAnimations=['timeline-canvas','timeline-fallback','timeline-markers','timeline-labels'].map(id=>
       $(id).animate([{opacity:.45},{opacity:1}],{duration:180,easing:'cubic-bezier(.2,.75,.25,1)'}));
   }
-  setData(issues,selected,query,status,metadata=this.metadata||{}){
-    const filtersChanged=this.dataKey!=null&&(this.query!==query||this.status!==status||JSON.stringify(this.metadata)!==JSON.stringify(metadata));
+  setData(issues,selected,query,metadata=this.metadata||{}){
+    const filtersChanged=this.dataKey!=null&&(this.query!==query||JSON.stringify(this.metadata)!==JSON.stringify(metadata));
     const before=this.projection.rebuilds;
     const revisions=new Map(issues.map(issue=>[issue.id,issue.revision]));
     for(const [id,evidence] of this.gitEvidence)if(revisions.get(id)!==evidence.issueRevision)this.gitEvidence.delete(id);
     for(const [id,history] of this.gitHistories)if(revisions.get(id)!==history.issueRevision)this.gitHistories.delete(id);
-    this.lanes=this.projection.update(issues,this.histories,this.gitHistories);this.selected=selected;this.query=query;this.status=status;this.metadata=metadata;
-    const key=this.lanes.map(l=>l.key).join('|')+':'+selected+':'+query+':'+status+':'+JSON.stringify(metadata);
+    this.lanes=this.projection.update(issues,this.histories,this.gitHistories);this.selected=selected;this.query=query;this.metadata=metadata;
+    const key=this.lanes.map(l=>l.key).join('|')+':'+selected+':'+query+':'+JSON.stringify(metadata);
     if(key===this.dataKey)return;this.dataKey=key;
     if(!this.live && this.projection.rebuilds!==before)this.newEvents+=this.projection.rebuilds-before;
     this.rebuild();
@@ -136,7 +144,7 @@ export class Timeline {
     this.pendingEvent=null;this.pick(this.selected,event);
   }
   refreshEvidence(){
-    this.dataKey=null;this.setData(this.lanes.map(l=>l.issue),this.selected,this.query,this.status);
+    this.dataKey=null;this.setData(this.lanes.map(l=>l.issue),this.selected,this.query);
   }
   setGitEvidence(id,evidence){
     if(!evidence){this.topologyObservations.delete(id);this.connectorArrivals.delete(id);const changed=this.gitEvidence.delete(id)|this.gitHistories.delete(id);if(changed)this.refreshEvidence();return;}
@@ -175,7 +183,7 @@ export class Timeline {
   invalidateHistory(state){
     let changed=false;
     for(const [id,history] of this.histories)if(state?.stale || history.revision!==state?.revision){this.histories.delete(id);changed=true;}
-    if(changed){this.dataKey=null;this.setData(this.lanes.map(l=>l.issue),this.selected,this.query,this.status);}
+    if(changed){this.dataKey=null;this.setData(this.lanes.map(l=>l.issue),this.selected,this.query);}
   }
   setHistory(id,data,append=false){
     const previous=this.histories.get(id),same=previous?.revision===data.historyRevision && previous?.issueRevision===data.issueRevision;
@@ -216,7 +224,6 @@ export class Timeline {
       if(!episodes.length&&!(this.live&&lane.issue.status==='in_progress'))continue;
       const state=stateAt(lane.issue,lane.events,this.playhead,this.live);
       if(!matchesIssueMetadata(state,this.metadata))continue;
-      if(this.status&&state.status!==this.status)continue;
       if(!matchesIssueText(lane.issue,lane.events,q,{from:this.from,to:this.to,playhead:this.playhead,live:this.live,title:state.title}))continue;
       // Episodes are already ascending, so the first is the earliest recorded start.
       rows.push({lane,start:episodes.length?episodes[0].start:Infinity});
@@ -299,7 +306,7 @@ export class Timeline {
         // Never let a comment/label/note share a spine-entry cluster.
         const displayed=[...candidates.filter(e=>entry(lane,e)),...clusterEvents(candidates.filter(e=>!entry(lane,e)),this.from,this.to,70)];
         for(const e of displayed)if(e.time>=this.from&&e.time<=this.to)markers.push({pos:entry(lane,e)?[this.timeX(e.time),spineY,0]:position(this.timeX(e.time)),color:e.status?statusColors[e.status]||statusColors.unknown:lane.color,shape:'sphere',event:e,issueId:lane.issue.id,selected:lane.issue.id===this.selected});
-        labels.push({lane,pos:[left,offset(lane,episode,Math.max(this.from,episode.start)),0],end:right,episode});
+        labels.push({lane,position,left,right,episode});
       }
       const latest=episodes.at(-1),active=latest&&latest.end===null;
       if(this.live&&(lane.issue.status==='in_progress'||active&&lane.issue.status==='blocked')){
@@ -349,15 +356,27 @@ export class Timeline {
     const overlay=$('timeline-labels');overlay.replaceChildren();this.labelNodes=[];
     const featured=this.featuredLabels();
     for(const entry of this.labels){
-      const {lane,pos,episode}=entry;
+      const {lane,episode}=entry;
+      // Keep the caption beside the work nearest the needle, not at its fork.
+      // Parallel episodes often start together, so start-anchored cards collide
+      // even when their current branches are widely separated on screen.
+      const x=entry.position?clamp(this.timeX(Math.min(this.playhead,this.to)),entry.left,entry.right):null;
+      const pos=entry.position?entry.position(x):entry.pos;
       const card=node('button','', 'lane-card');card.style.setProperty('--lane-color',lane.color);
       remember(card,JSON.stringify(['lane',lane.issue.id,episode?.start??'current']));
       const state=stateAt(lane.issue,lane.events,this.playhead,this.live);
       const git=gitLaneSummary(lane.issue,this.gitEvidence.get(lane.issue.id),this.live);
-      card.dataset.issueId=lane.issue.id;card.setAttribute('aria-label',state.title+' · '+lane.issue.id);
-      card.append(node('strong',state.title===lane.issue.id?'Title unavailable':state.title),node('span',episode?'Work episode · '+display(episode.start):'Working now · start unknown'),node('small',episode?.endUnknown?episode.currentStatus+' now · end time unknown; last recorded working state':episode?.end!==null&&episode?.end!==undefined?'Ended '+display(episode.end)+' · '+episode.endStatus:(this.live?lane.issue.status+' · current state':state.status+' · as of playhead')));
-      if(git){card.append(node('small',git.changes),node('small',git.integration));card.title=git.basis;card.dataset.gitEvidence='validated';}
-      card.addEventListener('click',()=>this.onSelect(lane.issue.id,null));card.addEventListener('focus',()=>this.invalidate());overlay.append(card);this.labelNodes.push({node:card,issueId:lane.issue.id,featured:featured.has(entry),pos:[Math.max(-12,pos[0]),pos[1]+.5,pos[2]],time:Math.max(this.from,stamp(lane.issue.createdAt)??this.from)});
+      const assignee=state.assignee==null?'Assignee unknown':state.assignee||'Unassigned';
+      const status=({in_progress:'In progress',blocked:'Blocked',closed:'Completed',open:'Open'})[state.status]||'Status unknown';
+      card.dataset.issueId=lane.issue.id;card.setAttribute('aria-label',state.title+' · '+lane.issue.id+' · '+status+' · '+assignee);
+      const meta=node('span',null,'lane-meta'),owner=node('span',null,'lane-assignee');
+      owner.append(agentIcon(),node('span',assignee));meta.append(node('span',status,'lane-state'),owner);
+      card.append(node('strong',state.title===lane.issue.id?'Title unavailable':state.title),meta);
+      const episodeDetail=episode?.endUnknown?'End time unknown; last recorded working state':episode?.end!=null?'Work ended '+display(episode.end):episode?'Work started '+display(episode.start):'Work start time unknown';
+      card.title=episodeDetail+(git?' · '+git.basis:'');
+      if(git)card.dataset.gitEvidence='validated';
+      card.addEventListener('pointerdown',()=>{this.pointerFocusedCard=card.dataset.timelineFocus;});
+      card.addEventListener('click',()=>this.onSelect(lane.issue.id,null));card.addEventListener('focus',()=>this.invalidate());overlay.append(card);this.labelNodes.push({node:card,issueId:lane.issue.id,featured:featured.has(entry),pos:[Math.max(-12,pos[0]),pos[1]+.5,pos[2]],time:episode?Math.max(this.from,episode.start):null});
     }
     // A small selected-lane annotation budget keeps the reference-style captions
     // informative without filling dense scenes with overlapping text.
@@ -413,7 +432,11 @@ export class Timeline {
     }
     // Source refreshes and selection rebuild these lists. Restore the same logical
     // control, or the camera when it disappeared; never steal unrelated focus.
-    if(restoreFocus)(focusTargets.get(focusKey)||$('timeline-stage')).focus({preventScroll:true});
+    if(restoreFocus){
+      const pointerCard=this.labelNodes.find(label=>label.node.dataset.timelineFocus===focusKey);
+      const stalePointerFocus=focusKey===this.pointerFocusedCard&&pointerCard?.featured===false;
+      (stalePointerFocus?$('timeline-stage'):focusTargets.get(focusKey)||$('timeline-stage')).focus({preventScroll:true});
+    }
   }
   revealEvent(id,eventId){
     const lane=this.projection.cache.get(id),event=lane?.displayEvents.find(e=>e.id===eventId);
@@ -623,16 +646,17 @@ export class Timeline {
       // A lane caption the needle is not reporting on never competes for space,
       // unless it holds keyboard focus: culling the focused card would move focus
       // off it, so a needle that drifts past a lane would silently steal focus.
-      const focused=label.node===document.activeElement;
+      const focused=label.node===document.activeElement&&label.node.dataset.timelineFocus!==this.pointerFocusedCard;
       if(!focused&&label.featured===false)continue;
       const p=projectPoint(label.pos,camera,rect.width,rect.height);
       if(!p||p.x<0||p.x>rect.width||p.y<0||p.y>rect.height||(label.time!==null&&label.time>this.playhead))continue;
       const width=label.node.offsetWidth,height=label.node.offsetHeight;
       const x=clamp(p.x-(label.issueId?width+18:0),8,Math.max(8,rect.width-width-8)),y=clamp(p.y-(label.issueId?height/2:0),0,Math.max(0,rect.height-height));
-      const alternatives=label.annotation?[[p.x-width-12,y],[p.x,p.y+22],[p.x-width-12,p.y+22],[p.x,p.y-height-14],[p.x-width-12,p.y-height-14]].map(([ax,ay])=>({x:clamp(ax,8,Math.max(8,rect.width-width-8)),y:clamp(ay,0,Math.max(0,rect.height-height))})):[];
-      // A captioned lane is already a deliberate, scarce choice, so it outranks the
-      // event annotations on its own branch; those have alternative placements and
-      // it does not. Otherwise selecting an issue could caption nothing at all.
+      const positions=label.annotation?[[p.x-width-12,y],[p.x,p.y+22],[p.x-width-12,p.y+22],[p.x,p.y-height-14],[p.x-width-12,p.y-height-14]]:
+        label.issueId?[[p.x+18,y],[x,y-height-12],[x,y+height+12]]:[];
+      const alternatives=positions.map(([ax,ay])=>({x:clamp(ax,8,Math.max(8,rect.width-width-8)),y:clamp(ay,0,Math.max(0,rect.height-height))}));
+      // Featured lane cards can move to a nearby free spot rather than forcing
+      // a parallel caption to disappear when the cards are taller than the gap.
       candidates.push({label,x,y,width,height,alternatives,priority:focused?5:label.featured?4.5:label.priority??0});
     }
     const placed=new Map(nonOverlappingLabels(candidates).map(c=>[c.label,c]));

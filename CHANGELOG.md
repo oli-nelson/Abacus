@@ -6,6 +6,16 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+- Show every parallel issue active at the timeline needle even when one is
+  selected, with nearby caption placement to avoid overlap. Compact captions
+  show only the issue title, status, and an agent icon with the current or
+  recorded assignee, leaving unknown historical owners explicit. Clearing a
+  selection no longer leaves an older pointer-focused caption or stale inspector
+  details visible.
+
+- Keep the Issues status filter on the Issues page; returning to the timeline
+  no longer hides lanes based on that selection.
+
 - Keep WebGL timeline paths visible at extreme zoom-out by sizing the far depth
   plane to the camera and stretched scene instead of clipping at a fixed distance.
 

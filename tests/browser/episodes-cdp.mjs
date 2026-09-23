@@ -26,7 +26,7 @@ assert.equal(await evaluate("document.getElementById('timeline-stage').dataset.c
 assert.equal(await evaluate("document.querySelectorAll('.observation-list-item').length"),2,'Closed episode has no current endpoint');
 assert.equal(await evaluate("document.querySelectorAll('.event-list-item').length"),9,'Only meaningful changes within work episodes are listed');
 assert.equal(await evaluate("[...document.querySelectorAll('.event-list-item')].some(n=>n.textContent.includes('Created ·')||n.textContent.includes('snapshot ·'))"),false);
-assert.match(await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.dataset.issueId==='bd-c3e').textContent"),/Ended.*closed/);
+assert.match(await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.dataset.issueId==='bd-c3e').textContent"),/Completed/);
 assert.ok(await evaluate("document.getElementById('timeline-labels').textContent.includes('Project history')"));
 assert.equal(errors.length,0,JSON.stringify(errors));
 await writeFile('/tmp/abacus-work-episodes.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'));

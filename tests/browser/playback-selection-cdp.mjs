@@ -22,6 +22,12 @@ await evaluate("document.getElementById('timeline-motion').value='reduce';docume
 
 // A pinned recorded event survives playback, in the inspector, the callout and the URL.
 await evaluate("[...document.querySelectorAll('.lane-card')].find(n=>n.dataset.issueId==='bd-a1f').click()");
+await until(`${captioned}.includes('bd-a1f')&&${captioned}.includes('bd-b7c')`);
+assert.ok((await evaluate(captioned)).length>=2,'Selecting one issue does not suppress parallel work captions in playback');
+assert.match(await evaluate("document.querySelector('.lane-card[data-issue-id=bd-a1f] .lane-assignee').textContent"),/Assignee unknown/,'Playback does not borrow a current assignee');
+assert.equal(await evaluate("document.querySelector('.lane-card[data-issue-id=bd-a1f]').children.length"),2,'A caption has only a title and one compact metadata row');
+assert.equal(await evaluate("document.querySelector('.lane-card[data-issue-id=bd-a1f] .lane-state').textContent"),'Blocked');
+assert.doesNotMatch(await evaluate("document.querySelector('.lane-card[data-issue-id=bd-a1f]').textContent"),/Work episode|23 Sep/);
 await evaluate("document.querySelector('.timeline-options').open=true");
 // Pin an event belonging to the selected lane, not whichever lane is listed first.
 const laneEvent="[...document.querySelectorAll('#timeline-event-list>li')].find(li=>li.firstElementChild.textContent.startsWith('bd-a1f'))?.querySelector('.event-list-item')";
@@ -50,7 +56,7 @@ assert.equal(await evaluate("new URL(location.href).searchParams.get('event')"),
 
 // A focused lane caption is never culled by the needle moving past its work. This
 // needs a scene with no selected issue, because a selection scopes captions to it.
-await call('Page.navigate',{url:'http://127.0.0.1:18081/?from=2026-09-21T09%3A00%3A00Z&to=2026-09-21T12%3A00%3A00Z&at=2026-09-21T10%3A00%3A00Z'});
+await call('Page.navigate',{url:'http://127.0.0.1:18081/?from=2026-09-21T09%3A00%3A00Z&to=2026-09-21T12%3A00%3A00Z&at=2026-09-21T09%3A30%3A00Z'});
 await until("document.querySelectorAll('.lane-card').length>1&&document.getElementById('timeline-history-state').textContent.includes('issues loaded')");
 await evaluate("document.getElementById('timeline-motion').value='reduce';document.getElementById('timeline-motion').dispatchEvent(new Event('change'));document.getElementById('timeline-speed').value='3600';document.getElementById('timeline-speed').dispatchEvent(new Event('change'))");
 assert.equal(await evaluate("document.getElementById('selected-id').textContent"),'','No issue is selected in this scene');
@@ -64,6 +70,23 @@ await until("document.getElementById('timeline-asof').textContent.includes('11:4
 assert.equal(await evaluate("document.activeElement.dataset?.issueId"),'bd-c3e','Focus stays on the focused lane caption');
 assert.ok(await evaluate(`${captioned}.includes('bd-c3e')`),'The focused caption stays readable');
 await evaluate("if(document.getElementById('timeline-play').textContent==='Pause')document.getElementById('timeline-play').click()");
+await call('Page.navigate',{url:'http://127.0.0.1:18081/?from=2026-09-21T09%3A00%3A00Z'});
+await until("document.querySelectorAll('.lane-card').length===3&&document.getElementById('timeline-history-state').textContent.includes('issues loaded')");
+await until(`${captioned}.includes('bd-a1f')&&${captioned}.includes('bd-b7c')`);
+assert.deepEqual((await evaluate(captioned)).sort(),['bd-a1f','bd-b7c'],'Both parallel live work captions remain visible; the older closed issue does not');
+assert.equal(await evaluate("document.querySelector('.lane-card[data-issue-id=bd-a1f] .lane-assignee').textContent"),'Agent 1');
+assert.equal(await evaluate("document.querySelector('.lane-card[data-issue-id=bd-a1f] .lane-assignee svg').getAttribute('aria-hidden')"),'true');
+assert.equal(await evaluate("document.querySelector('.lane-card[data-issue-id=bd-a1f] .lane-state').textContent"),'In progress');
+await call('Page.navigate',{url:'http://127.0.0.1:18081/?from=2026-09-21T09%3A00%3A00Z&to=2026-09-21T12%3A00%3A00Z&at=2026-09-21T10%3A00%3A00Z'});
+await until(`${captioned}.includes('bd-c3e')`);
+const oldCard=await evaluate("(()=>{const r=document.querySelector('.lane-card[data-issue-id=bd-c3e]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
+await call('Input.dispatchMouseEvent',{type:'mousePressed',...oldCard,button:'left',clickCount:1});
+await call('Input.dispatchMouseEvent',{type:'mouseReleased',...oldCard,button:'left',clickCount:1});
+await until("document.getElementById('selected-id').textContent==='bd-c3e'");
+await evaluate("document.getElementById('timeline-live').click();const url=new URL(location.href);url.searchParams.delete('issue');url.searchParams.delete('event');history.pushState(null,'',url);dispatchEvent(new PopStateEvent('popstate'))");
+await until("document.getElementById('selected-id').textContent===''");
+await until(`!${captioned}.includes('bd-c3e')`);
+assert.deepEqual((await evaluate(captioned)).sort(),['bd-a1f','bd-b7c'],'A pointer-focused old caption does not survive clearing the selection in live mode');
 assert.deepEqual(errors,[]);
-console.log('PASS: playback keeps the pinned event, URL and focused lane caption; return to live still clears them');
+console.log('PASS: playback selection and keyboard focus persist; parallel live captions and pointer deselection follow the needle');
 await call('Browser.close');ws.close();
