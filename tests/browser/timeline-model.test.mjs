@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {brushTimeRange,issueWorkEpisodes,episodePosition,workEpisodes,eventArrivalStart,eventBubblePlacement,authorInitials,savedTimelineCamera,timelineLocation,eventsFor,stateAt,clusterEvents,eventStatusChanges,TimelineProjection,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,simplifyStraightSegments,branchCurvePosition} from '../../src/Abacus/Dashboard/Assets/timeline-model.js';
+import {brushTimeRange,issueWorkEpisodes,episodeVisualRuns,resumesOpenEpisode,episodePosition,workEpisodes,eventArrivalStart,eventBubblePlacement,authorInitials,savedTimelineCamera,timelineLocation,eventsFor,stateAt,clusterEvents,eventStatusChanges,TimelineProjection,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,simplifyStraightSegments,branchCurvePosition} from '../../src/Abacus/Dashboard/Assets/timeline-model.js';
 import {TimelineRenderer,cameraBasis,projectPoint} from '../../src/Abacus/Dashboard/Assets/timeline-gl.js';
 const issue={id:'a',revision:'one',title:'Current title',status:'in_progress',createdAt:'2026-09-21T09:00:00Z',comments:[]};
 test('current content never invents dated notes, claims or historical states',()=>{
@@ -309,6 +309,13 @@ test('reopened work creates a new episode without bridging the inactive interval
   assert.deepEqual(episodes.map(e=>[e.start,e.end]),[[1,2],[4,null]]);
   assert.equal(episodes[1].transitions.length,2);
   assert.equal(workEpisodes([statusEvent(1,'in_progress'),statusEvent(3,'closed')],2)[0].end,null,'Playback cannot see future closure');
+});
+test('open pauses share a visual lane but closure starts a fresh branch',()=>{
+ const episodes=workEpisodes([statusEvent(1,'in_progress'),statusEvent(2,'blocked'),statusEvent(3,'open'),statusEvent(4,'in_progress'),statusEvent(5,'closed'),statusEvent(6,'open'),statusEvent(7,'in_progress')]);
+ assert.deepEqual(episodes.map(e=>[e.start,e.end]),[[1,3],[4,5],[7,null]]);
+ assert.equal(resumesOpenEpisode(episodes[0],episodes[1]),true);
+ assert.equal(resumesOpenEpisode(episodes[1],episodes[2]),false);
+ assert.deepEqual(episodeVisualRuns(episodes).map(run=>run.map(e=>e.start)),[[1,4],[7]]);
 });
 test('conflicting equal-time states end known work rather than invent a closure',()=>{
   const episodes=workEpisodes([statusEvent(1,'in_progress'),statusEvent(2,'closed','a'),statusEvent(2,'blocked','b')]);

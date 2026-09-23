@@ -41,6 +41,10 @@ Timeline View options: run `node tests/browser/view-options-cdp.mjs` with the
 same fixture/Chrome setup to verify its popover fits right, left, and mobile
 toolbar placements.
 
+Open-to-resumed work: run `node tests/browser/resume-continuation-cdp.mjs` with
+the same fixture/Chrome setup. It verifies separate recorded episodes use one
+visual lane with a dashed inactive gap rather than a second trunk fork.
+
 Responsive layout: run `node tests/browser/responsive-layout-cdp.mjs` to check
 desktop, tablet, and phone scene/inspector arrangement and lower-control spacing.
 

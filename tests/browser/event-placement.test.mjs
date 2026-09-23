@@ -22,3 +22,7 @@ test('curves reach the lane by the first event and return only after the last',(
  assert.deepEqual(eventAwareEpisodePosition(9,0,10,2.4,true,1,9),[9,2.4,0]);
  assert.deepEqual(eventAwareEpisodePosition(10,0,10,2.4,true,1,9),[10,0,0]);
 });
+test('work resumed after an Open pause stays on its lane instead of forking again',()=>{
+ assert.deepEqual(eventAwareEpisodePosition(4,4,10,2.4,false,4,10,true),[4,2.4,0]);
+ assert.deepEqual(eventAwareEpisodePosition(4,4,10,2.4,false,5,10,false),[4,0,0]);
+});

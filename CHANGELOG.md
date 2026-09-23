@@ -6,6 +6,11 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+- Keep work that returns from Blocked through Open to In progress on the same
+  timeline lane, marking the inactive Open interval with a dashed connector
+  instead of drawing a confusing second fork from project history. Closed work
+  still starts a distinct branch when reopened.
+
 - Add dashboard issue operations for Resolve Attention & Reopen, Request Attention
   & Block, supported status changes, ordinary label deltas, and replacing or
   clearing the Abacus reasoning level. Status and combined attention/status

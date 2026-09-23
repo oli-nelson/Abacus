@@ -46,6 +46,12 @@ const server=http.createServer(async(req,res)=>{
    {id:issue.id+':v4',sourceRevision:'reclose',recordedAt:at('11:55'),title:issue.title,status:'closed'});
   issue.comments.push({id:'inactive-gap',author:'Fixture',text:'Hidden inactive gap comment',createdAt:at('11:40')});return json({ok:true});
  }
+ if(path==='/fixture/open-resume'){
+  const issue=issues[0];
+  history.get(issue.id).splice(2,0,{id:issue.id+':paused-open',sourceRevision:'paused-open',recordedAt:at('10:40'),title:issue.title,status:'open',notes:'Waiting for another claim'});
+  historyRevision='fixture-open-resume';
+  return json({ok:true});
+ }
  if(path==='/fixture/history-many'){
   for(let i=0;i<70;i++){
    const issue={...issues[0],id:'work-'+String(i).padStart(3,'0'),revision:'work-'+i,status:'closed',closedAt:at('11:30'),comments:[]};issues.push(issue);

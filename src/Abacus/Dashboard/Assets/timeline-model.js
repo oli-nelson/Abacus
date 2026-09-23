@@ -297,6 +297,21 @@ export function issueWorkEpisodes(issue,events,until,live=false){
   return episodes;
 }
 
+// An Open interval after work is a pause, not another issue branching from the
+// project trunk. Keep the work episodes separate, but reserve one visual lane
+// across that interval so a dashed connector can show where work resumed.
+export const resumesOpenEpisode=(previous,current)=>previous?.endStatus==='open'&&
+  Number.isFinite(previous.end)&&current.start>=previous.end;
+export function episodeVisualRuns(episodes){
+  const runs=[];
+  for(const episode of episodes){
+    const run=runs.at(-1),previous=run?.at(-1);
+    if(run&&resumesOpenEpisode(previous,episode))run.push(episode);
+    else runs.push([episode]);
+  }
+  return runs;
+}
+
 export function brushTimeRange(from,to,start,end,width){
   if(![from,to,start,end,width].every(Number.isFinite)||to<=from||width<=0)return null;
   const a=clamp(start,0,width),b=clamp(end,0,width);
@@ -385,11 +400,11 @@ export function isInitialWorkEntry(event,episodes){
 }
 // Keep the branch offset through its first/last issue event. End joins are
 // unmarked connectors, including vertical joins when events share an endpoint.
-export function eventAwareEpisodePosition(x,start,end,y,closed,firstEvent=Infinity,lastEvent=-Infinity){
+export function eventAwareEpisodePosition(x,start,end,y,closed,firstEvent=Infinity,lastEvent=-Infinity,continued=false){
   const bend=Math.min(3,Math.max(.001,(end-start)/3));
   const forkEnd=Math.min(start+bend,firstEvent),returnStart=Math.max(end-bend,lastEvent);
   const smooth=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
-  const fork=forkEnd<=start?1:smooth((x-start)/(forkEnd-start));
+  const fork=continued||forkEnd<=start?1:smooth((x-start)/(forkEnd-start));
   const merge=!closed||returnStart>=end?1:smooth((end-x)/(end-returnStart));
   return [x,y*Math.min(fork,merge),0];
 }

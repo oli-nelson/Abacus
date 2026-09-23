@@ -1,5 +1,5 @@
 import {matchesIssueMetadata,matchesIssueText} from './issue-filters.js';
-import {needleLabels,timelineAnnotations,isInitialWorkEntry,eventAwareEpisodePosition,concurrentEpisodeLayout,commentPreview,eventKindLabel,eventStatusChanges,brushTimeRange,issueWorkEpisodes,workEpisodes,episodePosition,eventArrivalStart,eventBubblePlacement,TimelineProjection,eventsFor,authorInitials,timelineLocation,savedTimelineCamera,clusterEvents,stateAt,statusColors,stamp,clamp,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,branchCurvePosition} from './timeline-model.js';
+import {needleLabels,timelineAnnotations,isInitialWorkEntry,eventAwareEpisodePosition,episodeVisualRuns,resumesOpenEpisode,concurrentEpisodeLayout,commentPreview,eventKindLabel,eventStatusChanges,brushTimeRange,issueWorkEpisodes,workEpisodes,episodePosition,eventArrivalStart,eventBubblePlacement,TimelineProjection,eventsFor,authorInitials,timelineLocation,savedTimelineCamera,clusterEvents,stateAt,statusColors,stamp,clamp,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,branchCurvePosition} from './timeline-model.js';
 import {TimelineRenderer,projectPoint,pickScreenMarker,rgb} from './timeline-gl.js';
 const $=id=>document.getElementById(id);
 const node=(tag,value,className)=>{const n=document.createElement(tag);n.textContent=value ?? '';if(className)n.className=className;return n;};
@@ -237,16 +237,23 @@ export class Timeline {
     const allEpisodeMap=new Map(this.visibleLanes.map(lane=>[lane.issue.id,this.episodes(lane)]));
     const episodeMap=new Map(this.visibleLanes.map(lane=>[lane.issue.id,allEpisodeMap.get(lane.issue.id).filter(e=>e.start<=this.to&&(e.end??now)>=this.from)]));
     const key=(lane,episode)=>lane.issue.id+':'+episode.start;
-    const rows=this.visibleLanes.flatMap(lane=>episodeMap.get(lane.issue.id).map(e=>({key:key(lane,e),start:e.start,end:e.end??now+1})));
+    const layoutKeys=new Map(),rows=[];
+    for(const lane of this.visibleLanes)for(const run of episodeVisualRuns(episodeMap.get(lane.issue.id))){
+      const runKey=key(lane,run[0]);
+      for(const episode of run)layoutKeys.set(key(lane,episode),runKey);
+      rows.push({key:runKey,start:run[0].start,end:run.at(-1).end??now+1});
+    }
     for(const lane of this.visibleLanes)if(this.live&&lane.issue.status==='in_progress'&&!episodeMap.get(lane.issue.id).some(e=>e.end===null))rows.push({key:lane.issue.id+':unknown',start:now,end:now+1});
     const layout=concurrentEpisodeLayout(rows),floor=layout.min-1.5,ceiling=layout.max+1.5,spineY=0;
-    const offset=(lane,episode,time)=>layout.offset(key(lane,episode),time);
+    const offset=(lane,episode,time)=>layout.offset(layoutKeys.get(key(lane,episode)),time);
     const entry=(lane,event)=>isInitialWorkEntry(event,allEpisodeMap.get(lane.issue.id));
     const positions=new Map();
-    let episodeCount=0,closedCount=0;
+    let episodeCount=0,closedCount=0,resumeConnections=0;
     for(const lane of this.visibleLanes){
       const episodes=episodeMap.get(lane.issue.id);
-      for(const episode of episodes){
+      for(let episodeIndex=0;episodeIndex<episodes.length;episodeIndex++){
+        const episode=episodes[episodeIndex],previous=episodes[episodeIndex-1];
+        const continued=resumesOpenEpisode(previous,episode);
         episodeCount++;if(episode.endStatus==='closed')closedCount++;
         const start=this.timeX(episode.start),end=this.timeX(episode.end??now);
         const events=lane.displayEvents.filter(e=>e.time>=episode.start&&e.time<=(episode.end??now));
@@ -258,7 +265,7 @@ export class Timeline {
           let y=offset(lane,episode,this.from+(x+12)/24*(this.to-this.from));
           // A moving lane may cross the spine; its event must still be distinct.
           if(eventXSet.has(x)&&Math.abs(y)<.8)y=y<0?-.8:.8;
-          return eventAwareEpisodePosition(x,start,end,y,episode.endStatus==='closed',first,last);
+          return eventAwareEpisodePosition(x,start,end,y,episode.endStatus==='closed',first,last,continued);
         };
         positions.set(key(lane,episode),position);
         const left=Math.max(-12,start),right=Math.min(12,end),points=[],span=right-left;
@@ -267,7 +274,18 @@ export class Timeline {
         // floor still resolves its fork and return curves. Full width keeps ~100.
         const steps=clamp(Math.round(span*4.2),16,100);
         const samples=[...new Set([...Array.from({length:steps+1},(_,i)=>left+span*i/steps),...layout.sampleTimes.map(t=>this.timeX(t)).filter(x=>x>left&&x<right),...eventXs.filter(x=>x>=left&&x<=right),...([first,last].filter(Number.isFinite).filter(x=>x>=left&&x<=right))])].sort((a,b)=>a-b);
-        if(left===start&&Math.abs(position(start)[1])>.001)points.push([start,spineY,0]);
+        if(continued&&previous.end<episode.start){
+          const pauseStart=Math.max(-12,this.timeX(previous.end)),pauseEnd=Math.min(12,start);
+          if(pauseEnd>pauseStart){
+            const pausedPoints=Array.from({length:33},(_,i)=>{
+              const x=pauseStart+(pauseEnd-pauseStart)*i/32;
+              return [x,offset(lane,episode,this.from+(x+12)/24*(this.to-this.from)),0];
+            });
+            paths.push({issueId:lane.issue.id,points:pausedPoints,color:lane.color,alpha:.55,radius:.055,dashed:true,selected:lane.issue.id===this.selected});
+            resumeConnections++;
+          }
+        }
+        if(!continued&&left===start&&Math.abs(position(start)[1])>.001)points.push([start,spineY,0]);
         for(const x of samples)points.push(position(x));
         if(right===end&&episode.endStatus==='closed'&&Math.abs(position(end)[1])>.001)points.push([end,spineY,0]);
         paths.push({issueId:lane.issue.id,points,color:lane.color,selected:lane.issue.id===this.selected,dashed:false});
@@ -301,6 +319,7 @@ export class Timeline {
     }
     this.targetLabels=targetLabels;
     $('timeline-stage').dataset.recordedStarts=String(episodeCount);
+    $('timeline-stage').dataset.resumeConnections=String(resumeConnections);
     $('timeline-stage').dataset.currentConnections='0';
     $('timeline-stage').dataset.closedEpisodes=String(closedCount);
     $('timeline-stage').dataset.spineEvents=JSON.stringify(markers.filter(m=>Math.abs(m.pos[1]-spineY)<1e-6).map(m=>({kind:m.event.kind,before:m.event.before,after:m.event.after})));

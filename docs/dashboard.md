@@ -846,7 +846,9 @@ pinned event, because they change which events are reachable at all.
 
 Timeline loads recorded status history automatically. Work starts at a recorded
 `in_progress` state, blocked intervals stay on the episode, and closure returns
-to the activity spine. A later restart creates a separate episode. These are
+to the activity spine. A later restart creates a separate episode. If work moves
+from blocked to Open and later resumes, the Open gap is dashed on the same visual
+lane rather than making the issue fork from the project trunk again. These are
 status curves, not assertions of Git integration. Unknown restart times are
 explicitly marked rather than invented.
 
@@ -903,8 +905,9 @@ episode ends.
 
 Placement is computed from the episodes currently displayed, so changing the time
 range, the filters or the lane page can place the same issue differently. It is
-also per work episode: an issue that closes and starts new work later is a new
-branch and may be placed elsewhere. Line
+also per work episode, except Open pauses reserve the same lane across the gap:
+an issue that closes and starts new work later is a new branch and may be placed
+elsewhere. Line
 thickness and round event-node proportions no longer stretch with the axes;
 nodes are larger in both WebGL and fallback views. Existing saved cameras refit
 once for this layout migration; subsequent camera preferences remain saved.
@@ -922,7 +925,8 @@ The timeline shows only **status changes, label changes, new comments, and note
 changes** within recorded work episodes. Event filters use these four categories.
 Issue-event nodes stay on the offset branch, including closure. The only spine
 node is a first recorded open/blocked → in-progress transition; later resumes and
-reopened episodes remain offset. Same-time comments/notes/labels are clustered
+reopened episodes remain offset. An Open pause gets a dashed connector, not a
+solid work segment. Same-time comments/notes/labels are clustered
 separately from that initial entry. Branch joins remain at their recorded times
 without placing other event nodes on the main line.
 Clusters count those changes, not database snapshots; one recorded version may
