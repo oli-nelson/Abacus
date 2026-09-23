@@ -1,6 +1,6 @@
 import {matchesIssueMetadata,matchesIssueText} from './issue-filters.js';
-import {needleLabels,timelineAnnotations,isInitialWorkEntry,eventAwareEpisodePosition,concurrentEpisodeLayout,commentPreview,eventKindLabel,brushTimeRange,issueWorkEpisodes,workEpisodes,episodePosition,eventArrivalStart,eventBubblePlacement,TimelineProjection,eventsFor,authorInitials,timelineLocation,savedTimelineCamera,clusterEvents,stateAt,statusColors,stamp,clamp,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,branchCurvePosition} from './timeline-model.js';
-import {TimelineRenderer,projectPoint,rgb} from './timeline-gl.js';
+import {needleLabels,timelineAnnotations,isInitialWorkEntry,eventAwareEpisodePosition,concurrentEpisodeLayout,commentPreview,eventKindLabel,eventStatusChanges,brushTimeRange,issueWorkEpisodes,workEpisodes,episodePosition,eventArrivalStart,eventBubblePlacement,TimelineProjection,eventsFor,authorInitials,timelineLocation,savedTimelineCamera,clusterEvents,stateAt,statusColors,stamp,clamp,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,branchCurvePosition} from './timeline-model.js';
+import {TimelineRenderer,projectPoint,pickScreenMarker,rgb} from './timeline-gl.js';
 const $=id=>document.getElementById(id);
 const node=(tag,value,className)=>{const n=document.createElement(tag);n.textContent=value ?? '';if(className)n.className=className;return n;};
 const localInput=t=>{const d=new Date(t);return new Date(t-d.getTimezoneOffset()*60000).toISOString().slice(0,16);};
@@ -30,7 +30,7 @@ export class Timeline {
     this.media=matchMedia('(prefers-reduced-motion: reduce)');
     this.media.addEventListener('change',()=>{if(this.reduced()){this.finishCameraTransition();this.calloutAnimation?.cancel();this.cancelFilterMotion();this.invalidate();}});
     $('timeline-motion').value=this.motion;document.documentElement.dataset.motion=this.motion;
-    this.renderer=new TimelineRenderer($('timeline-canvas'),$('timeline-fallback'),message=>{
+    this.renderer=new TimelineRenderer($('timeline-canvas'),$('timeline-fallback'),$('timeline-markers'),message=>{
       $('timeline-renderer').textContent=message||'WebGL · perspective camera';
       if(message){this.mode='2d';this.applyMode(false);}this.invalidate();
     });
@@ -84,7 +84,7 @@ export class Timeline {
     this.cancelFilterMotion();
     if(!this.visible||document.hidden||this.reduced())return;
     // Stable lane slots and event timestamps do not need positional interpolation.
-    this.filterAnimations=['timeline-canvas','timeline-fallback','timeline-labels'].map(id=>
+    this.filterAnimations=['timeline-canvas','timeline-fallback','timeline-markers','timeline-labels'].map(id=>
       $(id).animate([{opacity:.45},{opacity:1}],{duration:180,easing:'cubic-bezier(.2,.75,.25,1)'}));
   }
   setData(issues,selected,query,status,metadata=this.metadata||{}){
@@ -416,6 +416,12 @@ export class Timeline {
     const callout=$('timeline-callout');callout.hidden=!event;callout.replaceChildren();
     this.invalidate();
     if(!event)return;
+    const statusChanges=eventStatusChanges(event);
+    const target=statusChanges[0]?.after;
+    const statusColor=target&&statusChanges.every(change=>change.after===target)?statusColors[target]||statusColors.unknown:null;
+    const calloutColor=statusColor||'#23c7ff';
+    callout.style.setProperty('--callout-color',calloutColor);
+    $('timeline-callout-leader').style.setProperty('--callout-color',calloutColor);
     const close=node('button','×','callout-close');close.setAttribute('aria-label','Dismiss pinned event');
     close.addEventListener('click',()=>{this.calloutAnimation?.cancel();this.cancelFilterMotion();this.pinnedEvent=null;callout.hidden=true;this.invalidate();this.onSelect(id,null);$('timeline-stage').focus({preventScroll:true});});
     const identity=node('div',null,'callout-identity'),badge=node('span',event.kind==='comment'?authorInitials(event.author):({status:'↔',labels:'#',notes:'≡',cluster:String(event.members?.length||0)}[event.kind]||'•'),'author-initials');
@@ -425,7 +431,18 @@ export class Timeline {
     const metadata=node('small','');metadata.append(timestamp,document.createTextNode(' · '+id+' · '+eventKindLabel(event.kind)));
     heading.append(node('strong',event.kind==='current'?(event.source==='git'?'Git containment':'Current issue state'):event.kind==='comment'?(event.author||'Author not recorded'):eventKindLabel(event.kind)),metadata);
     identity.append(badge,heading);
-    callout.append(close,identity,node('p',commentPreview(event.text,280)),node('small',event.kind==='git'?event.provenance:['status','labels','notes'].includes(event.kind)?'Recorded at this time; exact edit time and author may be unknown':event.kind==='current'?(event.provenance||'Current state; transition time unknown'):event.kind==='cluster'?'Grouped issue changes':'New comment'));
+    callout.append(close,identity);
+    if(event.kind==='cluster'&&statusChanges.length){
+      const changes=node('section',null,'callout-status-changes');
+      changes.append(node('strong',statusChanges.length===1?'Status change':'Status changes'));
+      for(const change of statusChanges){
+        const row=node('p',`${change.before} → ${change.after}`);
+        row.style.setProperty('--status-color',statusColors[change.after]||statusColors.unknown);
+        changes.append(row);
+      }
+      callout.append(changes);
+    }
+    callout.append(node('p',commentPreview(event.text,280)),node('small',event.kind==='git'?event.provenance:['status','labels','notes'].includes(event.kind)?'Recorded at this time; exact edit time and author may be unknown':event.kind==='current'?(event.provenance||'Current state; transition time unknown'):event.kind==='cluster'?'Grouped issue changes':'New comment'));
     const comments=event.members?.filter(member=>member.kind==='comment')||[];
     if(comments.length){
       const previews=node('section',null,'callout-comments');previews.setAttribute('aria-label','Comment previews');
@@ -560,7 +577,8 @@ export class Timeline {
     }
     const camera=this.viewCamera();
     $('timeline-callout').hidden=!this.pinnedEvent||(!this.live&&(this.pinnedEvent.kind==='current'||this.pinnedEvent.time>this.playhead));
-    this.renderer.draw(camera,this.live?100:this.timeX(this.playhead));
+    const marker=this.pinnedEvent&&this.scene.markers.find(m=>m.issueId===this.pinnedIssue&&(m.event.id===this.pinnedEvent.id||m.event.members?.some(e=>e.id===this.pinnedEvent.id)));
+    this.renderer.draw(camera,this.live?100:this.timeX(this.playhead),marker);
     $('timeline-stage').dataset.frames=String(this.renderer.frames);$('timeline-stage').dataset.uploads=String(this.renderer.uploads);
     $('timeline-stage').dataset.arrivalDrawRanges=String(this.renderer.arrivalRanges?.length||0);
     $('timeline-stage').dataset.glowArrivalDrawRanges=String(this.renderer.glowArrivalRanges?.length||0);
@@ -568,7 +586,6 @@ export class Timeline {
     this.saveCamera();
     const rect=$('timeline-stage').getBoundingClientRect();
     const callout=$('timeline-callout'),leader=$('timeline-callout-leader');
-    const marker=this.pinnedEvent&&this.scene.markers.find(m=>m.issueId===this.pinnedIssue&&(m.event.id===this.pinnedEvent.id||m.event.members?.some(e=>e.id===this.pinnedEvent.id)));
     const anchor=marker?projectPoint(marker.pos,camera,rect.width,rect.height):null;
     const bubble=callout.hidden?null:eventBubblePlacement(anchor,callout.offsetWidth,callout.offsetHeight,rect.width,rect.height);
     leader.style.display=bubble?'block':'none';
@@ -735,19 +752,18 @@ export class Timeline {
       else this.camera.pitch=clamp(this.camera.pitch+direction*.06,-1.15,1.15);
       this.invalidate();
     });
-    stage.addEventListener('pointerleave',()=>{$('timeline-tooltip').hidden=true;});
+    stage.addEventListener('pointerleave',()=>{$('timeline-tooltip').hidden=true;stage.style.cursor='';});
   }
   hit(e){
     if(!this.scene)return null;
     const rect=$('timeline-stage').getBoundingClientRect(),camera=this.viewCamera(),x=e.clientX-rect.left,y=e.clientY-rect.top;
-    let best=null,distance=18;
-    for(const marker of this.scene.markers){
-      if(!this.live&&marker.event.time>this.playhead)continue;
-      const p=projectPoint(marker.pos,camera,rect.width,rect.height);if(!p)continue;
-      const d=Math.hypot(p.x-x,p.y-y);if(d<distance){distance=d;best=marker;}
-    }
+    // Keep the hit area in CSS pixels, not world units: distant 3D spheres and
+    // 2D fallback dots are equally easy to select without drawing larger nodes.
+    // Nearest-center ownership prevents overlapping targets from blocking one another.
+    const hitRadius=e.pointerType==='touch'?34:28;
+    let best=pickScreenMarker(this.scene.markers.filter(marker=>this.live||marker.event.time<=this.playhead),camera,rect.width,rect.height,x,y,hitRadius);
     if(best)return best;
-    distance=8;
+    let distance=8;
     for(const path of this.scene.paths){
       for(let i=1;i<path.points.length;i++){
         if(!this.live&&path.points[i][0]>this.timeX(this.playhead))break;
@@ -762,6 +778,7 @@ export class Timeline {
   }
   hover(e){
     const picked=this.hit(e),tip=$('timeline-tooltip');tip.hidden=!picked;
+    $('timeline-stage').style.cursor=picked?'pointer':'';
     if(picked){const event=picked.event;tip.textContent=event?`${picked.issueId} · ${event.kind} · ${display(event.time)} · ${new Date(event.time).toISOString()} · ${event.text?.slice(0,240)}`:`${picked.issueId} · independent issue lane`;
       const rect=$('timeline-stage').getBoundingClientRect();tip.style.left=clamp(e.clientX-rect.left+12,8,Math.max(8,rect.width-290))+'px';tip.style.top=clamp(e.clientY-rect.top+12,8,Math.max(8,rect.height-90))+'px';}
   }

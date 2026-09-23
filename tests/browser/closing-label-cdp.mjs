@@ -27,6 +27,7 @@ for(const mode of ['2d','3d']){
 }
 await evaluate(`(${closed}).click()`);
 assert.ok(await evaluate("document.getElementById('selected-event').textContent.includes('Status: blocked → closed')"));
+assert.equal(await evaluate("getComputedStyle(document.getElementById('timeline-callout')).borderColor"),'rgb(50, 230, 173)');
 await evaluate("document.getElementById('timeline-kind').value='comment';document.getElementById('timeline-kind').dispatchEvent(new Event('change'))");
 assert.equal(await evaluate(`!!(${closed})`),false,'Respect event-kind filtering');
 await evaluate("document.getElementById('timeline-kind').value='all';document.getElementById('timeline-kind').dispatchEvent(new Event('change'))");

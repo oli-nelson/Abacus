@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {brushTimeRange,issueWorkEpisodes,episodePosition,workEpisodes,eventArrivalStart,eventBubblePlacement,authorInitials,savedTimelineCamera,timelineLocation,eventsFor,stateAt,clusterEvents,TimelineProjection,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,simplifyStraightSegments,branchCurvePosition} from '../../src/Abacus/Dashboard/Assets/timeline-model.js';
+import {brushTimeRange,issueWorkEpisodes,episodePosition,workEpisodes,eventArrivalStart,eventBubblePlacement,authorInitials,savedTimelineCamera,timelineLocation,eventsFor,stateAt,clusterEvents,eventStatusChanges,TimelineProjection,nonOverlappingLabels,gitLaneSummary,currentGitTopology,smoothConnection,recordedStartEvent,simplifyStraightSegments,branchCurvePosition} from '../../src/Abacus/Dashboard/Assets/timeline-model.js';
 import {TimelineRenderer,cameraBasis,projectPoint} from '../../src/Abacus/Dashboard/Assets/timeline-gl.js';
 const issue={id:'a',revision:'one',title:'Current title',status:'in_progress',createdAt:'2026-09-21T09:00:00Z',comments:[]};
 test('current content never invents dated notes, claims or historical states',()=>{
@@ -62,6 +62,13 @@ test('dense clustering stays lane-local, bounded and lossless',()=>{
   const clusters=clusterEvents(events,0,10000,80);
   assert.equal(clusters.length,160);assert.equal(clusters.reduce((n,c)=>n+(c.members?.length||1),0),10000);
   assert.ok(clusters.every(c=>c.members.every(e=>e.issueId===c.issueId)));
+});
+test('popup status changes come only from recorded status members',()=>{
+  const transition={kind:'status',before:'in_progress',after:'blocked'};
+  const grouped={kind:'cluster',members:[{kind:'comment',text:'blocked is mentioned'},transition,{kind:'notes',after:'blocked'}]};
+  assert.deepEqual(eventStatusChanges(grouped),[transition]);
+  assert.deepEqual(eventStatusChanges(transition),[transition]);
+  assert.deepEqual(eventStatusChanges({kind:'cluster',members:[{kind:'comment',text:'blocked'}]}),[]);
 });
 test('camera is genuinely perspective and 2D projection removes depth scaling',()=>{
   const camera={yaw:0,pitch:0,distance:30,target:[0,0,0],perspective:1};

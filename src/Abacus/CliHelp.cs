@@ -158,11 +158,25 @@ internal static class CliHelp
             dirty issue workspaces; ambiguous workspaces stop with an alert, never automatic cleaning.
               --once   Process at most one currently ready ticket per agent, then exit.
               --drain  Process ready work until each agent observes an empty queue, then exit.
-              --dashboard             Also host the HTTP issue/Git preview inside this run.
-              --dashboard-bind <host>  Default 127.0.0.1; explicit tuning requires --dashboard.
-              --dashboard-port <port>  Default 8080; occupied ports fail before workers start.
+
+            Dashboard HTTP server (alongside agents):
+              --dashboard             Enable the dashboard; disabled by default.
+              --dashboard-bind <host>  IP address or hostname, not a URL. Default 127.0.0.1
+                                       (local only); use 0.0.0.0 for all IPv4 interfaces.
+              --dashboard-port <port>  Listening port 1–65535; default 8080. An occupied port
+                                       fails before workers start; no automatic fallback.
               --dashboard-actor <name> Self-declared edit attribution; default abacus-web.
               --dashboard-poll-interval <duration> Shared source polling; default 5s, minimum 1s.
+            Example:
+              abacus run --config abacus_codex.json --dashboard \
+                --dashboard-bind 0.0.0.0 --dashboard-port 8081
+            This listens on every IPv4 interface at port 8081. Without bind/port flags,
+            the URL is http://127.0.0.1:8080/. Tuning requires the dashboard enabled
+            by --dashboard or a config with "dashboard": true; --dashboard=false disables it.
+            For a server without agents, use abacus dashboard --bind ... --port ...
+            (see abacus help dashboard). HTTP has no authentication or encryption.
+
+            Run control and output:
               --stdio                 JSONL events on stdout; JSONL commands on stdin, no TUI.
               --event-log <path>      Append the same structured activity events to a JSONL file.
               --start-paused          Pause claims initially; resume with Shift-Tab, stdio, or --dashboard HTTP controls.
@@ -175,7 +189,7 @@ internal static class CliHelp
             HTTP access is unauthenticated read/write; use a trusted network. Claim Pause/Resume
             and worker Stop/Restart/confirmed Clean plus confirmed Stop Run are available;
             supervisor Stop/Restart and confirmed Force Run use tracked outcomes.
-            Saved dashboard settings inherit normally; --dashboard=false disables listening.
+            Saved dashboard settings inherit normally.
             --once and --drain are mutually exclusive; finite modes fail on orchestration errors.
             A run config may schedule claim windows (timezone, block, minWindowRemaining) that
             block new tickets during recurring hours such as a provider's peak prices. Those

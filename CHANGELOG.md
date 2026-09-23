@@ -6,6 +6,18 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+- Make timeline event nodes easier to select in both 3D and 2D with a consistent,
+  screen-space click target, modestly larger visible dots that taper in dense
+  clusters, and a clear ring around the pinned event;
+  replace persistent timeline guidance and
+  history coverage prose with a temporary top-of-dashboard loading progress bar.
+  Grouped event popups now show recorded status transitions and use the resulting
+  status color for their border, heading, badge, and pointer.
+
+- Clarify `abacus help run` with a copyable example for dashboard bind and port,
+  the local-only defaults, and the distinction from standalone `dashboard`
+  server flags.
+
 - Add a selectable Dependency Tree dashboard tab. It lays out current Beads issues
   from blocking prerequisites to dependents, groups connected work, separates issue cards,
   and uses distinct at-a-glance colors and labels for open, in-progress, blocked,

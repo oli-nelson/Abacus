@@ -46,6 +46,18 @@ public sealed class CommandSyntaxTests
         Assert.Contains("Usage: abacus " + string.Join(" ", command), longHelp.HelpText);
     }
 
+    [Fact]
+    public void RunHelpExplainsDashboardBindAndPort()
+    {
+        var help = Options.Parse(["help", "run"]).HelpText;
+        Assert.Contains("--dashboard-bind <host>", help);
+        Assert.Contains("--dashboard-port <port>", help);
+        Assert.Contains("--dashboard-bind 0.0.0.0 --dashboard-port 8081", help);
+        Assert.Contains("http://127.0.0.1:8080/", help);
+        Assert.Contains("abacus dashboard --bind ... --port ...", help);
+        Assert.Contains("HTTP has no authentication or encryption", help);
+    }
+
     [Theory]
     [InlineData("--init")]
     [InlineData("--init-new-multi-agent-repo")]

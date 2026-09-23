@@ -98,6 +98,17 @@ let canReadHistory=false, canReadProjectHistory=false, historyState=null, activi
 const timelineHistoryRequests=new Map(),timelineHistoryAttempts=new Map();
 let timelineHistoryGeneration='',timelineHistoryPage=0,timelineHistoryRange='';
 let projectHistoryRequest=null,projectHistoryAttempt=null,projectHistoryResult=null,projectHistoryFailed=false;
+function historyProgress(loading,loaded,total,wholeProject=false){
+  const panel=$('history-progress');
+  panel.hidden=!loading||view!=='timeline';
+  if(panel.hidden)return;
+  $('history-progress-label').textContent=`Loading timeline history · ${loaded}/${total} issues`;
+  const bar=$('history-progress-bar');
+  bar.max=Math.max(1,total);
+  // A whole-project response arrives atomically; don't imply that zero means stalled.
+  if(wholeProject)bar.removeAttribute('value');
+  else bar.value=loaded;
+}
 // One read covers every issue, so no lane is hidden behind a batch it has not
 // loaded yet. The paged reader below stays as the fallback for sources that
 // cannot answer a whole-project query.
@@ -113,6 +124,7 @@ function scheduleProjectHistory(generation){
   const describe=()=>{
     const loaded=ordered.filter(i=>{const c=timeline.histories.get(i.id);return c?.revision===generation&&c.issueRevision===i.revision;}).length;
     $('timeline-history-state').textContent=`Status history: ${loaded}/${ordered.length} issues loaded${projectHistoryRequest?' · loading…':''}${projectHistoryResult?' · '+projectHistoryResult:''}. Every issue is read together; overlap is confirmed by history. Missing transitions are not invented.`;
+    historyProgress(!!projectHistoryRequest,loaded,ordered.length,true);
     $('timeline-history-retry').hidden=!projectHistoryFailed;
   };
   if(projectHistoryRequest||projectHistoryAttempt===attempt){describe();return;}
@@ -148,7 +160,7 @@ function scheduleProjectHistory(generation){
 }
 function scheduleTimelineHistory(){
   const allowed=view==='timeline'&&!document.hidden&&canReadHistory&&!historyState?.stale&&!!historyState?.revision;
-  if(!allowed){projectHistoryRequest?.abort();for(const r of timelineHistoryRequests.values())r.abort();if(view==='timeline')$('timeline-history-state').textContent=historyState?.stale?'Status history unavailable; recorded transitions cannot be refreshed.':'Status history is not connected yet.';return;}
+  if(!allowed){projectHistoryRequest?.abort();for(const r of timelineHistoryRequests.values())r.abort();historyProgress(false,0,0);if(view==='timeline')$('timeline-history-state').textContent=historyState?.stale?'Status history unavailable; recorded transitions cannot be refreshed.':'Status history is not connected yet.';return;}
   if(canReadProjectHistory){scheduleProjectHistory(historyState.revision);return;}
   const generation=historyState.revision;
   if(timelineHistoryGeneration!==generation){
@@ -199,6 +211,7 @@ function scheduleTimelineHistory(){
   const loaded=candidates.filter(i=>timelineHistoryAttempts.get(keyOf(i))==='loaded').length;
   const failed=candidates.filter(i=>timelineHistoryAttempts.get(keyOf(i))==='failed').length;
   $('timeline-history-state').textContent=`Status history: ${loaded}/${candidates.length} issues loaded${timelineHistoryRequests.size?' · loading…':''}${failed?' · '+failed+' unavailable':''}${issues.size>64?' · current history batch':''}. Range-relevant issues load first; overlap is confirmed by history. Missing transitions are not invented.`;
+  historyProgress(timelineHistoryRequests.size>0,loaded,candidates.length);
   $('timeline-history-retry').hidden=!failed;
 }
 for(const [id,delta] of [['timeline-history-prev',-1],['timeline-history-next',1]])$(id).addEventListener('click',()=>{

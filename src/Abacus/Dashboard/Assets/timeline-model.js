@@ -53,6 +53,7 @@ export function eventsFor(issue, versions=[]) {
 }
 // Snapshots reconstruct state; only differences become user-facing events.
 export const eventKindLabel=kind=>({status:'Status change',labels:'Label change',notes:'Note change',comment:'New comment',cluster:'Issue changes',current:'Current state'}[kind]||kind);
+export const eventStatusChanges=event=>(event?.members||[event]).filter(member=>member?.kind==='status'&&typeof member.before==='string'&&typeof member.after==='string');
 export function meaningfulEvents(events) {
   const result=events.filter(e=>e.kind==='comment'),groups=new Map();
   for(const e of events.filter(e=>['snapshot','closure'].includes(e.kind)).sort((a,b)=>a.time-b.time||a.id.localeCompare(b.id))){

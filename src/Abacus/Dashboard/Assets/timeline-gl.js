@@ -10,11 +10,51 @@ export function cameraBasis(camera) {
   const forward=unit(sub(target,eye)),right=unit(cross(forward,[0,1,0])),up=cross(right,forward);
   return {eye,forward,right,up};
 }
-export function projectPoint(point,camera,width,height) {
-  const b=cameraBasis(camera),p=sub(point.map((v,i)=>camera.target[i]+(v-camera.target[i])*(camera.axisScale?.[i]??1)),b.eye),depth=dot(p,b.forward);
+export function projectPoint(point,camera,width,height,b=cameraBasis(camera)) {
+  const p=sub(point.map((v,i)=>camera.target[i]+(v-camera.target[i])*(camera.axisScale?.[i]??1)),b.eye),depth=dot(p,b.forward);
   if(depth<=.1)return null;
   const scale=1.9/((1-camera.perspective)*camera.distance+camera.perspective*depth);
   return {x:width/2+dot(p,b.right)*scale*height/2,y:height/2-dot(p,b.up)*scale*height/2,depth};
+}
+// Project once per frame, then shrink only crowded dots. The visual layer does
+// not change event geometry or the larger invisible click target.
+export function screenMarkerLayout(markers,camera,width,height,playheadX){
+  const basis=cameraBasis(camera),cellSize=24,grid=new Map();
+  const points=markers.filter(m=>m.pos[0]<=playheadX).map(marker=>{
+    const point=projectPoint(marker.pos,camera,width,height,basis);
+    return point&&point.x>=-10&&point.x<=width+10&&point.y>=-10&&point.y<=height+10?{marker,...point}:null;
+  }).filter(Boolean);
+  const key=(x,y)=>x+','+y;
+  for(const point of points){
+    const x=Math.floor(point.x/cellSize),y=Math.floor(point.y/cellSize),k=key(x,y);
+    if(!grid.has(k))grid.set(k,[]);
+    grid.get(k).push(point);
+  }
+  return points.map(point=>{
+    const x=Math.floor(point.x/cellSize),y=Math.floor(point.y/cellSize);
+    let nearest=Infinity;
+    for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+      const neighbors=grid.get(key(x+dx,y+dy))||[];
+      if(neighbors.length>32){nearest=0;continue;}
+      for(const other of neighbors){
+        if(other===point)continue;
+        nearest=Math.min(nearest,Math.hypot(point.x-other.x,point.y-other.y));
+      }
+    }
+    return {...point,radius:clamp((nearest-2)/2,3.75,7.5)};
+  });
+}
+export function pickScreenMarker(markers,camera,width,height,x,y,radius){
+  let best=null,distance=Infinity,bestDepth=Infinity;
+  for(const marker of markers){
+    const p=projectPoint(marker.pos,camera,width,height);
+    if(!p)continue;
+    const d=Math.hypot(p.x-x,p.y-y);
+    if(d<=radius&&(d<distance-2||Math.abs(d-distance)<=2&&p.depth<bestDepth)){
+      distance=d;bestDepth=p.depth;best=marker;
+    }
+  }
+  return best;
 }
 const vertex=`
 attribute vec3 a_position;
@@ -42,8 +82,8 @@ uniform vec3 u_fromColor;
 void main(){if(v_timed>0.5 && v_time>u_playhead)discard;gl_FragColor=vec4(mix(v_color.rgb,u_fromColor*v_light,u_colorMix),v_color.a*u_fade);}
 `;
 export class TimelineRenderer {
-  constructor(canvas,fallback,onFailure) {
-    this.canvas=canvas;this.fallback=fallback;this.onFailure=onFailure;this.frames=0;this.uploads=0;this.scene=null;
+  constructor(canvas,fallback,overlay,onFailure) {
+    this.canvas=canvas;this.fallback=fallback;this.overlay=overlay;this.onFailure=onFailure;this.frames=0;this.uploads=0;this.scene=null;
     canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();this.gl=null;this.onFailure('WebGL context lost · using 2D');});
     canvas.addEventListener('webglcontextrestored',()=>{this.initialize();if(this.scene)this.setScene(this.scene);this.onFailure(this.gl ? null : 'WebGL unavailable · using 2D');});
     this.initialize();
@@ -142,7 +182,7 @@ export class TimelineRenderer {
   markerColor(marker){const to=rgb(marker.color),mix=this.colorMix(marker);return to.map((v,i)=>v*(1-mix)+(marker.colorTransition?.from[i]??v)*mix);}
   markerAnimating(marker){return this.arrivalOpacity(marker)<1||this.colorMix(marker)>0;}
   activeArrivals(){return [...(this.scene?.markers||[]),...(this.scene?.paths||[])].some(marker=>this.markerAnimating(marker));}
-  draw(camera,playheadX) {
+  draw(camera,playheadX,pinnedMarker=null) {
     if(!this.scene)return;
     const scale=camera.axisScale||[1,1,1];
     if(JSON.stringify(this.geometryScale)!==JSON.stringify(scale)){this.geometryScale=[...scale];this.setScene(this.scene);}
@@ -150,9 +190,9 @@ export class TimelineRenderer {
     this.arrivalRanges=(this.arrivalRanges||[]).filter(range=>this.markerAnimating(range.marker));
     this.glowArrivalRanges=(this.glowArrivalRanges||[]).filter(range=>this.markerAnimating(range.marker));
     const rect=this.canvas.parentElement.getBoundingClientRect(),width=Math.max(1,rect.width),height=Math.max(1,rect.height),dpr=Math.min(2,devicePixelRatio||1);
-    for(const canvas of [this.canvas,this.fallback])if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);}
-    this.canvas.hidden=!this.gl;this.fallback.hidden=!!this.gl;
-    if(!this.gl){this.drawFallback({...camera,yaw:0,pitch:0,perspective:0},playheadX,width,height,dpr);return;}
+    for(const canvas of [this.canvas,this.fallback,this.overlay])if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);}
+    this.canvas.hidden=!this.gl;this.fallback.hidden=!!this.gl;this.overlay.hidden=!this.gl;
+    if(!this.gl){this.drawFallback({...camera,yaw:0,pitch:0,perspective:0},playheadX,width,height,dpr,pinnedMarker);return;}
     const gl=this.gl,b=cameraBasis(camera);
     gl.viewport(0,0,this.canvas.width,this.canvas.height);gl.clearColor(.018,.045,.075,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.useProgram(this.program);gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
@@ -183,8 +223,33 @@ export class TimelineRenderer {
       if(cursor<this.counts[3])gl.drawArrays(gl.TRIANGLES,base+cursor,this.counts[3]-cursor);
     }
     gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(true);
+    this.drawScreenMarkers(camera,playheadX,width,height,dpr,pinnedMarker);
   }
-  drawFallback(camera,playheadX,width,height,dpr) {
+  drawSelectionRing(ctx,point){
+    ctx.globalAlpha=1;
+    ctx.beginPath();ctx.arc(point.x,point.y,Math.max(11,point.radius+3.5),0,Math.PI*2);
+    ctx.strokeStyle='#06121d';ctx.lineWidth=4;ctx.stroke();
+    ctx.strokeStyle='#f5fbff';ctx.lineWidth=2;ctx.shadowColor=point.marker.color;
+    ctx.shadowBlur=this.glow===false?0:8;ctx.stroke();ctx.shadowBlur=0;
+  }
+  drawScreenMarkers(camera,playheadX,width,height,dpr,pinnedMarker=null){
+    const ctx=this.overlay.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
+    let pinnedPoint=null;
+    for(const point of screenMarkerLayout(this.scene.markers,camera,width,height,playheadX)){
+      const marker=point.marker;
+      const projectedRadius=(marker.selected?.46:.36)*1.9*height/2/((1-camera.perspective)*camera.distance+camera.perspective*point.depth);
+      if(marker===pinnedMarker)pinnedPoint={...point,radius:Math.max(point.radius,projectedRadius)};
+      if(projectedRadius>=point.radius)continue;
+      ctx.globalAlpha=this.arrivalOpacity(marker);
+      ctx.fillStyle='rgb('+this.markerColor(marker).map(v=>Math.round(v*255)).join(',')+')';
+      ctx.beginPath();ctx.arc(point.x,point.y,point.radius,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle='#d9faff';ctx.lineWidth=1;ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+    if(pinnedPoint)this.drawSelectionRing(ctx,pinnedPoint);
+  }
+  drawFallback(camera,playheadX,width,height,dpr,pinnedMarker=null) {
     const ctx=this.fallback.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);ctx.fillStyle='#050d16';ctx.fillRect(0,0,width,height);
     const p=point=>projectPoint(point,camera,width,height);
     for(let x=-12;x<=12;x+=2){const a=p([x,this.scene.floor,0]),b=p([x,this.scene.ceiling,0]);ctx.strokeStyle='#18354a';ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
@@ -212,7 +277,9 @@ export class TimelineRenderer {
       ctx.stroke();ctx.globalAlpha=1;
     }
     ctx.shadowBlur=0;ctx.setLineDash([]);
-    for(const m of this.scene.markers){if(m.pos[0]>playheadX)continue;const q=p(m.pos);ctx.globalAlpha=this.arrivalOpacity(m);ctx.fillStyle='rgb('+this.markerColor(m).map(v=>Math.round(v*255)).join(',')+')';ctx.beginPath();ctx.arc(q.x,q.y,m.selected?8:6,0,Math.PI*2);ctx.closePath();ctx.fill();ctx.strokeStyle='#d9faff';ctx.lineWidth=1.5;ctx.stroke();ctx.globalAlpha=1;}
+    let pinnedPoint=null;
+    for(const q of screenMarkerLayout(this.scene.markers,camera,width,height,playheadX)){const m=q.marker;if(m===pinnedMarker)pinnedPoint={...q,radius:Math.max(q.radius,8.5)};ctx.globalAlpha=this.arrivalOpacity(m);ctx.fillStyle='rgb('+this.markerColor(m).map(v=>Math.round(v*255)).join(',')+')';ctx.beginPath();ctx.arc(q.x,q.y,m.selected?Math.max(8.5,q.radius):q.radius,0,Math.PI*2);ctx.closePath();ctx.fill();ctx.strokeStyle='#d9faff';ctx.lineWidth=1.5;ctx.stroke();ctx.globalAlpha=1;}
     const n=p([this.scene.nowX,this.scene.floor,0]);ctx.strokeStyle='#3389c9';ctx.beginPath();ctx.moveTo(n.x,0);ctx.lineTo(n.x,height);ctx.stroke();
+    if(pinnedPoint)this.drawSelectionRing(ctx,pinnedPoint);
   }
 }
