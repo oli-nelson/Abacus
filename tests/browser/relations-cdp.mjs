@@ -17,13 +17,17 @@ await until("document.querySelectorAll('#issues tr').length===3 && !document.get
 
 await fetch('http://127.0.0.1:18081/fixture/relations');
 await until("document.querySelectorAll('#relations li').length===2");
+assert.equal(await evaluate("document.getElementById('relations-section').open"),false,'Relationship provenance stays collapsed by default');
 assert.match(await evaluate("document.getElementById('relations').textContent"),/missing-child · not present/);
 assert.match(await evaluate("document.getElementById('relations-state').textContent"),/Incoming coverage incomplete/);
+await evaluate("document.getElementById('relations-summary').click()");
+assert.equal(await evaluate("document.getElementById('relations-section').open"),true);
 await evaluate("document.querySelector('#relations button').click()");
 await until("document.getElementById('selected-id').textContent==='bd-b7c'");
 assert.match(await evaluate("document.getElementById('relations').textContent"),/incoming · blocks · bd-a1f/);
 await fetch('http://127.0.0.1:18081/fixture/relations?clear');
 await until("document.getElementById('relations').textContent.includes('No recorded links')");
+assert.equal(await evaluate("document.getElementById('relations-section').open"),false);
 await evaluate("document.getElementById('timeline-view').click();document.getElementById('timeline-scrub').value=0;document.getElementById('timeline-scrub').dispatchEvent(new Event('input'))");
 await until("document.getElementById('relations-state').textContent.includes('at this playhead are unknown')");
 assert.equal(await evaluate("document.querySelectorAll('#relations li').length"),0);

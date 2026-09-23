@@ -19,8 +19,8 @@ await search('camera interaction');assert.equal(await evaluate("document.querySe
 await evaluate("document.getElementById('load-activity').click()");
 await until("document.querySelectorAll('#issues tr').length===1 && !document.getElementById('load-activity').disabled");
 assert.match(await evaluate("document.getElementById('search-coverage').textContent"),/1 issue histories loaded; older\/unloaded history is not searched/);
-const calls=apiCalls;
 await evaluate("document.getElementById('timeline-view').click()");await until("document.querySelectorAll('.lane-card').length===1");
+const calls=apiCalls;
 await evaluate("document.getElementById('timeline-scrub').value=0;document.getElementById('timeline-scrub').dispatchEvent(new Event('input'))");
 await until("document.querySelectorAll('.lane-card').length===0");
 await evaluate("document.getElementById('timeline-scrub').value=800;document.getElementById('timeline-scrub').dispatchEvent(new Event('input'))");

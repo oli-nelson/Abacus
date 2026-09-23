@@ -6,9 +6,34 @@ Unreleased section. Released versions are listed newest first.
 
 ## [Unreleased]
 
+- Add dashboard issue operations for Resolve Attention & Reopen, Request Attention
+  & Block, supported status changes, ordinary label deltas, and replacing or
+  clearing the Abacus reasoning level. Status and combined attention/status
+  changes warn rather than reject possible worker ownership or reservations;
+  they do not stop or reconcile workers. Dashboard-authored writes default to
+  the repository's Git user instead of `abacus-web`; configure a Git identity or
+  specify an actor before starting. Label actions offer project-label add and
+  issue-label remove pickers plus custom add entry, and issue descriptions can collapse.
+  Multi-step attention writes keep their verified-comment retry safeguards.
+
+- Accept loopback dashboard writes when the browser omits the non-default port
+  from `Origin` but marks the request same-origin; continue rejecting ordinary
+  cross-origin requests. Show the HTTP status for failed claim-control and
+  issue-update requests while preserving same-request retry safeguards.
+
+- Give the web dashboard a scene-first navy design with clearer 3D paths and
+  grid, grouped timeline controls, a compact playback/status rail, and a calmer
+  issue inspector. Secondary issue details and technical evidence remain
+  available on demand; Issues, Branches, Workers, Worktrees, and the dependency
+  map use more scannable layouts. Responsive navigation and inspector placement
+  keep the scene usable on tablets and phones. Add **First event → last event**
+  alongside **First event → now**, and keep View options within the screen even
+  when its button is at the left edge.
+
 - Make timeline event nodes easier to select in both 3D and 2D with a consistent,
   screen-space click target, modestly larger visible dots that taper in dense
-  clusters, and a clear ring around the pinned event;
+  clusters, and a clear ring around the pinned event. Thicken timeline paths and
+  keep a minimum visible width when the camera zooms out;
   replace persistent timeline guidance and
   history coverage prose with a temporary top-of-dashboard loading progress bar.
   Grouped event popups now show recorded status transitions and use the resulting

@@ -11,14 +11,25 @@ let relationsKey=null;
 const tableUrl=new URL(location.href);
 let tableState={sort:tableUrl.searchParams.get('sort')||'id',direction:tableUrl.searchParams.get('order')||'asc',page:Number(tableUrl.searchParams.get('page'))||0,pageSize:Number(tableUrl.searchParams.get('size'))||50};
 const $ = id => document.getElementById(id);
+async function mutationResponse(response) {
+  if (!response.headers.get('content-type')?.includes('application/json'))
+    throw new Error(`HTTP ${response.status} without an action result`);
+  const result=await response.json();
+  if (!result || typeof result.outcome!=='string')
+    throw new Error(`HTTP ${response.status} returned an invalid action result`);
+  return result;
+}
 let issuesLoaded=false;
 let issues = new Map(), rows = new Map(), source, selected = new URL(location.href).searchParams.get('issue');
 let currentInspectorRevision = null, issueRevision = 0;
 const workerRequests=new Map();
 let stopRunRequest=null,stopRunBusy=false,stopRunAccepted=false;
 let runtimeOnline=false,runtimeSession=null,canControlClaims=false,currentRuntime=null,claimRequest=null,claimBusy=false;
-let canEdit=false, operator='abacus-web', editorId=null;
+let canEdit=false, operator='Git user', editorId=null;
 const drafts=new Map();
+const descriptionOpen=new Map();
+let labelChoicesKey=null;
+let projectLabelsRevision=null,projectLabelChoices=[];
 const creation={context:null,populated:false,request:null,pending:false,outcome:null,createdId:null,result:''};
 function creationFeedback(){
   const offline=$('source').classList.contains('stale')||!timeline.live||liveReadPending;
@@ -295,7 +306,7 @@ const metadataFields=['assignee','label','priority','attention','type','target']
 function metadataFilters(){return Object.fromEntries(metadataFields.map(key=>[key,$('filter-'+key).value.trim()]));}
 function restoreMetadataFilters(){const url=new URL(location.href);for(const key of metadataFields)$('filter-'+key).value=url.searchParams.get('filter-'+key)||'';}
 restoreMetadataFilters();
-const statusLabel = value => value === 'closed' ? 'Completed' : value;
+const statusLabel = value => ({closed:'Completed',in_progress:'In progress',blocked:'Blocked',open:'Open'})[value]||value;
 function text(tag, value, className) { const node = document.createElement(tag); node.textContent = value ?? 'Unknown'; if (className) node.className = className; return node; }
 let issueGitRequest=null,issueGitInspectorKey=null;
 let selectedEvent=null, inspectorSourceKey=null, liveReadPending=false, liveReadError=false;
@@ -411,7 +422,7 @@ const timeline=new Timeline({
     if(returnedLive && selected){
       const id=selected;liveReadPending=true;liveReadError=false;
       fetch('/api/v1/issues/'+encodeURIComponent(id)).then(r=>{if(!r.ok)throw new Error();return r.json();})
-        .then(issue=>{issues.set(id,issue);liveReadPending=false;currentInspectorRevision=null;render();})
+        .then(issue=>{issues.set(id,issue);projectLabelsRevision=null;liveReadPending=false;currentInspectorRevision=null;render();})
         .catch(()=>{liveReadError=true;currentInspectorRevision=null;inspect();});
     }
     inspect();creationFeedback();
@@ -425,12 +436,15 @@ function inspectRelations(issue,historical){
   if(key===relationsKey)return;
   relationsKey=key;
   $('relations-section').hidden=!issue;
+  $('relations-section').open=false;
+  $('relations-summary').textContent='Relationships';
   $('relations').replaceChildren();
   $('ongoing-section').hidden=true;$('ongoing-issues').replaceChildren();
   if(!issue)return;
   if(historical){$('relations-state').textContent='Relationships at this playhead are unknown. Return to live for the current export.';return;}
   const result=relations.forIssue(issue.id);
-  $('relations-state').textContent=`Current exported relationships only; not dispatch readiness. ${result.outgoingKnown?'Outgoing coverage recorded.':'Outgoing coverage unknown.'} ${result.incomingComplete?'Incoming links are limited to issues in this export.':'Incoming coverage incomplete: some exported issues lack relationship data.'}`;
+  $('relations-summary').textContent=`Relationships${result.edges.length?` · ${result.edges.length}`:''}`;
+  $('relations-state').textContent=`Current export only; not dispatch readiness. ${result.outgoingKnown?'Outgoing recorded.':'Outgoing unknown.'} ${result.incomingComplete?'Incoming links limited to exported issues.':'Incoming coverage incomplete.'}`;
   if(!result.edges.length)$('relations').append(text('li','No recorded links in the available data.'));
   const ongoing=new Set();
   for(const edge of result.edges){
@@ -448,6 +462,8 @@ function inspectRelations(issue,historical){
 }
 function inspect() {
   const issue = issues.get(selected);
+  $('issue-inspector').classList.toggle('inspector-empty',!issue);
+  $('inspector-empty-state').hidden=!!issue;
   const historical=view==='timeline'&&!timeline.live;
   inspectRelations(issue,historical);
   const key = issue ? `${issue.id}:${issue.revision}:${historical?Math.floor(timeline.playhead):'live'}` : null;
@@ -460,7 +476,7 @@ function inspect() {
   }
   $('inspector-mode').hidden=!issue||(timeline.live&&!liveReadPending);
   $('inspector-mode-message').textContent=!timeline.live
-    ? 'Timeline playback is read-only. Return to live to add comments, adjust labels or edit the current issue. Your drafts are kept.'
+    ? 'Playback is read-only. Return to live to edit; your drafts are saved.'
     : liveReadError ? 'Could not refresh the current issue. Retry before editing.' : 'Refreshing the current issue before enabling edits…';
   $('inspector-edit-live').textContent=liveReadError?'Retry current issue':canEdit?'Return to live to edit':'Return to live';
   $('inspector-edit-live').disabled=timeline.live&&liveReadPending&&!liveReadError;
@@ -468,7 +484,7 @@ function inspect() {
   $('selected-title').textContent = issue?.title ?? 'Select an issue';
   $('selected-id').textContent = issue?.id ?? '';
   $('copy-issue-id').disabled=!issue;$('copy-issue-result').textContent='';
-  $('selected-current-status').textContent=issue?'Current: '+statusLabel(issue.status):'';
+  $('selected-current-status').textContent=issue?(historical?'Current: ':'')+statusLabel(issue.status):'';
   $('selected-current-status').dataset.status=issue?.status||'unknown';
   $('integration-confirmation').hidden=!issue||issue.status!=='closed';
   const gitInspectorKey=JSON.stringify([issue?.id,issue?.revision,historical]);
@@ -481,19 +497,23 @@ function inspect() {
   }
 
   $('details').replaceChildren();
+  $('details-extra').replaceChildren();
+  $('inspector-more').hidden=true;
+  $('historical-coverage').hidden=!issue||!historical;
+  $('historical-facts').replaceChildren();
   $('selected-event').hidden=!selectedEvent&&!timeline.pendingEvent;
   const eventFocused=$('selected-event').contains(document.activeElement);
   const memberFocus=eventFocused?document.activeElement.dataset.memberPage:null;
   const memberPage=$('selected-event').dataset.eventId===selectedEvent?.id?Number($('selected-event').dataset.memberPage)||0:0;
   $('selected-event').dataset.memberPage='0';
-  const eventExpanded=$('selected-event').dataset.eventId===selectedEvent?.id?($('selected-event').querySelector('details')?.open??true):true;
+  const eventExpanded=$('selected-event').dataset.eventId===selectedEvent?.id?($('selected-event').querySelector('details')?.open??false):false;
   $('selected-event').dataset.eventId=selectedEvent?.id||'';
   $('selected-event').replaceChildren();
   if(!selectedEvent&&timeline.pendingEvent)$('selected-event').append(text('p','Linked event is not available in the loaded history at this playhead. Load the relevant activity or Git history; no event has been inferred.'));
   if(selectedEvent){
     const e=selectedEvent;
     const eventDetails=document.createElement('details');eventDetails.open=Boolean(eventExpanded);
-    eventDetails.append(text('summary',eventKindLabel(e.kind)+' · '+new Date(e.time).toLocaleTimeString()+' · Event details'));
+    eventDetails.append(text('summary',eventKindLabel(e.kind)+' · '+new Date(e.time).toLocaleTimeString()+' · Details'));
     $('selected-event').append(eventDetails);
     eventDetails.append(text('h3',eventKindLabel(e.kind)),
       text('p',e.kind==='current'?'Current observation · transition time unknown':new Date(e.time).toLocaleString()),
@@ -531,33 +551,54 @@ function inspect() {
   if(issue && historical){
     const state=timeline.historicalState(issue.id);
     $('selected-title').textContent=state?.title || issue.id;
-    $('details').append(text('dt','As of playhead'),text('dd',new Date(timeline.playhead).toLocaleString()),
-      text('dt','Last recorded status'),text('dd',state?.status||'unknown'),
-      // The fields below are as of the last snapshot, which can be older than the
-      // status. Naming that time explains why they may lag the playhead.
-      text('dt','Fields recorded at'),text('dd',state?.recordedAt?new Date(state.recordedAt).toLocaleString():'No recorded snapshot at this time'),
-      text('dt','Coverage'),text('dd',state?.certainty||'Unknown'),
-      text('dt','Other fields'),text('dd','Not recorded in history. Return to live to inspect and edit current data.'));
-    for(const [label,value] of [['Last recorded assignee',state?.assignee==null?'Unknown':state.assignee||'Unassigned'],['Last recorded priority',Number.isInteger(state?.priority)?`P${state.priority}`:'Unknown'],['Last recorded labels',Array.isArray(state?.labels)?state.labels.join(' · ')||'None':'Unknown'],['Last recorded type',state?.issueType||'Unknown'],['Last recorded declared target',state?.target||'Unknown']])$('details').append(text('dt',label),text('dd',value));
+    for(const [label,value] of [['As of',new Date(timeline.playhead).toLocaleString()],['Recorded status',statusLabel(state?.status||'unknown')],['Assignee',state?.assignee==null?null:state.assignee||'Unassigned'],['Priority',Number.isInteger(state?.priority)?`P${state.priority}`:null]]){
+      if(value===null)continue;
+      const row=document.createElement('div');row.className='detail-row';row.dataset.field=label;
+      row.append(text('dt',label),text('dd',value));$('details').append(row);
+    }
+    // Snapshot fields can lag the last status observation. Keep the full
+    // provenance available without letting it dominate the default overview.
+    for(const [label,value] of [['Fields recorded at',state?.recordedAt?new Date(state.recordedAt).toLocaleString():'No recorded snapshot at this time'],['Coverage',state?.certainty||'Unknown'],['Labels',Array.isArray(state?.labels)?state.labels.join(' · ')||'None':'Unknown'],['Type',state?.issueType||'Unknown'],['Declared target',state?.target||'Unknown'],['Other fields','Not recorded in history. Return to live to inspect current data.']])$('historical-facts').append(text('dt',label),text('dd',value));
     $('issue-form').hidden=true;return;
   }
   if (!issue) { $('issue-form').hidden=true; $('comments').replaceChildren(); return; }
-  for (const [label,value] of [['Description',issue.description || 'No description'],['Status',statusLabel(issue.status)],['Assignee (not verified worker)',issue.assignee || 'Unassigned'],['Priority',Number.isInteger(issue.priority)?`P${issue.priority} · ${['Critical','High','Medium','Low','Backlog'][issue.priority]||'Unknown'}`:'Unknown'],['Type',issue.issueType||'Unknown'],['Declared target (not execution binding)',issue.target||'Not recorded'],['Labels',issue.labels.join(' · ') || 'None'],['Notes',issue.notes || 'No notes'],['User attention',issue.labels.includes('abacus:needs-user-attention')?'Requested':'None']]) {
+  for (const [label,value] of [['Description',issue.description || 'No description'],['Assignee',issue.assignee || 'Unassigned'],['Priority',Number.isInteger(issue.priority)?`P${issue.priority} · ${['Critical','High','Medium','Low','Backlog'][issue.priority]||'Unknown'}`:'Unknown'],['Type',issue.issueType||'Unknown'],['Target',issue.target||'Not recorded'],['Labels',issue.labels.join(' · ') || 'None'],['Notes',issue.notes || 'No notes'],['Attention',issue.labels.includes('abacus:needs-user-attention')?'Requested':'None']]) {
+    if((label==='Notes'&&!issue.notes)||(label==='Attention'&&value==='None')||(label==='Labels'&&!issue.labels.length))continue;
     const row=document.createElement('div');row.className='detail-row';row.dataset.field=label;
+    if(label==='Description'){
+      const disclosure=document.createElement('details');disclosure.id='description-disclosure';disclosure.open=descriptionOpen.get(issue.id)??false;
+      disclosure.append(text('summary','Show description'),text('p',value));
+      disclosure.addEventListener('toggle',()=>descriptionOpen.set(issue.id,disclosure.open));
+      const definition=document.createElement('dd');definition.append(disclosure);
+      row.append(text('dt','Description'),definition);$('details').append(row);continue;
+    }
     const term=text('dt',label),definition=text('dd',value);
-    if(label==='Status'){const chip=text('span',value,'status');chip.dataset.status=issue.status;definition.replaceChildren(chip);}
+    if(label==='Assignee')term.title='Recorded assignee; not proof of a currently verified worker.';
+    if(label==='Target')term.title='Declared target; not proof of an execution binding.';
     if(label==='Labels'&&issue.labels.length)definition.replaceChildren(...issue.labels.map(label=>text('span',label,'label-chip')));
     if(label==='Priority')definition.dataset.priority=String(issue.priority);
-    if(label==='User attention')definition.dataset.attention=issue.labels.includes('abacus:needs-user-attention')?'requested':'clear';
-    row.append(term,definition);$('details').append(row);
+    if(label==='Attention')definition.dataset.attention='requested';
+    row.append(term,definition);
+    (['Type','Target','Notes'].includes(label)?$('details-extra'):$('details')).append(row);
   }
+  $('inspector-more').hidden=!$('details-extra').childElementCount;
   setupEditor(issue);
 }
 function renderComments(issue,historical){
   const all=issue?.comments||[];
   const visible=historical?all.filter(c=>Number.isFinite(Date.parse(c.createdAt))&&Date.parse(c.createdAt)<=timeline.playhead):all;
-  $('inspector-comments').hidden=!issue;
-  $('inspector-comments').textContent=`View comments (${visible.length})`;
+  $('inspector-recent').hidden=!issue||visible.length===0;
+  $('inspector-comments').hidden=!issue||visible.length===0;
+  $('inspector-comments').textContent=`View all (${visible.length}) →`;
+  const recent=[...visible].sort((a,b)=>(Date.parse(b.createdAt)||0)-(Date.parse(a.createdAt)||0)).slice(0,2);
+  $('inspector-recent-list').replaceChildren(...recent.map(c=>{
+    const card=text('article','', 'recent-comment');
+    const author=text('strong',c.author||'Unknown author');
+    const time=text('time',c.createdAt&&Number.isFinite(Date.parse(c.createdAt))?new Date(c.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'Time unknown');
+    if(c.createdAt&&Number.isFinite(Date.parse(c.createdAt)))time.dateTime=c.createdAt;
+    const preview=c.text.length>100?c.text.slice(0,99).trimEnd()+'…':c.text;
+    card.append(author,time,text('p',preview));return card;
+  }));
   $('comments-coverage').textContent=!issue?'':historical
     ? `Comments recorded at or before the playhead (${visible.length}). Return to live for all current comments; later or undated comments are not shown in playback.`
     : visible.length?'Current issue comments.':'No comments on this issue yet.';
@@ -691,10 +732,20 @@ function updateRuntime(runtime) {
   $('runtime-panel').hidden=!runtime;
   $('workers-empty').hidden=!!runtime;
   if(!runtime)return;
-  $('runtime-claims').textContent=runtime.claims?`${runtime.claims.manualEnabled?'Manual gate enabled':'Manually paused'} · ${runtime.claims.scheduleAllows?'Schedule allows':'Schedule blocks'} · ${runtime.claims.reason}. This is gate permission, not a guarantee that work is ready or ownership is available.`:'Claim gates not connected';
+  $('runtime-claims').textContent=runtime.claims?`${runtime.claims.manualEnabled?'Claims enabled':'Claims paused'} · ${runtime.claims.scheduleAllows?'Schedule open':'Schedule closed'}${runtime.claims.reason?' · '+runtime.claims.reason:''}`:'Claim gates not connected';
+  $('runtime-claims').title='Gate permission is not a guarantee that work is ready or that workspace ownership is available.';
   const active=document.activeElement?.dataset.workerAction;
   const rows=runtime.workers.map(worker=>{
-    const row=text('li',`${worker.name}${worker.supervisor?' · supervisor':''} · ${worker.activity} · ${worker.issueId||'no assigned issue'}${worker.branch?' · '+worker.branch:''}${worker.dirty===true?' · dirty':worker.dirty===false?' · clean':' · dirtiness unknown'}${worker.retryCount?' · retries '+worker.retryCount:''}${worker.exitCode!==null?' · exit '+worker.exitCode:''}${worker.runActive?' · execution active':''}`);
+    const row=text('li','','worker-card'),heading=text('div','','worker-heading'),facts=text('div','','worker-facts'),actions=text('div','','worker-actions');
+    heading.append(text('strong',worker.name),text('span',worker.activity,'worker-state'));
+    if(worker.supervisor)heading.append(text('span','Supervisor','worker-type'));
+    row.append(heading,text('p',worker.issueId||'No assigned issue','worker-context'));
+    if(worker.branch)row.append(text('p',worker.branch,'worker-branch'));
+    const dirt=text('span',worker.dirty===true?'Workspace dirty':worker.dirty===false?'Workspace clean':'Workspace status unknown','worker-fact');dirt.dataset.dirty=worker.dirty===true?'true':worker.dirty===false?'false':'unknown';facts.append(dirt);
+    if(worker.retryCount)facts.append(text('span',`${worker.retryCount} retries`,'worker-fact'));
+    if(worker.exitCode!=null)facts.append(text('span',`Exit ${worker.exitCode}`,'worker-fact'));
+    if(worker.runActive)facts.append(text('span','Execution active','worker-fact'));
+    row.append(facts);
     const draft=workerRequests.get(worker.name);
     const actionStates=worker.supervisor?runtime.supervisorActions:runtime.workerActions;
     const recorded=actionStates?.find(a=>a.requestId===draft?.request?.requestId);
@@ -706,7 +757,7 @@ function updateRuntime(runtime) {
         const button=text('button',(retry?'Retry same request: ':'')+command);
         button.dataset.workerAction=worker.name+':'+command;
         button.disabled=!runtimeOnline||!!draft?.busy||(!retry&&(pending||!!draft?.request));
-        button.addEventListener('click',()=>controlWorker(worker.name,command,worker.supervisor));row.append(button);
+        button.addEventListener('click',()=>controlWorker(worker.name,command,worker.supervisor));actions.append(button);
       }
     }
     if(worker.supervisor&&runtime.supervisorControlsAvailable){
@@ -718,11 +769,12 @@ function updateRuntime(runtime) {
       const button=text('button',retry?'Retry same Force Run request':'Force Run');
       button.dataset.workerAction=worker.name+':force-run';
       button.disabled=!runtimeOnline||!!force?.busy||(!retry&&(pending||forcePending||!!force?.request));
-      button.addEventListener('click',()=>forceSupervisor(worker.name));row.append(button);
+      button.addEventListener('click',()=>forceSupervisor(worker.name));actions.append(button);
       if(force?.result)row.append(text('p',force.result));
     }
+    row.append(actions);
     const outcomes=(actionStates||[]).filter(a=>a.worker===worker.name);
-    if(outcomes.length){const latest=outcomes.find(a=>a.outcome==='accepted')||outcomes.at(-1);row.append(text('small',` · ${latest.command}: ${latest.outcome}`));}
+    if(outcomes.length){const latest=outcomes.find(a=>a.outcome==='accepted')||outcomes.at(-1);row.append(text('small',`${latest.command}: ${latest.outcome}`));}
     if(draft?.result)row.append(text('p',draft.result));
     return row;
   });
@@ -787,9 +839,9 @@ async function controlClaims(command) {
   claimBusy=true;renderClaimControls();
   try {
     const response=await fetch('/api/v1/runtime/actions',{method:'POST',headers:{'Content-Type':'application/json','X-Abacus-Request':'1'},body:JSON.stringify(claimRequest)});
-    const result=await response.json();$('claim-result').textContent=result.message;
+    const result=await mutationResponse(response);$('claim-result').textContent=result.message;
     if(result.outcome==='completed'||result.outcome==='rejected')claimRequest=null;
-  } catch {$('claim-result').textContent='Result unknown. Retry the same request; do not assume the gate changed.';}
+  } catch(error) {$('claim-result').textContent=`${error.message.startsWith('HTTP ') ? error.message+'. ' : ''}Result unknown. Retry the same request; do not assume the gate changed.`;}
   finally {claimBusy=false;renderClaimControls();}
 }
 $('claims-pause').addEventListener('click',()=>controlClaims('pause'));
@@ -838,13 +890,14 @@ $('git-target').addEventListener('change',() => { const url=new URL(location.hre
 $('load-patch').addEventListener('click',() => compareBranch(true));
 function renderBranches() {
   const worktreeHealth=$('worktree-health');
-  worktreeHealth.textContent=gitState?(gitState.error||gitState.policyError||((gitState.facts?.worktrees?.length||0)+' registered worktrees')):'Git facts not available';
+  const worktreeCount=gitState?.facts?.worktrees?.length||0;
+  worktreeHealth.textContent=gitState?(gitState.error||gitState.policyError||(`${worktreeCount} registered worktree${worktreeCount===1?'':'s'}`)):'Git facts not available';
   worktreeHealth.classList.toggle('stale',!!gitState?.stale||!!gitState?.policyError);
   if (!gitState) { $('git-health').textContent='Git facts not available'; return; }
   const query = $('search').value.toLowerCase(), key = `${gitState.revision}:${issueRevision}:${query}`;
   if (gitRenderKey !== key) {
     gitRenderKey=key;
-    $('git-health').textContent=gitState.error || gitState.policyError || 'Git · observed local refs and registered worktrees';
+    $('git-health').textContent=gitState.error || gitState.policyError || 'Observed local refs';
     $('git-health').classList.toggle('stale',gitState.stale || !!gitState.policyError);
     const target=$('git-target').value || new URL(location.href).searchParams.get('target') || '';
     $('git-target').replaceChildren(...gitState.targets.map(t => {const option=text('option',t);option.value='refs/heads/'+t;return option;}));
@@ -856,14 +909,18 @@ function renderBranches() {
       button.addEventListener('click',() => {branch=b.ref;comparisonKey=null;const url=new URL(location.href);url.searchParams.set('branch',branch);history.replaceState(null,'',url);compareBranch();});cell.append(button);
       const possible=b.ref.startsWith('refs/heads/abacus/') ? b.ref.slice(18) : null;
       const association=text('td','Not associated');
-      if(possible && issues.has(possible)) { const link=text('button',`${possible} · naming convention only`);link.addEventListener('click',()=>{changeView('issues');select(possible);});association.replaceChildren(link); }
+      if(possible && issues.has(possible)) { const link=text('button',possible);link.className='branch-issue-link';link.title='Possible issue association by branch naming convention only';link.setAttribute('aria-label',`Open ${possible}; possible association by branch naming convention only`);link.addEventListener('click',()=>{changeView('issues');select(possible);});association.replaceChildren(link); }
       row.append(cell,text('td',b.tip.slice(0,12)),association);
       return row;
     }));
     $('count').textContent=`${visible.length} branches`;
     $('worktrees').replaceChildren(...(gitState.facts?.worktrees || []).map(w => {
-      const row=text('li',`${w.path} · ${w.branch || (w.detached ? 'detached' : 'unborn')} · ${w.dirty===true?'dirty':w.dirty===false?'clean':'dirty state unknown'}${w.statusError?' · '+w.statusError:''}`);
-      const button=text('button','Load worktree content snapshot');button.type='button';button.disabled=!w.id||w.bare||w.prunable||!w.head||gitState.stale;button.onclick=()=>loadWorktreeDiff(w.id);row.append(button);return row;
+      const row=text('li','','worktree-card'),heading=text('div','','worktree-card-heading');
+      const state=text('span',w.dirty===true?'Dirty':w.dirty===false?'Clean':'Status unknown','worktree-state');state.dataset.dirty=w.dirty===true?'true':w.dirty===false?'false':'unknown';
+      heading.append(text('strong',w.path),state);
+      row.append(heading,text('p',w.branch?.replace('refs/heads/','')||(w.detached?'Detached':'Unborn'),'worktree-branch'));
+      if(w.statusError)row.append(text('p',w.statusError,'worktree-warning'));
+      const button=text('button','View live changes');button.type='button';button.disabled=!w.id||w.bare||w.prunable||!w.head||gitState.stale;button.title='Load bounded, current uncommitted worktree content';button.onclick=()=>loadWorktreeDiff(w.id);row.append(button);return row;
     }));
   }
   const historyKey=branch+':'+gitState.facts?.branches.find(b=>b.ref===branch)?.tip+':'+(gitState.facts?.historyBoundary??'');
@@ -911,7 +968,7 @@ async function compareBranch(patch=false) {
   const key=`${target}:${branch}:${gitState.revision}`;
   if(comparisonKey===key && !patch) return;
   comparisonKey=key; comparisonRequest?.abort(); const activeRequest=new AbortController(); comparisonRequest=activeRequest;
-  $('branch-title').textContent=branch.replace('refs/heads/',''); $('comparison').replaceChildren(); $('patch').textContent=''; $('load-patch').hidden=true;
+  $('branch-title').textContent=branch.replace('refs/heads/',''); $('comparison').replaceChildren(); $('comparison-provenance').replaceChildren(); $('patch').textContent=''; $('load-patch').hidden=true;
   if(!tip || gitState.stale || gitState.policyError || !target) { $('comparison-state').textContent='Comparison unavailable: missing branch, stale Git, or invalid target policy.'; return; }
   $('comparison-state').textContent='Reading Git comparison…';
   try {
@@ -920,25 +977,87 @@ async function compareBranch(patch=false) {
     const result=await response.json(), c=result.comparison;
     if(comparisonKey!==key || comparisonRequest!==activeRequest) return;
     $('comparison-state').textContent=c.warning || (c.containedInTarget ? 'Contained in target now · exact integration time unknown' : 'Integration not verified by ancestry');
-    for(const [label,value] of [['Target tip',c.targetTip],['Issue/branch tip',c.issueTip],['Merge base',c.mergeBase || 'Unknown'],['Comparison basis',c.basis],['Ahead / behind',`${c.ahead} / ${c.behind}`],['Files',c.files.map(f => `${f.path}: ${f.binary ? 'binary' : '+'+f.additions+' / −'+f.deletions}`).join('\n') || 'No file changes']]) $('comparison').append(text('dt',label),text('dd',value));
+    for(const [label,value] of [['Ahead / behind',`${c.ahead} / ${c.behind}`],['Files',c.files.map(f => `${f.path}: ${f.binary ? 'binary' : '+'+f.additions+' / −'+f.deletions}`).join('\n') || 'No file changes']]) $('comparison').append(text('dt',label),text('dd',value));
+    for(const [label,value] of [['Target tip',c.targetTip],['Branch tip',c.issueTip],['Merge base',c.mergeBase || 'Unknown'],['Comparison basis',c.basis]]) $('comparison-provenance').append(text('dt',label),text('dd',value));
     $('load-patch').hidden=!c.mergeBase;
     if(result.patch) $('patch').textContent=result.patch.available ? (result.patch.text || 'Empty patch') : result.patch.warning;
   } catch(error) {if(error.name!=='AbortError') {$('comparison-state').textContent=error.message;comparisonKey=null;}}
 }
+function ordinaryLabel(label){
+  return typeof label==='string'&&label.length>0&&label.length<=100&&label.trim()===label&&
+    !/[\x00-\x1f\x7f,"]/.test(label)&&!/^((abacus|gt):)/i.test(label);
+}
+function selectedLabels(container){return [...container.querySelectorAll('input:checked')].map(input=>input.value);}
+function labelPickerOptions(container,labels,selected){
+  container.replaceChildren(...labels.map(label=>{
+    const row=document.createElement('label');row.className='label-choice';
+    const input=document.createElement('input');input.type='checkbox';input.value=label;input.checked=selected.includes(label);
+    row.append(input,text('span',label));return row;
+  }));
+  if(!labels.length)container.append(text('p','No ordinary labels available.'));
+}
+function projectOrdinaryLabels(){
+  if(projectLabelsRevision!==issueRevision){
+    projectLabelChoices=[...new Set([...issues.values()].flatMap(issue=>issue.labels||[]).filter(ordinaryLabel))].sort();
+    projectLabelsRevision=issueRevision;
+  }
+  return projectLabelChoices;
+}
+function refreshLabelChoices(issue,draft){
+  if(!issue)return;
+  const existing=[...new Set(issue.labels.filter(ordinaryLabel))].sort();
+  const add=projectOrdinaryLabels().filter(label=>!issue.labels.includes(label));
+  const key=JSON.stringify([issue.id,existing,add]);
+  if(key===labelChoicesKey)return;
+  labelChoicesKey=key;
+  labelPickerOptions($('write-add-options'),add,draft.addSelected||[]);
+  labelPickerOptions($('write-remove-options'),existing,draft.removeSelected||[]);
+  $('write-add-menu').querySelector('summary').textContent=`Add existing project labels${add.length?` · ${add.length}`:''}`;
+  $('write-remove-menu').querySelector('summary').textContent=`Remove labels on this issue${existing.length?` · ${existing.length}`:''}`;
+}
 function setupEditor(issue) {
   $('issue-form').hidden=!canEdit || !timeline.live || liveReadPending;
-  if(editorId===issue.id) return;
+  if(editorId===issue.id){const draft=drafts.get(issue.id);if(draft)refreshLabelChoices(issue,draft);return;}
   editorId=issue.id;
   let draft=drafts.get(issue.id);
-  if(!draft) {draft={revision:issue.revision,action:'comment',text:'',title:issue.title,description:issue.description || '',priority:issue.priority ?? 2,baseline:{title:issue.title,description:issue.description||'',priority:issue.priority??2},appendNotes:'',addLabels:'',removeLabels:'',result:'',request:null,pending:false};drafts.set(issue.id,draft);}
-  for(const [id,key] of [['write-action','action'],['write-text','text'],['write-title','title'],['write-description','description'],['write-priority','priority'],['write-notes','appendNotes'],['write-add-labels','addLabels'],['write-remove-labels','removeLabels']]) $(id).value=draft[key];
+  if(!draft) {draft={revision:issue.revision,action:'comment',text:'',title:issue.title,description:issue.description || '',priority:issue.priority ?? 2,status:issue.status,reasoningLevel:reasoningLevel(issue),baseline:{title:issue.title,description:issue.description||'',priority:issue.priority??2},appendNotes:'',addLabels:'',removeLabels:'',addSelected:[],removeSelected:[],customMode:false,result:'',request:null,pending:false};drafts.set(issue.id,draft);}
+  for(const [id,key] of [['write-action','action'],['write-text','text'],['write-title','title'],['write-description','description'],['write-priority','priority'],['write-status','status'],['write-reasoning','reasoningLevel'],['write-notes','appendNotes'],['write-add-labels','addLabels'],['write-remove-labels','removeLabels']]) $(id).value=draft[key];
+  $('write-custom-mode').checked=!!draft.customMode;labelChoicesKey=null;
   editorFeedback(draft);
 }
+function reasoningLevel(issue){
+  const labels=issue?.labels||[];
+  for(const level of ['high','medium','low'])if(labels.includes(`abacus:${level}_reasoning`))return level;
+  return 'none';
+}
+function labelDraftValues(draft){
+  const lines=value=>value.split('\n').map(label=>label.trim()).filter(Boolean);
+  if(draft.action==='labels')return {
+    add:[...new Set([...(draft.addSelected||[]),...(draft.customMode?lines(draft.addLabels):[])])],
+    remove:[...(draft.removeSelected||[])]
+  };
+  return {add:lines(draft.addLabels),remove:lines(draft.removeLabels)};
+}
 function editorFeedback(draft) {
-  $('comment-fields').hidden=draft.action==='edit'; $('edit-fields').hidden=draft.action!=='edit';
-  $('write-hint').textContent=draft.resumeCommentId?'Reviewed stored explanation '+draft.resumeCommentId+' · next submit changes only the attention label.':
+  const attention=draft.action.startsWith('attention-');
+  refreshLabelChoices(issues.get(editorId),draft);
+  $('comment-fields').hidden=!attention&&draft.action!=='comment';
+  $('edit-fields').hidden=!['edit','labels'].includes(draft.action);
+  for(const id of ['write-title','write-description','write-priority','write-notes'])$(id).closest('label').hidden=draft.action==='labels';
+  $('label-quick-picks').hidden=draft.action!=='labels';
+  $('write-label-help').hidden=draft.action==='labels';
+  $('write-add-labels').closest('label').hidden=draft.action==='labels'&&!draft.customMode;
+  $('write-remove-labels').closest('label').hidden=draft.action==='labels';
+  $('status-fields').hidden=draft.action!=='status';
+  $('reasoning-fields').hidden=draft.action!=='reasoning-set';
+  $('write-hint').textContent=draft.resumeCommentId?'Reviewed stored explanation '+draft.resumeCommentId+' · next submit skips the comment.':
     draft.action==='attention-request'?'Explanation required. Appends your exact comment, then flags attention; status and assignment stay unchanged.':
-    draft.action==='attention-resolve'?'Response optional. A failed response prevents resolution. This clears only attention—not status or assignment. Resolve and reopen is not enabled yet.':'';
+    draft.action==='attention-request-block'?'Explanation required. Adds attention and blocks the issue; this may conflict with active or reserved work.':
+    draft.action==='attention-resolve'?'Response optional. A failed response prevents resolution. This clears only attention—not status or assignment.':
+    draft.action==='attention-resolve-reopen'?'Response optional. Clears attention, sets Open, and clears assignee; this may conflict with active or reserved work.':
+    draft.action==='status'?'Status changes can disrupt assigned or running work. Confirmation allows the change but does not stop a worker, release a reservation, or merge code.':
+    draft.action==='reasoning-set'?'Replaces only the Abacus reasoning label; other labels are preserved.':
+    draft.action==='labels'?'Add and remove ordinary labels without replacing unrelated labels.':'';
   $('write-actor').textContent=`Stored as ${operator} · no automatic remote push`;
   $('write-result').textContent=draft.result;
   $('write-submit').textContent=draft.request ? 'Retry same request' : 'Submit';
@@ -946,13 +1065,18 @@ function editorFeedback(draft) {
   $('write-submit').disabled=draft.pending;
   $('write-review').hidden=!draft.request || draft.pending;
   $('write-text').disabled=draft.pending||!!draft.request||!!draft.resumeCommentId;
-  const attention=draft.action==='attention-request'||draft.action==='attention-resolve';
   const issue=issues.get(editorId),flag=issue?.labels.includes('abacus:needs-user-attention');
-  $('write-finish-attention').hidden=!attention||!draft.recordedCommentId||draft.pending||!issue||flag===(draft.action==='attention-request');
+  const request=draft.action.startsWith('attention-request');
+  const missing=request?(!flag||draft.action==='attention-request-block'&&issue.status!=='blocked'):(flag||draft.action==='attention-resolve-reopen'&&(issue.status!=='open'||issue.assignee));
+  $('write-finish-attention').hidden=!attention||!draft.recordedCommentId||draft.pending||!issue||!missing;
+  $('write-finish-attention').textContent='Review and finish remaining attention step';
 }
-$('issue-form').addEventListener('input',() => {
+$('issue-form').addEventListener('input',event => {
   const draft=drafts.get(editorId);if(!draft || draft.pending || draft.request)return;
-  draft.resumeCommentId=null;draft.recordedCommentId=null;draft.action=$('write-action').value;draft.text=$('write-text').value;draft.title=$('write-title').value;draft.description=$('write-description').value;draft.priority=Number($('write-priority').value);draft.appendNotes=$('write-notes').value;draft.addLabels=$('write-add-labels').value;draft.removeLabels=$('write-remove-labels').value;editorFeedback(draft);
+  draft.resumeCommentId=null;draft.recordedCommentId=null;draft.action=$('write-action').value;draft.text=$('write-text').value;draft.title=$('write-title').value;draft.description=$('write-description').value;draft.priority=Number($('write-priority').value);draft.status=$('write-status').value;draft.reasoningLevel=$('write-reasoning').value;draft.appendNotes=$('write-notes').value;draft.addLabels=$('write-add-labels').value;draft.removeLabels=$('write-remove-labels').value;draft.customMode=$('write-custom-mode').checked;
+  if(event.target.closest('#write-add-options'))draft.addSelected=selectedLabels($('write-add-options'));
+  if(event.target.closest('#write-remove-options'))draft.removeSelected=selectedLabels($('write-remove-options'));
+  editorFeedback(draft);
 });
 $('write-review').addEventListener('click',() => {
   const draft=drafts.get(editorId), issue=issues.get(editorId);if(!draft || !issue)return;
@@ -961,13 +1085,22 @@ $('write-review').addEventListener('click',() => {
 });
 $('write-finish-attention').addEventListener('click',()=>{
   const draft=drafts.get(editorId),issue=issues.get(editorId);if(!draft||!issue||!draft.recordedCommentId||draft.pending)return;
-  if(!confirm('Review current comments and label. Comment '+draft.recordedCommentId+' is stored. Start a NEW operation for only the missing attention-label step, without appending another response?'))return;
+  if(!confirm('Review current comments, attention label, status and assignee. Comment '+draft.recordedCommentId+' is stored. Start a NEW operation for only the missing step, without appending another response?'))return;
   draft.request=null;draft.revision=issue.revision;draft.resumeCommentId=draft.recordedCommentId;draft.recordedCommentId=null;
-  draft.text='';$('write-text').value='';draft.result='Reviewed: submit only the missing label step.';editorFeedback(draft);
+  draft.text='';$('write-text').value='';draft.result='Reviewed: submit only the missing attention/status step.';editorFeedback(draft);
 });
 $('issue-form').addEventListener('submit',async event => {
   event.preventDefault();if(!timeline.live||liveReadPending)return;const id=editorId,draft=drafts.get(id);if(!draft || draft.pending)return;
   if(!draft.request&&draft.action==='edit'&&!['title','description','priority'].some(k=>draft[k]!==draft.baseline[k])&&!draft.appendNotes&&!draft.addLabels.trim()&&!draft.removeLabels.trim()){draft.result='No content or label changes to submit.';editorFeedback(draft);return;}
+  const labels=labelDraftValues(draft);
+  if(!draft.request&&draft.action==='labels'&&!labels.add.length&&!labels.remove.length){draft.result='No label changes to submit.';editorFeedback(draft);return;}
+  if(!draft.request&&['status','attention-request-block','attention-resolve-reopen'].includes(draft.action)){
+    const issue=issues.get(id),target=draft.action==='status'?draft.status:draft.action==='attention-request-block'?'blocked':'open';
+    const warning=draft.action==='status'
+      ? 'WARNING: This may interrupt an agent or conflict with reserved work. It does not stop a worker, release a reservation, or merge code. Review worker/workspace state afterward.'
+      : 'WARNING: This may interrupt an agent or conflict with reserved work. It does not stop a worker, release a reservation, or merge code. Review worker/workspace state afterward.';
+    if(!confirm(`Operator: ${operator}. Change ${id} from ${issue?.status||'unknown'} to ${target}? ${warning}`))return;
+  }
   draft.pending=true;draft.result='Pending · verifying stored result…';editorFeedback(draft);
   try {
     if(!draft.request) {
@@ -975,20 +1108,27 @@ $('issue-form').addEventListener('submit',async event => {
       const random=[...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,'0')).join('');
       draft.request={requestId:`${context.session}:${context.serverUnixMilliseconds}:${random}`,expectedRevision:draft.revision,action:draft.action};
       if(draft.action==='comment')draft.request.text=draft.text;
-      else if(draft.action==='attention-request'||draft.action==='attention-resolve'){
-        if(draft.resumeCommentId){if(draft.action==='attention-request')draft.request.existingCommentId=draft.resumeCommentId;}
+      else if(draft.action.startsWith('attention-')){
+        if(draft.resumeCommentId){if(draft.action.startsWith('attention-request'))draft.request.existingCommentId=draft.resumeCommentId;}
         else if(draft.text)draft.request.text=draft.text;
       }
-      else {for(const key of ['title','description','priority'])if(draft[key]!==draft.baseline[key])draft.request[key]=draft[key];if(draft.appendNotes)draft.request.appendNotes=draft.appendNotes;for(const key of ['addLabels','removeLabels'])if(draft[key])draft.request[key]=draft[key].split('\n').map(v=>v.trim()).filter(Boolean);}
+      else if(draft.action==='status'){draft.request.status=draft.status;draft.request.confirmOwnershipRisk=true;}
+      else if(draft.action==='reasoning-set')draft.request.reasoningLevel=draft.reasoningLevel;
+      else {
+        if(draft.action==='edit'){for(const key of ['title','description','priority'])if(draft[key]!==draft.baseline[key])draft.request[key]=draft[key];if(draft.appendNotes)draft.request.appendNotes=draft.appendNotes;}
+        if(labels.add.length)draft.request.addLabels=labels.add;
+        if(labels.remove.length)draft.request.removeLabels=labels.remove;
+      }
     }
     const response=await fetch(`/api/v1/issues/${encodeURIComponent(id)}/actions`,{method:'POST',headers:{'Content-Type':'application/json','X-Abacus-Request':'1'},body:JSON.stringify(draft.request)});
-    const result=await response.json();
-    if(result.issue)issues.set(id,result.issue);
+    const result=await mutationResponse(response);
+    if(result.issue){issues.set(id,result.issue);projectLabelsRevision=null;}
     draft.result=`${result.outcome}: ${result.message}`;draft.recordedCommentId=result.recordedCommentId;
     if(result.outcome==='completed') {
       const completedRequest=draft.request;
       draft.recordedCommentId=null;draft.resumeCommentId=null;draft.request=null;draft.revision=result.revision;
       if(result.issue){
+        draft.status=result.issue.status;draft.reasoningLevel=reasoningLevel(result.issue);
         for(const key of ['title','description','priority']){
           const stored=key==='priority'?(result.issue[key]??2):(result.issue[key]||'');
           // Refresh untouched or submitted fields, but retain unsent edits when
@@ -998,17 +1138,18 @@ $('issue-form').addEventListener('submit',async event => {
         }
       }
       draft.text='';
-      if(completedRequest.action==='edit'){draft.appendNotes='';draft.addLabels='';draft.removeLabels='';}
+      if(completedRequest.action==='edit')draft.appendNotes='';
+      if(['edit','labels'].includes(completedRequest.action)){draft.addLabels='';draft.removeLabels='';draft.addSelected=[];draft.removeSelected=[];labelChoicesKey=null;}
       if(editorId===id){
-        for(const [field,key] of [['write-title','title'],['write-description','description'],['write-priority','priority'],['write-notes','appendNotes'],['write-add-labels','addLabels'],['write-remove-labels','removeLabels']])$(field).value=draft[key];
+        for(const [field,key] of [['write-title','title'],['write-description','description'],['write-priority','priority'],['write-status','status'],['write-reasoning','reasoningLevel'],['write-notes','appendNotes'],['write-add-labels','addLabels'],['write-remove-labels','removeLabels']])$(field).value=draft[key];
         $('write-text').value='';
       }
     }
     render();
-  } catch {draft.result='Result unavailable. Do not create another append blindly. Retry the SAME request, or review current content first.';}
+  } catch(error) {draft.result=`${error.message.startsWith('HTTP ') ? error.message+'. ' : ''}Result unavailable. Do not create another append blindly. Retry the SAME request, or review current content first.`;}
   finally {draft.pending=false;if(editorId===id)editorFeedback(draft);}
 });
-fetch('/api/v1/project').then(r => { if(!r.ok) throw new Error(); return r.json(); }).then(p => { runtimeSession=p.runtimeSession;canControlClaims=!!p.capabilities.claimControl;renderClaimControls();for(const option of $('write-action').options)if(option.value.startsWith('attention-'))option.disabled=!p.capabilities.attention;canReadHistory=p.capabilities.history;canReadProjectHistory=!!p.capabilities.projectHistory;canEdit=p.capabilities.editIssues;$('create-issue').hidden=!p.capabilities.createDrafts;operator=p.actor;currentInspectorRevision=null;inspectorSourceKey=null;render();$('project').textContent=p.name;$('runtime-status').textContent=p.runtimeExplanation||'Runtime state unavailable'; $('actor').textContent=`Operator attribution: ${p.actor} (self-declared, not signed in)`; }).catch(() => $('project').textContent='Project unavailable');
+fetch('/api/v1/project').then(r => { if(!r.ok) throw new Error(); return r.json(); }).then(p => { runtimeSession=p.runtimeSession;canControlClaims=!!p.capabilities.claimControl;renderClaimControls();for(const option of $('write-action').options)if(option.value.startsWith('attention-'))option.disabled=!p.capabilities.attention;canReadHistory=p.capabilities.history;canReadProjectHistory=!!p.capabilities.projectHistory;canEdit=p.capabilities.editIssues;$('create-issue').hidden=!p.capabilities.createDrafts;operator=p.actor;const avatar=$('operator-avatar');avatar.textContent=String(p.actor||'?').trim().split(/\s+/).slice(0,2).map(part=>part[0]?.toLocaleUpperCase()||'?').join('');avatar.title=`${p.actor} · self-declared display identity; not signed in`;currentInspectorRevision=null;inspectorSourceKey=null;render();$('project').textContent=p.name;$('runtime-status').textContent=p.runtimeExplanation||'Runtime state unavailable'; $('actor').textContent=`Operator attribution: ${p.actor} (self-declared, not signed in)`; }).catch(() => $('project').textContent='Project unavailable');
 connect();
 
 $('load-git-history').addEventListener('click',async()=>{

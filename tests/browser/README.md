@@ -33,6 +33,17 @@ The fixture contains synthetic recorded snapshots, not production Beads data.
 It intentionally shows unbound independent lanes, not invented integration.
 This smoke is not the full reference-scene, ten-client idle or scale benchmark.
 
+Branches view: with a fresh fixture and disposable Chrome, run
+`node tests/browser/branches-cdp.mjs`. It checks comparison hierarchy,
+optional commit evidence, bounded patch loading, and narrow-screen overflow.
+
+Timeline View options: run `node tests/browser/view-options-cdp.mjs` with the
+same fixture/Chrome setup to verify its popover fits right, left, and mobile
+toolbar placements.
+
+Responsive layout: run `node tests/browser/responsive-layout-cdp.mjs` to check
+desktop, tablet, and phone scene/inspector arrangement and lower-control spacing.
+
 ## Real-CLI idle publication check
 
 After building, with the existing disposable `abacus-web-contract` Beads/Git
@@ -89,8 +100,11 @@ in all CDP scripts; use a fresh port when sequential browser instances overlap
 shutdown. The script closes Chrome and writes `/tmp/abacus-label-composer.png`.
 It checks label draft retention across issue switches, playback and live updates;
 revision-conflict review; identical-ID retry after an unreadable accepted response;
-delta-only payloads; refreshed stored content; no-op refusal; and unsent title,
-label and note drafts surviving comment completion. The fixture is synthetic and
+delta-only payloads; refreshed stored content; no-op refusal; project-label add
+and issue-label remove menus, custom label mode, description collapse, status-risk
+confirmation, and separate label, reasoning, status, attention-and-block, and
+resolve-and-reopen composer payloads;
+and unsent title, label and note drafts surviving comment completion. The fixture is synthetic and
 never starts workers or writes to Beads. Stop its server after testing.
 
 

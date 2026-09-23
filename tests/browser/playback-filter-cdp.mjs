@@ -25,7 +25,7 @@ assert.match(await evaluate("document.getElementById('timeline-counts').textCont
 await until("document.getElementById('timeline-play').textContent==='Play'");
 assert.equal(await evaluate("document.getElementById('timeline-scrub').value"),'1000');
 assert.equal(await evaluate("new URL(location.href).searchParams.get('at')"),'2026-09-21T10:21:00.000Z');
-assert.match(await evaluate("document.getElementById('details').textContent"),/blocked/);
+assert.match(await evaluate("document.getElementById('details').textContent"),/Blocked/);
 assert.equal(apiCalls,requests,'Playback filtering must not request source data');
 assert.deepEqual(errors,[]);
 console.log('PASS: playback updates filtered lane membership/counts and settles transport, inspector and URL at the exact endpoint');

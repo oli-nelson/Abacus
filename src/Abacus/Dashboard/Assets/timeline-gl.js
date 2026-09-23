@@ -62,13 +62,19 @@ attribute vec3 a_normal;
 attribute vec4 a_color;
 attribute float a_timed;
 uniform vec3 u_eye,u_right,u_up,u_forward,u_target,u_axisScale;
-uniform float u_aspect,u_distance,u_perspective;
+uniform float u_aspect,u_distance,u_perspective,u_viewHeight;
 varying vec4 v_color;
 varying float v_time,v_timed,v_light;
 void main(){
  vec3 p=u_target+(a_position-u_target)*u_axisScale-u_eye;
  float depth=dot(p,u_forward);
  float w=mix(u_distance,depth,u_perspective);
+ // Path vertices pack their world-space tube radius above 2 in a_timed.
+ // Expand only sub-pixel tubes so zooming out cannot erase the paths.
+ if(a_timed>2.0){
+  float minRadius=1.75*2.0*w/(1.9*u_viewHeight);
+  p+=a_normal*max(0.0,minRadius-(a_timed-2.0));
+ }
  gl_Position=vec4(dot(p,u_right)*1.9/u_aspect,dot(p,u_up)*1.9, (1.0004*depth-0.20004)*w/depth,w);
  float light=length(a_normal)<0.1 ? 1.0 : 0.85+0.3*max(0.0,dot(normalize(a_normal),normalize(vec3(-0.2,0.8,1.0))));
  v_color=vec4(a_color.rgb*light,a_color.a);v_time=a_position.x;v_timed=a_timed;v_light=light;
@@ -90,7 +96,7 @@ export class TimelineRenderer {
   }
   initialize(){
     try {
-      const gl=this.canvas.getContext('webgl',{alpha:false,antialias:true,preserveDrawingBuffer:false});
+      const gl=this.canvas.getContext('webgl',{alpha:true,antialias:true,preserveDrawingBuffer:false});
       if(!gl)throw new Error();
       const compile=(type,source)=>{const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw new Error('Shader unavailable');return shader;};
       this.program=gl.createProgram();
@@ -98,7 +104,7 @@ export class TimelineRenderer {
       gl.attachShader(this.program,vs);gl.attachShader(this.program,fs);gl.linkProgram(this.program);gl.deleteShader(vs);gl.deleteShader(fs);
       if(!gl.getProgramParameter(this.program,gl.LINK_STATUS))throw new Error();
       this.gl=gl;this.buffer=gl.createBuffer();this.locations={};
-      for(const name of ['eye','right','up','forward','target','axisScale','aspect','distance','perspective','playhead','fade','colorMix','fromColor'])this.locations[name]=gl.getUniformLocation(this.program,'u_'+name);
+      for(const name of ['eye','right','up','forward','target','axisScale','aspect','distance','perspective','viewHeight','playhead','fade','colorMix','fromColor'])this.locations[name]=gl.getUniformLocation(this.program,'u_'+name);
     }catch{this.gl=null;}
   }
   setScene(scene) {
@@ -118,12 +124,12 @@ export class TimelineRenderer {
       };
       for(let j=0;j<8;j++){
         const a0=ring(a,startDirection,j),a1=ring(a,startDirection,j+1),b0=ring(b,endDirection,j),b1=ring(b,endDirection,j+1);
-        for(const v of [a0,b0,b1,a0,b1,a1])vertex(into,v.pos,v.normal,color,timed);
+        for(const v of [a0,b0,b1,a0,b1,a1])vertex(into,v.pos,v.normal,color,timed?2+r:0);
       }
     };
-    for(let x=-12;x<=12;x+=.5)line([x,scene.floor,-5],[x,scene.floor,5],[.08,.20,.30,x%2===0?.65:.25]);
-    for(let z=-5;z<=5;z+=.5)line([-12,scene.floor,z],[12,scene.floor,z],[.08,.20,.30,.35]);
-    for(let x=-12;x<=12;x+=4)line([x,scene.floor,-4],[x,scene.ceiling,-4],[.11,.25,.38,.35]);
+    for(let x=-12;x<=12;x+=.5)line([x,scene.floor,-5],[x,scene.floor,5],[.10,.27,.42,x%2===0?.75:.35]);
+    for(let z=-5;z<=5;z+=.5)line([-12,scene.floor,z],[12,scene.floor,z],[.09,.24,.38,.45]);
+    for(let x=-12;x<=12;x+=4)line([x,scene.floor,-4],[x,scene.ceiling,-4],[.13,.32,.48,.42]);
     // Selected recorded events have quiet drop lines to the time grid, not new events.
     for(const guide of scene.guides||[]){
       const [x,y,z]=guide.pos,color=[...rgb(guide.color),.28];
@@ -135,13 +141,13 @@ export class TimelineRenderer {
     for(const path of scene.paths){
       const first=solid.length/11,glowFirst=glow.length/11;
       const color=[...rgb(path.color),path.alpha ?? 1],points=path.dashed?path.points:simplifyStraightSegments(path.points);
-      const radius=path.radius??(path.selected?.075:.048),core=[...color.slice(0,3).map(v=>v*.72+.28),color[3]];
+      const radius=path.radius??(path.selected?.1:.07),core=[...color.slice(0,3).map(v=>v*.72+.28),color[3]];
       for(let i=1;i<points.length;i++){
         if(path.dashed && i%4>=2)continue;
         const startDirection=sub(points[i],points[Math.max(0,i-2)]),endDirection=sub(points[Math.min(points.length-1,i+1)],points[i-1]);
         tube(points[i-1],points[i],core,radius,1,solid,startDirection,endDirection);
-        tube(points[i-1],points[i],[...color.slice(0,3),.12],radius*2.2,1,glow,startDirection,endDirection);
-        tube(points[i-1],points[i],[...color.slice(0,3),.035],radius*4,1,glow,startDirection,endDirection);
+        tube(points[i-1],points[i],[...color.slice(0,3),.17],radius*2.2,1,glow,startDirection,endDirection);
+        tube(points[i-1],points[i],[...color.slice(0,3),.05],radius*4,1,glow,startDirection,endDirection);
       }
       if(path.arrival!=null){
         this.arrivalRanges.push({first,end:solid.length/11,marker:path});
@@ -194,14 +200,14 @@ export class TimelineRenderer {
     this.canvas.hidden=!this.gl;this.fallback.hidden=!!this.gl;this.overlay.hidden=!this.gl;
     if(!this.gl){this.drawFallback({...camera,yaw:0,pitch:0,perspective:0},playheadX,width,height,dpr,pinnedMarker);return;}
     const gl=this.gl,b=cameraBasis(camera);
-    gl.viewport(0,0,this.canvas.width,this.canvas.height);gl.clearColor(.018,.045,.075,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    gl.viewport(0,0,this.canvas.width,this.canvas.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.useProgram(this.program);gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
     for(const [name,size,offset] of [['position',3,0],['normal',3,3],['color',4,6],['timed',1,10]]){
       const loc=gl.getAttribLocation(this.program,'a_'+name);gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,size,gl.FLOAT,false,44,offset*4);
     }
     for(const name of ['eye','right','up','forward'])gl.uniform3fv(this.locations[name],b[name]);
     gl.uniform3fv(this.locations.target,camera.target);gl.uniform3fv(this.locations.axisScale,camera.axisScale||[1,1,1]);
-    gl.uniform1f(this.locations.aspect,width/height);gl.uniform1f(this.locations.distance,camera.distance);gl.uniform1f(this.locations.perspective,camera.perspective);gl.uniform1f(this.locations.playhead,playheadX);
+    gl.uniform1f(this.locations.aspect,width/height);gl.uniform1f(this.locations.distance,camera.distance);gl.uniform1f(this.locations.perspective,camera.perspective);gl.uniform1f(this.locations.viewHeight,height);gl.uniform1f(this.locations.playhead,playheadX);
     gl.depthMask(true);gl.uniform1f(this.locations.fade,1);gl.uniform1f(this.locations.colorMix,0);gl.uniform3fv(this.locations.fromColor,[0,0,0]);
     let cursor=0;
     for(const range of this.arrivalRanges||[]){
@@ -262,7 +268,7 @@ export class TimelineRenderer {
     }
     ctx.globalAlpha=1;ctx.setLineDash([]);
     for(const path of this.scene.paths){
-      ctx.globalAlpha=this.arrivalOpacity(path);ctx.strokeStyle=path.color;ctx.shadowColor=path.color;ctx.shadowBlur=this.glow===false?0:path.selected?10:6;ctx.lineWidth=path.selected?3:2;ctx.setLineDash(path.dashed?[6,5]:[]);ctx.beginPath();
+      ctx.globalAlpha=this.arrivalOpacity(path);ctx.strokeStyle=path.color;ctx.shadowColor=path.color;ctx.shadowBlur=this.glow===false?0:path.selected?10:6;ctx.lineWidth=path.selected?4:3.5;ctx.setLineDash(path.dashed?[6,5]:[]);ctx.beginPath();
       let previous=null;
       for(const pos of path.points){
         const beyond=pos[0]>playheadX;

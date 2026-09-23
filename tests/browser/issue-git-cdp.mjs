@@ -20,7 +20,7 @@ await fetch('http://127.0.0.1:18081/fixture/git');
 await evaluate("document.getElementById('inspector-tab-git').click();document.getElementById('load-issue-git').click()");
 await until("!document.getElementById('load-issue-patch').hidden");
 assert.equal(await evaluate("document.getElementById('issue-git-patch').hidden"),true);
-assert.match(await evaluate("document.querySelector('[data-git-evidence=validated]').textContent"),/abacus\/bd-a1f.*1 files.*Not proven integrated/s);
+assert.match(await evaluate("document.querySelector('[data-git-evidence=validated]').textContent"),/1 files.*Not proven integrated/s);
 assert.match(await evaluate("document.getElementById('issue-git-facts').textContent"),/attached-checkout · dirty.*unavailable-checkout · dirty state unknown/s);
 await evaluate("document.getElementById('load-issue-patch').click()");
 await until("!document.getElementById('issue-git-patch').hidden");

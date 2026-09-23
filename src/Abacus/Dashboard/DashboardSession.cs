@@ -53,6 +53,7 @@ internal sealed class DashboardSession : IAsyncDisposable
             var binding = await options.ResolveAsync(token);
             var runner = new CommandRunner(TextWriter.Null);
             await DashboardApplication.ValidateRepositoryAsync(runner, repository, token);
+            var actor = await ResolveActorAsync(runner, repository, options, token);
             var collector = IssueCollector.ForRepository(runner, repository, token);
             var initial = await collector.RefreshAsync(token);
             if (initial.Stale) throw new InvalidOperationException("Cannot read the Beads issue export; dashboard was not started.");
@@ -67,12 +68,13 @@ internal sealed class DashboardSession : IAsyncDisposable
             stream.PublishHistory(activity.State);
             var loop = new CollectionLoop(collector, options.PollInterval, stream.Publish,
                 refreshDetails: async cancellation => { await activity.RefreshAsync(cancellation); stream.PublishHistory(activity.State); });
-            actions = IssueActions.ForRepository(runner, repository, options.Actor, () => !collector.State.Stale, loop.MarkDirty, CancellationToken.None);
+            actions = IssueActions.ForRepository(runner, repository, actor, () => !collector.State.Stale, loop.MarkDirty, CancellationToken.None,
+                id => runtime?.State.View.Workers.Any(worker => worker.IssueId == id) == true);
             if (runtime is not null) stream.PublishRuntime(runtime.Refresh());
-            host = await DashboardHost.StartAsync(binding, stream, Path.GetFileName(repository), options.Actor, token, git, actions, activity, integrated, runtime, collector);
+            host = await DashboardHost.StartAsync(binding, stream, Path.GetFileName(repository), actor, token, git, actions, activity, integrated, runtime, collector);
             foreach (var url in binding.Urls) await diagnostics.WriteLineAsync($"Dashboard: {url}");
-            await diagnostics.WriteLineAsync($"Repository: {repository}\nActor: {options.Actor}\nBeads: readable; {(integrated ? "hosted by this run; see project capabilities for available controls" : "orchestrator not connected")}.");
-            await diagnostics.WriteLineAsync("WARNING: unauthenticated read/write access on a trusted network only. HTTP has no encryption. Issue comments, content edits and plain attention actions are enabled.");
+            await diagnostics.WriteLineAsync($"Repository: {repository}\nActor: {actor}\nBeads: readable; {(integrated ? "hosted by this run; see project capabilities for available controls" : "orchestrator not connected")}.");
+            await diagnostics.WriteLineAsync("WARNING: unauthenticated read/write access on a trusted network only. HTTP has no encryption. Issue and attention actions are enabled; lifecycle changes may conflict with worker reservations.");
             token.ThrowIfCancellationRequested();
             var collectors = new List<Func<CancellationToken, Task>> { loop.RunAsync,
                 cancellation => git.RunAsync(options.PollInterval, stream.PublishGit, cancellation) };
@@ -90,6 +92,18 @@ internal sealed class DashboardSession : IAsyncDisposable
             finally { lifetime.Dispose(); }
             throw;
         }
+    }
+
+    internal static async Task<string> ResolveActorAsync(CommandRunner runner, string repository, DashboardOptions options, CancellationToken token)
+    {
+        if (options.ActorWasProvided) return options.Actor;
+        foreach (var key in new[] { "user.name", "user.email" })
+        {
+            var result = await runner.RunAsync(new("git", ["config", "--get", key], repository, MaxOutputCharacters: 1024), token);
+            var value = result.StandardOutput.Trim();
+            if (result.Succeeded && !string.IsNullOrWhiteSpace(value) && value.Length <= 100 && !value.Any(char.IsControl)) return value;
+        }
+        throw new OptionsException("Dashboard needs a Git user.name or user.email for attribution; configure the repository identity or pass --actor/--dashboard-actor.");
     }
 
     public ValueTask DisposeAsync()

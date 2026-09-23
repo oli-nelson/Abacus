@@ -33,6 +33,8 @@ assert.ok(forces[0].confirm);assert.match(forces[0].prompt,/--literal fixture pr
 assert.ok(await evaluate("confirmations.every(s=>s.includes('fixture operator'))"));
 await fetch('http://127.0.0.1:18082/fixture/complete');
 await until(`!${button('force-run')}.disabled`);
+await evaluate("document.getElementById('workers-view').click()");
+assert.equal(await evaluate("document.querySelectorAll('.worker-card').length"),1);
 assert.ok(await evaluate("document.getElementById('timeline-pane').getBoundingClientRect().bottom<=document.getElementById('runtime-panel').getBoundingClientRect().top"),'Runtime must not overlap timeline');
 await evaluate("document.getElementById('runtime-panel').scrollIntoView({block:'end'})");
 const shot=await call('Page.captureScreenshot',{format:'png'});await writeFile('/tmp/abacus-runtime-controls.png',Buffer.from(shot.data,'base64'));

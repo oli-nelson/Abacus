@@ -50,5 +50,21 @@ public sealed class DashboardActionHttpTests
         using var crossOrigin = new HttpRequestMessage(HttpMethod.Post, "/api/v1/issues/web-a/actions") { Content = JsonContent.Create(body) };
         crossOrigin.Headers.Add("Origin", "https://evil.invalid");
         Assert.Equal(HttpStatusCode.Forbidden, (await http.SendAsync(crossOrigin)).StatusCode); Assert.Equal(1, writes);
+
+        async Task<HttpStatusCode> ProbeOrigin(string origin, string? fetchSite = null)
+        {
+            using var probe = new HttpRequestMessage(HttpMethod.Post, "/api/v1/issues/web-a/actions")
+                { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+            probe.Headers.Add("Origin", origin);
+            if (fetchSite is not null) probe.Headers.Add("Sec-Fetch-Site", fetchSite);
+            using var result = await http.SendAsync(probe);
+            return result.StatusCode;
+        }
+        Assert.Equal(HttpStatusCode.BadRequest, await ProbeOrigin($"http://127.0.0.1:{port}"));
+        Assert.Equal(HttpStatusCode.BadRequest, await ProbeOrigin("http://127.0.0.1", "same-origin"));
+        Assert.Equal(HttpStatusCode.Forbidden, await ProbeOrigin("http://127.0.0.1"));
+        Assert.Equal(HttpStatusCode.Forbidden, await ProbeOrigin("http://127.0.0.1", "same-site"));
+        Assert.Equal(HttpStatusCode.Forbidden, await ProbeOrigin("http://localhost", "same-origin"));
+        Assert.Equal(1, writes);
     }
 }

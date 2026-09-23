@@ -16,15 +16,16 @@ const history=new Map(issues.map((issue,i)=>[issue.id,[
 ]]));
 const draftRequests=[],draftReceipts=new Map();let draftRevision='a'.repeat(64),draftDropped=false;
 const worktreeClients=new Set();
-const clients=new Set(),requests=[],results=new Map();let revision=1,dropped=false,gitBound=false,gitContained=false,gitBranchSuffix='',referenceMode=false,worktreeMode=false,worktreeReads=0,historyFailure=false,historyRevision='fixture',projectHistoryMode='off';
+const clients=new Set(),requests=[],results=new Map();let revision=1,dropped=false,gitBound=false,gitContained=false,gitBranchSuffix='',referenceMode=false,worktreeMode=false,branchMode=false,worktreeReads=0,historyFailure=false,historyRevision='fixture',projectHistoryMode='off';
+const branchGit=()=>({revision:'branch-fixture',stale:false,targets:['main','release'],defaultTarget:'main',facts:{branches:[{ref:'refs/heads/main',tip:'a'.repeat(40)},{ref:'refs/heads/abacus/bd-a1f',tip:'b'.repeat(40)},{ref:'refs/heads/feature/visualisation',tip:'c'.repeat(40)}],worktrees:[]}});
 function publish(stale=false){revision++;for(const client of clients)client.write('event: change\ndata: '+JSON.stringify({revision,upserts:issues,removals:[],beads:{stale,error:stale?'Synthetic source read failure':null}})+'\n\n');}
 const server=http.createServer(async(req,res)=>{
  res.setHeader('Date',new Date(at('12:00')).toUTCString());
  const url=new URL(req.url,'http://127.0.0.1'),path=url.pathname;
  function json(value){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));}
  if(path==='/api/v1/project')return json({name:'abacus / visualiser fixture',actor:'fixture operator',capabilities:{editIssues:true,history:true,projectHistory:projectHistoryMode!=='off',createDrafts:true}});
- if(path==='/api/v1/snapshot')return json({revision,cursor:'fixture:'+revision,issues,beads:{stale:false},history:{revision:historyRevision,stale:false},git:worktreeMode?{revision:1,stale:false,targets:['main'],defaultTarget:'main',facts:{branches:[],worktrees:[{id:'f'.repeat(64),path:'/fixture/worktree',head:'a'.repeat(40),branch:'refs/heads/main',dirty:true}]}}:null});
- if(path==='/api/v1/events'){res.setHeader('Content-Type','text/event-stream');res.write(': connected\n\n');clients.add(res);req.on('close',()=>clients.delete(res));return;}
+ if(path==='/api/v1/snapshot')return json({revision,cursor:'fixture:'+revision,issues,beads:{stale:false},history:{revision:historyRevision,stale:false},git:branchMode?branchGit():worktreeMode?{revision:1,stale:false,targets:['main'],defaultTarget:'main',facts:{branches:[],worktrees:[{id:'f'.repeat(64),path:'/fixture/worktree',head:'a'.repeat(40),branch:'refs/heads/main',dirty:true}]}}:null});
+ if(path==='/api/v1/events'){res.setHeader('Content-Type','text/event-stream');res.write(': connected\n\n');clients.add(res);res.on('close',()=>clients.delete(res));return;}
  if(path==='/api/v1/issues/drafts/context')return json({session:'fixture-session',serverUnixMilliseconds:Date.now(),revision:draftRevision,targets:['main','release'],defaultTarget:'main',requireReasoning:true,reasoningLabels:['abacus:low_reasoning','abacus:high_reasoning'],issueTypes:['task','bug','epic'],publicationAvailable:false});
  if(path==='/fixture/draft-policy'){draftRevision='b'.repeat(64);return json({ok:true});}
  if(path==='/fixture/draft-requests')return json(draftRequests);
@@ -103,7 +104,7 @@ const server=http.createServer(async(req,res)=>{
  if(path==='/api/v1/worktrees/events'){
   res.setHeader('Content-Type','text/event-stream');worktreeClients.add(res);worktreeReads++;
   res.write('event: worktree\ndata: '+JSON.stringify({stale:false,diff:{revision:'content-'+worktreeReads,staged:'staged snapshot',unstaged:'+edit '+worktreeReads+' <script>literal</script>',untracked:'+new file '+worktreeReads+' <img src=x>',coverage:'Synthetic worktree content.'}})+'\n\n');
-  req.on('close',()=>worktreeClients.delete(res));return;
+  res.on('close',()=>worktreeClients.delete(res));return;
  }
  if(path==='/fixture/worktree-edit'){
   worktreeReads++;for(const client of worktreeClients)client.write('event: worktree\ndata: '+JSON.stringify(url.searchParams.has('stale')?{stale:true,error:'Synthetic source unavailable',diff:null}:{stale:false,diff:{revision:'content-'+worktreeReads,staged:'staged snapshot',unstaged:'+edit '+worktreeReads,untracked:'+new file '+worktreeReads+' <img src=x>',coverage:'Synthetic worktree content.'}})+'\n\n');return json({clients:worktreeClients.size});
@@ -111,6 +112,8 @@ const server=http.createServer(async(req,res)=>{
  if(path==='/fixture/worktree-clients')return json({count:worktreeClients.size});
  if(path==='/api/v1/worktrees/diff')return json({revision:'content-'+(++worktreeReads),staged:'staged snapshot',unstaged:'+edit '+worktreeReads+' <script>literal</script>',untracked:'+new file '+worktreeReads+' <img src=x>',coverage:'Synthetic bounded staged, unstaged and untracked snapshot.'});
  if(path==='/fixture/reference'){gitBound=true;referenceMode=true;return json({ok:true});}
+ if(path==='/fixture/branches'){branchMode=true;for(const client of clients)client.write('event: git\ndata: '+JSON.stringify(branchGit())+'\n\n');return json({ok:true});}
+ if(path==='/api/v1/branches/compare')return json({comparison:{targetTip:'a'.repeat(40),issueTip:'b'.repeat(40),mergeBase:'a'.repeat(40),containedInTarget:false,basis:'target...issue',ahead:2,behind:0,files:[{path:'src/renderer.js',additions:42,deletions:11,binary:false},{path:'docs/guide.md',additions:5,deletions:0,binary:false}],warning:null},patch:url.searchParams.get('patch')==='true'?{available:true,text:'diff --git a/src/renderer.js b/src/renderer.js\n+const scene = true;',warning:null}:null});
  if(path==='/fixture/git-refresh'){
   gitContained=url.searchParams.get('contained')==='true';
   if(url.searchParams.has('branch'))gitBranchSuffix=url.searchParams.get('branch');
@@ -144,7 +147,7 @@ const server=http.createServer(async(req,res)=>{
  }
  if(path==='/fixture/lane-arrival'){
   const id=url.searchParams.get('id')||'new-lane';
-  if(!issues.some(i=>i.id===id))issues.push({...issues[0],id,title:'New live lane '+id,revision:id,status:'open',createdAt:at('11:45'),closedAt:null,comments:[]});
+  if(!issues.some(i=>i.id===id))issues.push({...issues[0],id,title:'New live lane '+id,revision:id,status:'in_progress',createdAt:at('11:45'),closedAt:null,comments:[]});
   publish();return json({ok:true});
  }
  if(path==='/fixture/lane-burst'){
@@ -183,10 +186,20 @@ const server=http.createServer(async(req,res)=>{
   if(action.expectedRevision!==write.revision){res.statusCode=409;return json({outcome:'rejected',message:'Review changed issue',issue:write,revision:write.revision});}
   for(const key of ['title','description','priority'])if(key in action)write[key]=action[key];
   write.labels=[...new Set([...write.labels,...(action.addLabels||[])])].filter(l=>!(action.removeLabels||[]).includes(l));
-  if(action.action==='comment')write.comments.push({id:'fixture-comment-'+requests.length,text:action.text,author:'fixture operator',createdAt:at('12:00')});
+  if(action.action==='reasoning-set'){
+   write.labels=write.labels.filter(l=>!['abacus:high_reasoning','abacus:medium_reasoning','abacus:low_reasoning'].includes(l));
+   if(action.reasoningLevel!=='none')write.labels.push('abacus:'+action.reasoningLevel+'_reasoning');
+  }
+  if(action.action.startsWith('attention-request'))write.labels=[...new Set([...write.labels,'abacus:needs-user-attention'])];
+  if(action.action.startsWith('attention-resolve'))write.labels=write.labels.filter(l=>l!=='abacus:needs-user-attention');
+  if(action.action==='status')write.status=action.status;
+  if(action.action==='attention-request-block')write.status='blocked';
+  if(action.action==='attention-resolve-reopen'){write.status='open';write.assignee=null;}
+  let recordedCommentId=null;
+  if((action.action==='comment'||action.action.startsWith('attention-'))&&action.text){recordedCommentId='fixture-comment-'+requests.length;write.comments.push({id:recordedCommentId,text:action.text,author:'fixture operator',createdAt:at('12:00')});}
   if(action.appendNotes)write.notes+='\n'+action.appendNotes;
-  write.revision='fixture-written';publish();
-  const result={outcome:'completed',message:'Verified fixture edit',issue:write,revision:write.revision};results.set(action.requestId,result);
+  write.revision='fixture-written-'+revision;publish();
+  const result={outcome:'completed',message:'Verified fixture edit',issue:write,revision:write.revision,recordedCommentId};results.set(action.requestId,result);
   if(!dropped){dropped=true;res.setHeader('Content-Type','application/json');res.end('{"outcome":');return;}
   return json(result);
  }
@@ -201,7 +214,7 @@ const server=http.createServer(async(req,res)=>{
  if(match&&historyFailure){res.statusCode=503;return json({error:'Fixture unavailable'});}
  if(match&&history.has(match[1]))return json({issueId:match[1],issueRevision:issues.find(i=>i.id===match[1]).revision,historyRevision,versions:history.get(match[1]),coverage:{complete:false,limitReached:false,explanation:'Fixture committed snapshots only; intervening working-set changes unknown.'},continuation:null});
  const asset=path==='/'?'index.html':path.slice(1);
- if(!['index.html','dashboard.css','dashboard.js','timeline.js','inspector-resize.js','timeline-model.js','timeline-gl.js','issue-relations.js','issue-table.js','issue-filters.js'].includes(asset)){res.statusCode=404;res.end();return;}
+ if(!['index.html','dashboard.css','dashboard.js','timeline.js','inspector-resize.js','timeline-model.js','timeline-gl.js','dependency-tree.js','issue-relations.js','issue-table.js','issue-filters.js'].includes(asset)){res.statusCode=404;res.end();return;}
  res.setHeader('Content-Type',asset.endsWith('.js')?'text/javascript':asset.endsWith('.css')?'text/css':'text/html');
  try{res.end(await readFile(new URL(asset,root)));}catch{res.statusCode=500;res.end();}
 });

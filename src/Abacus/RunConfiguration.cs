@@ -57,7 +57,7 @@ public sealed class RunConfiguration(JsonObject document, string baseDirectory)
         new("dashboard", "--dashboard", "bool", "Enable the in-process unauthenticated HTTP dashboard"),
         new("dashboardBind", "--dashboard-bind", "string", "IPv4/IPv6/hostname; default 127.0.0.1"),
         new("dashboardPort", "--dashboard-port", "int", "HTTP port 1–65535; default 8080"),
-        new("dashboardActor", "--dashboard-actor", "string", "Self-declared edit attribution; default abacus-web"),
+        new("dashboardActor", "--dashboard-actor", "string", "Override repository Git user attribution"),
         new("dashboardPollInterval", "--dashboard-poll-interval", "string", "Shared source poll duration; minimum 1s, default 5s"),
         new("startPaused", "--start-paused", "bool", "Start with claims paused"),
         new("schedule", "", "schedule", "Optional claim windows to block, e.g. provider peak hours"),

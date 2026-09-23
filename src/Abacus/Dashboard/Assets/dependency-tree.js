@@ -195,7 +195,8 @@ export class DependencyTree{
       button.onclick=()=>this.onSelect(issue.id);this.nodes.append(button);this.buttons.set(issue.id,button);
     }
     const unknown=issues.filter(i=>!Array.isArray(i.dependencies)).length;
-    this.summary.textContent=`${issues.length} issues · ${edges.length} recorded blocking links · ${isolated} unconnected${unknown?` · ${unknown} relationship sources unknown`:''}${unresolved?` · ${unresolved} blocking links to issues outside this snapshot`:''}${cycles?` · ${cycles} cyclic issue(s) could not be layered`:''}. Search and status dim nodes without hiding their dependencies.`;
+    this.summary.textContent=`${issues.length} issues · ${edges.length} blocking links${unknown?` · ${unknown} unknown sources`:''}${unresolved?` · ${unresolved} external links`:''}${cycles?` · ${cycles} cyclic issues`:''}`;
+    this.summary.title=`${isolated} unconnected issues. Unknown sources have no recorded relationship data; external links point outside this snapshot. Cyclic issues cannot be layered.`;
     this.setScale(this.scale);
     if(restoreFocus)this.buttons.get(selected)?.focus({preventScroll:true});
   }

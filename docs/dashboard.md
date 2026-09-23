@@ -106,7 +106,10 @@ with a separate capability indicating claim-control availability.
 
 There is **no authentication**. The server exposes issue content edits and comments
 to every client able to reach it, including on non-loopback listeners. Use a firewall, trusted VPN, or independently managed secure proxy.
-HTTP provides no confidentiality. `--actor` is audit attribution, not a login.
+HTTP provides no confidentiality. Dashboard writes default to the repository's
+effective Git `user.name` (or `user.email` if no name is set); configure one before
+starting the server. `--actor`/`--dashboard-actor` override that attribution and
+are not a login.
 
 Host headers must name the configured host or bound IP. For wildcard listeners,
 local interface IPs and localhost are accepted, not arbitrary DNS names. A remote
@@ -505,10 +508,36 @@ queue the prompt again; the bounded session ledger retains accepted IDs without
 eviction. Do not assume a lost response means the prompt was not accepted.
 
 
+### Issue status, attention and reasoning actions
+
+The issue inspector offers explicit **Change status** (Open, In progress,
+Blocked, Completed), **Request attention & block**, and **Resolve attention &
+reopen** actions alongside plain attention requests and resolutions. The combined
+attention actions append an optional/required exact comment first, then update
+the attention label and status together; reopen also clears the assignee. A
+failed comment prevents the following update. A partial result names any
+verified stored comment so the operator can review the issue and retry only
+the missing step, without appending it twice. Status changes do not start or
+stop a worker, or prove a merge. General status and combined attention/status
+changes warn before submission when they may affect assigned or reserved work;
+they are not rejected for that reason. The verified response repeats the risk.
+These changes can disrupt an agent or leave its workspace reserved, so review
+worker/workspace state afterward. Standalone operators
+must also stop competing writers and reconcile offline reservations.
+
+**Set reasoning level** replaces only the three Abacus reasoning labels, leaving
+ordinary labels untouched. Clearing the level is refused when project policy
+requires one. It affects future routing, not a worker already running.
+
 ### Ordinary label edits
 
-Edit content offers separate add/remove label boxes, one label per line. HTTP
-`edit` actions accept `addLabels` and `removeLabels` string arrays (at most 32 each,
+**Add/remove labels** is a separate inspector operation with checkbox menus:
+add from unique ordinary labels on currently loaded project issues, or enable
+custom mode to type new labels; remove from ordinary labels on the selected
+issue. Edits retain their typed add/remove boxes. The overview description is
+collapsed by default and can be expanded independently for each issue. HTTP
+`labels` and `edit` actions accept `addLabels` and
+`removeLabels` string arrays (at most 32 each,
 100 characters per label). These are deltas: no `--set-labels` replacement, so
 unrelated and concurrently added labels are not overwritten. Verification checks
 requested additions/removals and preservation of previous unrelated labels; a

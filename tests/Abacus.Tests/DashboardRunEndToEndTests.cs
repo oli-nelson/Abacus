@@ -59,6 +59,8 @@ public sealed partial class EndToEndTests
             var start = DirectStartInfo(root.FullName, bin, workspace, "--once");
             if (!occupied) start.ArgumentList.Add("--start-paused");
             start.ArgumentList.Add("--dashboard");
+            start.ArgumentList.Add("--dashboard-actor");
+            start.ArgumentList.Add("Fixture Operator");
             start.ArgumentList.Add("--dashboard-port");
             start.ArgumentList.Add(port.ToString());
             using var process = Process.Start(start)!;

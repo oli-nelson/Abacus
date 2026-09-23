@@ -12,12 +12,29 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(expression){for(let i=0;i<100;i++){if(await evaluate(expression))return;await delay(100);}throw new Error('Timed out: '+expression+' errors: '+JSON.stringify(errors));}
 await call('Page.enable');await call('Runtime.enable');await call('Network.enable');
 await call('Emulation.setDeviceMetricsOverride',{width:1280,height:941,deviceScaleFactor:1,mobile:false});
+await call('Page.navigate',{url:'http://127.0.0.1:18081/?view=issues'});
+await until("document.getElementById('connection').textContent==='● Live'");
+assert.equal(await evaluate("document.getElementById('inspector-empty-state').checkVisibility()"),true);
+assert.equal(await evaluate("document.querySelector('.inspector-tabs').checkVisibility()"),false);
+assert.ok(await evaluate("document.querySelector('header').getBoundingClientRect().height<80"),'Medium-width header remains one row');
+assert.equal(await evaluate("new Set([...document.querySelectorAll('header nav button')].map(b=>Math.round(b.getBoundingClientRect().top))).size"),1,'View tabs do not wrap at medium width');
+await writeFile('/tmp/abacus-inspector-empty.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'));
 await call('Page.navigate',{url:'http://127.0.0.1:18081/?view=issues&issue=bd-a1f&from=2026-09-21T09%3A00%3A00Z'});
 await until("document.querySelectorAll('#issues tr').length===3 && !document.getElementById('activity-section').hidden");
+assert.equal(await evaluate("document.getElementById('inspector-empty-state').checkVisibility()"),false);
 
 
 assert.equal(await evaluate("document.querySelectorAll('#details .label-chip').length"),2);
 assert.match(await evaluate("document.querySelector('#details dd[data-priority]').textContent"),/P1 · High/);
+assert.equal(await evaluate("document.getElementById('inspector-more').open"),false);
+assert.equal(await evaluate("document.getElementById('details-extra').checkVisibility()"),false);
+assert.match(await evaluate("document.getElementById('details-extra').textContent"),/Type.*Target.*Notes/s);
+await evaluate("document.getElementById('inspector-more').open=true");
+assert.equal(await evaluate("document.getElementById('details-extra').checkVisibility()"),true);
+await evaluate("document.getElementById('inspector-more').open=false");
+assert.equal(await evaluate("document.getElementById('selected-current-status').textContent"),'In progress');
+assert.equal(await evaluate("document.getElementById('inspector-recent').hidden"),false);
+assert.match(await evaluate("document.getElementById('inspector-recent-list').textContent"),/Confirmed: drag/);
 async function press(key){await call('Input.dispatchKeyEvent',{type:'keyDown',key});await call('Input.dispatchKeyEvent',{type:'keyUp',key});}
 assert.equal(await evaluate("document.querySelectorAll('[role=tab][aria-selected=true]').length"),1);
 await evaluate("document.getElementById('write-title').value='Keep this draft';document.getElementById('write-title').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('inspector-tab-overview').focus()");
@@ -41,10 +58,10 @@ assert.equal(await evaluate("document.getElementById('write-title').value"),'Kee
 await fetch('http://127.0.0.1:18081/fixture/relations');
 await until("!document.getElementById('ongoing-section').hidden");
 assert.equal(await evaluate("document.querySelectorAll('#ongoing-issues button').length"),1);
-assert.match(await evaluate("document.getElementById('ongoing-issues').textContent"),/bd-b7c.*blocked/);
+assert.match(await evaluate("document.getElementById('ongoing-issues').textContent"),/bd-b7c.*Blocked/);
 await evaluate("document.querySelector('#ongoing-issues button').click()");
 await until("document.getElementById('selected-id').textContent==='bd-b7c'");
-assert.equal(await evaluate("document.getElementById('selected-current-status').textContent"),'Current: blocked');
+assert.equal(await evaluate("document.getElementById('selected-current-status').textContent"),'Blocked');
 await evaluate("history.pushState(null,'','?view=issues&issue=bd-a1f&inspector=activity');dispatchEvent(new PopStateEvent('popstate'))");
 assert.equal(await evaluate("document.getElementById('inspector-panel-activity').hidden"),false);
 await evaluate("document.getElementById('load-activity').click()");

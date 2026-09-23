@@ -38,6 +38,9 @@ const point=await evaluate("(()=>{const r=document.getElementById('timeline-mini
 await call('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});
 await call('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
 await until("document.getElementById('selected-event').textContent.includes('4 changes')");
+assert.equal(await evaluate("document.getElementById('historical-coverage').hidden"),false);
+assert.equal(await evaluate("document.getElementById('historical-coverage').open"),false);
+assert.match(await evaluate("document.getElementById('historical-facts').textContent"),/Fields recorded at/);
 assert.match(await evaluate("document.querySelector('#timeline-callout .callout-status-changes').textContent"),/in_progress → blocked/);
 assert.equal(await evaluate("getComputedStyle(document.getElementById('timeline-callout')).borderColor"),'rgb(255, 100, 108)');
 assert.equal(await evaluate("getComputedStyle(document.querySelector('#timeline-callout .callout-heading strong')).color"),'rgb(255, 100, 108)');

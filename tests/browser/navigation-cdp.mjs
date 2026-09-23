@@ -36,6 +36,12 @@ await evaluate("document.getElementById('timeline-scrub').value=10;document.getE
 await until("!new URL(location.href).searchParams.has('at')");
 assert.equal(await evaluate("new URL(location.href).searchParams.has('hours')"),false,'First event clears rolling offset');
 assert.equal(await evaluate("new URL(location.href).searchParams.get('from')"),'2026-09-21T09:00:00.000Z','All entries restores earliest entry even from playback and a filtered viewport');
+assert.equal(await evaluate("document.getElementById('timeline-event-span').textContent"),'First event → last event');
+await evaluate("document.getElementById('timeline-event-span').click()");
+await until("new URL(location.href).searchParams.get('to')==='2026-09-21T11:35:00.000Z'");
+assert.equal(await evaluate("new URL(location.href).searchParams.get('from')"),'2026-09-21T09:00:00.000Z','Event span uses all issues despite the search filter');
+assert.equal(await evaluate("new URL(location.href).searchParams.get('at')"),'2026-09-21T11:35:00.000Z','Event span pauses at the latest recorded event');
+assert.match(await evaluate("document.getElementById('timeline-range-mode').textContent"),/Historical range/);
 await evaluate("document.getElementById('search').value='';document.getElementById('search').dispatchEvent(new Event('input'))");
 await evaluate("document.querySelector('.timeline-options').open=true;document.getElementById('workspace-tools').open=true");
 await delay(600);

@@ -139,7 +139,7 @@ internal static class CliHelp
 
               --bind <ip-or-host>       Default 127.0.0.1; IPv4, IPv6 or resolvable hostname.
               --port <port>             Default 8080; range 1–65535, no automatic fallback.
-              --actor <display-name>    Default abacus-web; self-declared audit attribution.
+              --actor <display-name>    Override repository Git user attribution.
               --poll-interval <duration> Default 5s; minimum 1s (s/m/h suffix).
 
             WARNING: unauthenticated read/write access. Use trusted networks only;
@@ -165,7 +165,7 @@ internal static class CliHelp
                                        (local only); use 0.0.0.0 for all IPv4 interfaces.
               --dashboard-port <port>  Listening port 1–65535; default 8080. An occupied port
                                        fails before workers start; no automatic fallback.
-              --dashboard-actor <name> Self-declared edit attribution; default abacus-web.
+              --dashboard-actor <name> Override repository Git user attribution.
               --dashboard-poll-interval <duration> Shared source polling; default 5s, minimum 1s.
             Example:
               abacus run --config abacus_codex.json --dashboard \

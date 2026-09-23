@@ -9,7 +9,8 @@ namespace Abacus.Dashboard;
 
 internal sealed record IssueAction(string RequestId, string ExpectedRevision, string Action,
     string? Text, string? Title, string? Description, int? Priority, string? AppendNotes, string? ExistingCommentId = null,
-    IReadOnlyList<string>? AddLabels = null, IReadOnlyList<string>? RemoveLabels = null);
+    IReadOnlyList<string>? AddLabels = null, IReadOnlyList<string>? RemoveLabels = null,
+    string? Status = null, string? ReasoningLevel = null, bool ConfirmOwnershipRisk = false);
 internal sealed record ActionResult(int StatusCode, string Outcome, string Message, string RequestId,
     string? Revision = null, IssueSummary? Issue = null, string? RecordedCommentId = null, string? CreatedIssueId = null);
 
@@ -19,7 +20,8 @@ internal sealed partial class IssueActions(
     Func<CancellationToken, Task<IssueSnapshot>> read,
     Func<IReadOnlyList<string>, CancellationToken, Task<CommandResult>> execute,
     Func<bool> healthy, Action dirty, CancellationToken lifetime, TimeProvider? time = null,
-    bool attentionEnabled = false, Func<CancellationToken, Task<DraftPolicy>>? draftPolicy = null)
+    bool attentionEnabled = false, Func<CancellationToken, Task<DraftPolicy>>? draftPolicy = null,
+    Func<string, bool>? reserved = null)
 {
     private sealed record Entry(string Fingerprint, DateTimeOffset IssuedAt, Task<ActionResult> Task);
     private readonly object sync = new();
@@ -35,21 +37,21 @@ internal sealed partial class IssueActions(
     public const int RetryMinutes = 15;
 
     public static IssueActions ForRepository(CommandRunner runner, string repository, string actor,
-        Func<bool> healthy, Action dirty, CancellationToken lifetime) => new(async token =>
+        Func<bool> healthy, Action dirty, CancellationToken lifetime, Func<string, bool>? reserved = null) => new(async token =>
         {
             var result = await runner.RunAsync(new("bd", ["--readonly", "export"], repository, MaxOutputCharacters: IssueExport.MaximumCharacters), token);
             if (!result.Succeeded) throw new InvalidDataException("Issue source unreadable.");
             return IssueExport.Parse(result.StandardOutput);
         }, (args, token) => runner.RunAsync(new("bd", args, repository,
             new Dictionary<string, string?> { ["BEADS_ACTOR"] = actor }, MaxOutputCharacters: 1024 * 1024), token), healthy, dirty, lifetime, attentionEnabled: true,
-            draftPolicy: token => DraftPolicy.LoadAsync(repository, token));
+            draftPolicy: token => DraftPolicy.LoadAsync(repository, token), reserved: reserved);
 
     public static IssueAction Parse(JsonElement body)
     {
         if (body.ValueKind != JsonValueKind.Object) throw new ArgumentException("Action must be a JSON object.");
         var keys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var field in body.EnumerateObject())
-            if (!keys.Add(field.Name) || field.Name is not ("requestId" or "expectedRevision" or "action" or "text" or "title" or "description" or "priority" or "appendNotes" or "existingCommentId" or "addLabels" or "removeLabels"))
+            if (!keys.Add(field.Name) || field.Name is not ("requestId" or "expectedRevision" or "action" or "text" or "title" or "description" or "priority" or "appendNotes" or "existingCommentId" or "addLabels" or "removeLabels" or "status" or "reasoningLevel" or "confirmOwnershipRisk"))
                 throw new ArgumentException("Unknown or duplicate action field.");
         string? String(string name, int maximum, bool required = false)
         {
@@ -68,6 +70,15 @@ internal sealed partial class IssueActions(
         var description = String("description", 32_000);
         var notes = String("appendNotes", 16_000);
         var existingCommentId = String("existingCommentId", 256);
+        var status = String("status", 30);
+        var reasoningLevel = String("reasoningLevel", 10);
+        var confirmOwnershipRisk = false;
+        if (body.TryGetProperty("confirmOwnershipRisk", out var confirmation))
+        {
+            if (confirmation.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) throw new ArgumentException("Invalid ownership-risk confirmation.");
+            confirmOwnershipRisk = confirmation.GetBoolean();
+        }
+        if (confirmOwnershipRisk && action != "status") throw new ArgumentException("Ownership-risk confirmation requires a status action.");
         string[]? Labels(string name)
         {
             if (!body.TryGetProperty(name, out var field)) return null;
@@ -77,41 +88,57 @@ internal sealed partial class IssueActions(
         }
         var addLabels = Labels("addLabels"); var removeLabels = Labels("removeLabels");
         var labelArguments = Beads.LabelDeltaArguments(addLabels, removeLabels);
-        if (action != "edit" && (addLabels is not null || removeLabels is not null)) throw new ArgumentException("Label deltas require an edit action.");
+        if (action is not ("edit" or "labels") && (addLabels is not null || removeLabels is not null)) throw new ArgumentException("Label deltas require an edit or labels action.");
         int? priority = null;
         if (body.TryGetProperty("priority", out var p))
         {
             if (p.ValueKind != JsonValueKind.Number || !p.TryGetInt32(out var number) || number is < 0 or > 4) throw new ArgumentException("Priority must be 0–4.");
             priority = number;
         }
-        if (action is "attention-request" or "attention-resolve")
+        if (action is "attention-request" or "attention-request-block" or "attention-resolve" or "attention-resolve-reopen")
         {
             if (title is not null || description is not null || priority is not null || notes is not null ||
+                status is not null || reasoningLevel is not null ||
                 (text is not null && string.IsNullOrWhiteSpace(text)) ||
-                (action == "attention-resolve" && existingCommentId is not null) ||
-                (action == "attention-request" && ((text is null) == (existingCommentId is null))) ||
+                (action.StartsWith("attention-resolve", StringComparison.Ordinal) && existingCommentId is not null) ||
+                (action.StartsWith("attention-request", StringComparison.Ordinal) && ((text is null) == (existingCommentId is null))) ||
                 (existingCommentId is not null && string.IsNullOrWhiteSpace(existingCommentId)))
                 throw new ArgumentException("Attention requires an explanation or a previously verified comment, without content edits.");
         }
         else if (action == "comment")
         {
-            if (existingCommentId is not null || string.IsNullOrWhiteSpace(text) || title is not null || description is not null || priority is not null || notes is not null)
+            if (existingCommentId is not null || string.IsNullOrWhiteSpace(text) || title is not null || description is not null || priority is not null || notes is not null || status is not null || reasoningLevel is not null)
                 throw new ArgumentException("Comment requires only nonempty text.");
         }
         else if (action == "edit")
         {
-            if (existingCommentId is not null || text is not null || (title is null && description is null && priority is null && notes is null && labelArguments.Count == 0) ||
+            if (existingCommentId is not null || text is not null || status is not null || reasoningLevel is not null || (title is null && description is null && priority is null && notes is null && labelArguments.Count == 0) ||
                 (title is not null && string.IsNullOrWhiteSpace(title)) || (notes is not null && string.IsNullOrWhiteSpace(notes)))
                 throw new ArgumentException("Edit requires content fields, without comment text.");
         }
+        else if (action == "labels")
+        {
+            if (existingCommentId is not null || text is not null || title is not null || description is not null || priority is not null || notes is not null || status is not null || reasoningLevel is not null || labelArguments.Count == 0)
+                throw new ArgumentException("Labels action requires at least one non-reserved label delta.");
+        }
+        else if (action == "status")
+        {
+            if (status is not ("open" or "in_progress" or "blocked" or "closed") || existingCommentId is not null || text is not null || title is not null || description is not null || priority is not null || notes is not null || reasoningLevel is not null)
+                throw new ArgumentException("Status action requires one supported status only.");
+        }
+        else if (action == "reasoning-set")
+        {
+            if (reasoningLevel is not ("none" or "high" or "medium" or "low") || existingCommentId is not null || text is not null || title is not null || description is not null || priority is not null || notes is not null || status is not null)
+                throw new ArgumentException("Reasoning action requires one supported level only.");
+        }
         else throw new ArgumentException("Unsupported action.");
-        return new(id, revision, action, text, title, description, priority, notes, existingCommentId, addLabels, removeLabels);
+        return new(id, revision, action, text, title, description, priority, notes, existingCommentId, addLabels, removeLabels, status, reasoningLevel, confirmOwnershipRisk);
     }
 
     public Task<ActionResult> SubmitAsync(string issueId, IssueAction action, CancellationToken caller)
     {
         if (!Git.IsValidIssueId(issueId)) throw new ArgumentException("Invalid issue ID.");
-        if (!attentionEnabled && action.Action is "attention-request" or "attention-resolve")
+        if (!attentionEnabled && action.Action.StartsWith("attention-", StringComparison.Ordinal))
             return Task.FromResult(new ActionResult(503, "rejected", "Attention writes are not enabled; no write attempted.", action.RequestId));
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(issueId + "\n" + JsonSerializer.Serialize(action))));
         return Enqueue(action.RequestId, fingerprint, () => ApplyAsync(issueId, action), caller);
@@ -179,18 +206,37 @@ internal sealed partial class IssueActions(
             var before = (await read(mutationLifetime.Token)).Issues.GetValueOrDefault(issueId);
             if (before is null) return new(404, "rejected", "Issue no longer exists.", action.RequestId);
             if (before.Revision != action.ExpectedRevision) return new(409, "rejected", "Issue changed. Review the current issue before submitting again.", action.RequestId, before.Revision, Summary(before));
-            if (action.Action is "attention-request" or "attention-resolve")
+            if (action.Action.StartsWith("attention-", StringComparison.Ordinal))
                 return await ApplyAttentionAsync(before, action, () => attempted = true);
+            var ownershipRisk = false;
             List<string> args;
             if (action.Action == "comment") args = ["comment", "--json", issueId, "--", action.Text!];
             else
             {
+                var issue = Summary(before);
+                if (action.Action == "status")
+                {
+                    if (issue.Status == action.Status) return new(409, "rejected", "Status is already set; no write attempted.", action.RequestId, before.Revision, issue);
+                    ownershipRisk = LifecycleConflict(issue) || reserved?.Invoke(issueId) == true;
+                }
                 args = ["update", issueId, "--json"];
                 if (action.Title is not null) args.Add("--title=" + action.Title);
                 if (action.Description is not null) args.Add("--description=" + action.Description);
                 if (action.Priority is not null) args.Add("--priority=" + action.Priority.Value.ToString(CultureInfo.InvariantCulture));
                 if (action.AppendNotes is not null) args.Add("--append-notes=" + action.AppendNotes);
-                args.AddRange(Beads.LabelDeltaArguments(action.AddLabels, action.RemoveLabels));
+                if (action.Status is not null) args.Add("--status=" + action.Status);
+                if (action.Action == "reasoning-set")
+                {
+                    if (action.ReasoningLevel == "none" && draftPolicy is not null && (await draftPolicy(mutationLifetime.Token)).Reasoning.EnforceLabels)
+                        return new(409, "rejected", "Reasoning policy requires one level; no write attempted.", action.RequestId, before.Revision, issue);
+                    var selected = action.ReasoningLevel == "none" ? null : ReasoningPolicy.LabelForTier(action.ReasoningLevel!);
+                    var present = issue.Labels.Where(ReasoningPolicy.Labels.Contains).ToArray();
+                    if (present.Length == (selected is null ? 0 : 1) && (selected is null || present[0] == selected))
+                        return new(409, "rejected", "Reasoning level is already set; no write attempted.", action.RequestId, before.Revision, issue);
+                    if (selected is not null && !present.Contains(selected)) args.Add("--add-label=" + selected);
+                    foreach (var label in present.Where(label => label != selected)) args.Add("--remove-label=" + label);
+                }
+                else args.AddRange(Beads.LabelDeltaArguments(action.AddLabels, action.RemoveLabels));
             }
             mutationLifetime.Token.ThrowIfCancellationRequested();
             attempted = true;
@@ -199,11 +245,13 @@ internal sealed partial class IssueActions(
             if (after is null) return new(503, "outcome-unknown", "Issue disappeared after the command. Review before retrying.", action.RequestId);
             var verified = Verify(before, after, action);
             var summary = Summary(after);
-            if (result.Succeeded && verified) return new(200, "completed", "Stored result verified. No automatic remote synchronization was requested.", action.RequestId, after.Revision, summary);
+            if (result.Succeeded && verified) return new(200, "completed", ownershipRisk
+                ? "Status stored despite possible worker ownership or reservation. Review the worker and workspace; no automatic remote synchronization was requested."
+                : "Stored result verified. No automatic remote synchronization was requested.", action.RequestId, after.Revision, summary);
             return new(503, after.Revision == before.Revision ? "outcome-unknown" : "partially-applied",
                 "Command result could not be fully verified. Review current content; do not blindly repeat an append.", action.RequestId, after.Revision, summary);
         }
-        catch (Exception ex) when (ex is InvalidDataException or JsonException or CommandStartException or CommandTimeoutException or CommandOutputLimitException or OperationCanceledException or IOException)
+        catch (Exception ex) when (ex is InvalidDataException or JsonException or ReasoningPolicyException or TargetException or CommandStartException or CommandTimeoutException or CommandOutputLimitException or OperationCanceledException or IOException or UnauthorizedAccessException)
         {
             return new(503, attempted ? "outcome-unknown" : "rejected", attempted
                 ? "Write outcome unknown. Review current content before attempting any new write."
@@ -212,11 +260,21 @@ internal sealed partial class IssueActions(
         finally { if (attempted) dirty(); if (entered) writes.Release(); }
     }
 
+    private static bool LifecycleConflict(IssueSummary issue) => issue.Status is not ("open" or "in_progress" or "blocked" or "closed") ||
+        (issue.Status != "closed" && !string.IsNullOrEmpty(issue.Assignee));
+
     private async Task<ActionResult> ApplyAttentionAsync(IssueRecord before, IssueAction action, Action attempted)
     {
-        var request = action.Action == "attention-request";
+        var request = action.Action is "attention-request" or "attention-request-block";
+        var changeStatus = action.Action is "attention-request-block" or "attention-resolve-reopen";
+        var issue = Summary(before);
+        var ownershipRisk = changeStatus && (LifecycleConflict(issue) || reserved?.Invoke(before.Id) == true);
+        var ownershipWarning = ownershipRisk ? " Warning: this may conflict with a worker or reserved assignment; review worker and workspace state." : "";
         var labelPresent = HasAttention(before);
-        if (request == labelPresent)
+        var finishingBlock = action.Action == "attention-request-block" && labelPresent && action.ExistingCommentId is not null && issue.Status != "blocked";
+        var finishingReopen = action.Action == "attention-resolve-reopen" && !labelPresent &&
+            (issue.Status != "open" || !string.IsNullOrEmpty(issue.Assignee)) && action.Text is null;
+        if (request == labelPresent && !finishingBlock && !finishingReopen)
             return new(409, "rejected", request ? "Attention is already requested. Add a comment instead."
                 : "Attention is already clear. No write attempted.", action.RequestId, before.Revision, Summary(before));
         string? commentId = action.ExistingCommentId;
@@ -232,6 +290,13 @@ internal sealed partial class IssueActions(
             if (args[0] == "update")
             {
                 if (!commentVerified || !healthy()) throw new InvalidDataException("Attention step cannot continue.");
+                if (changeStatus)
+                {
+                    var current = (await read(token)).Issues.GetValueOrDefault(before.Id);
+                    if (current is null || Summary(current).Status != issue.Status || Summary(current).Assignee != issue.Assignee ||
+                        HasAttention(current) != labelPresent)
+                        throw new InvalidDataException("Issue lifecycle or attention changed before the status step.");
+                }
                 labelAttempted = true;
             }
             attempted();
@@ -255,13 +320,22 @@ internal sealed partial class IssueActions(
             {
                 if (action.Text is not null)
                     await ExecuteStep(["comment", "--json", before.Id, "--", action.Text], mutationLifetime.Token);
-                var result = await ExecuteStep(["update", before.Id, "--add-label", Beads.NeedsUserAttentionLabel, "--json"], mutationLifetime.Token);
+                var update = new List<string> { "update", before.Id };
+                if (!labelPresent) update.AddRange(["--add-label", Beads.NeedsUserAttentionLabel]);
+                if (changeStatus) update.AddRange(["--status", "blocked"]);
+                update.Add("--json");
+                var result = await ExecuteStep(update, mutationLifetime.Token);
                 sequenceSucceeded = result.Succeeded;
             }
             else
             {
-                await Beads.ResolveUserAttentionAsync(before.Id, action.Text, reopen: false, ExecuteStep, mutationLifetime.Token);
-                sequenceSucceeded = true;
+                if (finishingReopen)
+                    sequenceSucceeded = (await ExecuteStep(["update", before.Id, "--status", "open", "--assignee", "", "--json"], mutationLifetime.Token)).Succeeded;
+                else
+                {
+                    await Beads.ResolveUserAttentionAsync(before.Id, action.Text, reopen: changeStatus, ExecuteStep, mutationLifetime.Token);
+                    sequenceSucceeded = true;
+                }
             }
         }
         catch (Exception ex) when (ex is BeadsException or InvalidDataException or JsonException or CommandStartException or
@@ -281,15 +355,19 @@ internal sealed partial class IssueActions(
         if (action.Text is not null) commentId = FindAddedComment(before, after, action.Text);
         var responseStored = action.Text is null || commentId is not null;
         var labelVerified = HasAttention(after) == request;
-        if (sequenceSucceeded && responseStored && labelVerified)
-            return new(200, "completed", request ? "Explanation and attention label verified; no status or assignment change was requested. No automatic remote synchronization."
-                : "Attention resolution verified; no status or assignment change was requested. No automatic remote synchronization.",
+        var afterIssue = Summary(after);
+        var lifecycleVerified = !changeStatus || (request ? afterIssue.Status == "blocked" && afterIssue.Assignee == issue.Assignee
+            : afterIssue.Status == "open" && string.IsNullOrEmpty(afterIssue.Assignee));
+        if (sequenceSucceeded && responseStored && labelVerified && lifecycleVerified)
+            return new(200, "completed", (changeStatus ? (request ? "Explanation and blocked attention state verified. No automatic remote synchronization."
+                : "Attention cleared, issue reopened, and assignee cleared. No automatic remote synchronization.") : request ? "Explanation and attention label verified; no status or assignment change was requested. No automatic remote synchronization."
+                : "Attention resolution verified; no status or assignment change was requested. No automatic remote synchronization.") + ownershipWarning,
                 action.RequestId, after.Revision, Summary(after), commentId);
         var changed = after.Revision != before.Revision;
         var message = commentId is not null
-            ? $"Explanation comment {commentId} is stored. Attention label {(labelVerified ? "is in the requested state, but command completion is uncertain" : labelAttempted ? "was not verified" : "was not attempted")}. Review and retry only the missing step; do not append the explanation again."
-            : "Attention result could not be verified. Inspect current comments and label before any new operation.";
-        return new(503, changed ? "partially-applied" : "outcome-unknown", message, action.RequestId, after.Revision, Summary(after), commentId);
+            ? $"Explanation comment {commentId} is stored. Attention label {(labelVerified ? "is in the requested state" : labelAttempted ? "was not verified" : "was not attempted")}; status/assignee {(lifecycleVerified ? "are in the requested state" : "were not verified")}. Review and retry only the missing step; do not append the explanation again."
+            : "Attention result could not be verified. Inspect current comments, label, status and assignee before any new operation.";
+        return new(503, changed ? "partially-applied" : "outcome-unknown", message + ownershipWarning, action.RequestId, after.Revision, Summary(after), commentId);
     }
 
     private static bool HasAttention(IssueRecord record) => Summary(record).Labels.Contains(Beads.NeedsUserAttentionLabel);
@@ -322,6 +400,10 @@ internal sealed partial class IssueActions(
         var labelDelta = action.AddLabels is not null || action.RemoveLabels is not null;
         return (!labelDelta || (action.AddLabels ?? []).All(labels.Contains) && removed.All(label => !labels.Contains(label)) &&
             Summary(before).Labels.Where(label => !removed.Contains(label)).All(labels.Contains)) &&
+            (action.Status is null || Summary(after).Status == action.Status) &&
+            (action.ReasoningLevel is null || (ReasoningPolicy.Labels.Where(labels.Contains).SequenceEqual(
+                action.ReasoningLevel == "none" ? [] : [ReasoningPolicy.LabelForTier(action.ReasoningLevel)]) &&
+                Summary(before).Labels.Where(label => !ReasoningPolicy.Labels.Contains(label)).All(labels.Contains))) &&
             (action.Title is null || Get(after.Source, "title") == action.Title) &&
             (action.Description is null || (Get(after.Source, "description") ?? "") == action.Description) &&
             (action.Priority is null || (after.Source.TryGetProperty("priority", out var priority) && priority.TryGetInt32Safe(out var number) && number == action.Priority)) &&

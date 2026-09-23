@@ -290,8 +290,8 @@ export class Timeline {
         if(!active)labels.push({lane,pos,end:12});
       }
     }
-    paths.push({points:[[-12,spineY,0],[12,spineY,0]],color:'#adbed4',radius:.095});
-    targetLabels.push({text:'Project activity · status history',pos:[-12,spineY+.5,0]});
+    paths.push({points:[[-12,spineY,0],[12,spineY,0]],color:'#adbed4',radius:.12});
+    targetLabels.push({text:'Project history',pos:[-12,spineY+.5,0]});
     for(const path of paths)if(this.laneArrivals.has(path.issueId))path.arrival=this.laneArrivals.get(path.issueId);
     for(const marker of markers){
       if(this.laneArrivals.has(marker.issueId))marker.arrival=this.laneArrivals.get(marker.issueId);
@@ -431,7 +431,7 @@ export class Timeline {
     const metadata=node('small','');metadata.append(timestamp,document.createTextNode(' · '+id+' · '+eventKindLabel(event.kind)));
     heading.append(node('strong',event.kind==='current'?(event.source==='git'?'Git containment':'Current issue state'):event.kind==='comment'?(event.author||'Author not recorded'):eventKindLabel(event.kind)),metadata);
     identity.append(badge,heading);
-    callout.append(close,identity);
+    callout.append(close,node('span','Event details','callout-kicker'),identity);
     if(event.kind==='cluster'&&statusChanges.length){
       const changes=node('section',null,'callout-status-changes');
       changes.append(node('strong',statusChanges.length===1?'Status change':'Status changes'));
@@ -442,17 +442,18 @@ export class Timeline {
       }
       callout.append(changes);
     }
-    callout.append(node('p',commentPreview(event.text,280)),node('small',event.kind==='git'?event.provenance:['status','labels','notes'].includes(event.kind)?'Recorded at this time; exact edit time and author may be unknown':event.kind==='current'?(event.provenance||'Current state; transition time unknown'):event.kind==='cluster'?'Grouped issue changes':'New comment'));
     const comments=event.members?.filter(member=>member.kind==='comment')||[];
+    const summary=event.kind==='cluster'?`${event.members?.length||0} changes · ${comments.length} comment${comments.length===1?'':'s'} · ${statusChanges.length} status`:commentPreview(event.text,180);
+    callout.append(node('p',summary),node('small',event.kind==='git'?event.provenance:['status','labels','notes'].includes(event.kind)?'Recorded at this time; exact edit time and author may be unknown':event.kind==='current'?(event.provenance||'Current state; transition time unknown'):event.kind==='cluster'?'Grouped issue changes':'New comment'));
     if(comments.length){
       const previews=node('section',null,'callout-comments');previews.setAttribute('aria-label','Comment previews');
       previews.tabIndex=0;
-      for(const comment of comments.slice(0,5)){
+      for(const comment of comments.slice(0,1)){
         const preview=node('article',null,'callout-comment');
-        preview.append(node('strong',comment.author||'Author not recorded'),node('p',commentPreview(comment.text)));
+        preview.append(node('strong',comment.author||'Author not recorded'),node('p',commentPreview(comment.text,120)));
         previews.append(preview);
       }
-      callout.append(previews,node('small',comments.length>5?`${comments.length-5} more comments · all full comments in the inspector`:'Full comments in the inspector'));
+      callout.append(previews,node('small',comments.length>1?`${comments.length-1} more comments · full text in Activity`:'Full text in Activity'));
     }
     if(changed&&!this.reduced()&&!document.hidden&&this.visible){
       this.calloutAnimation=callout.animate([{opacity:0,transform:'translateY(7px)'},{opacity:1,transform:'translateY(0)'}],{duration:240,easing:'cubic-bezier(.2,.75,.25,1)'});
@@ -464,11 +465,15 @@ export class Timeline {
     $('timeline-range-mode').textContent=this.live?(this.liveHours!==null?'Rolling window · follows now':'Fixed start → now'):'Historical range · paused';
     if(document.activeElement!==$('timeline-hours'))$('timeline-hours').value=this.liveHours??24;
     $('timeline-play').textContent=this.playing?'Pause':'Play';
+    $('timeline-play').dataset.playing=String(this.playing);
     $('timeline-live').textContent=this.live?'● Live':`Return to live${this.newEvents?' · '+this.newEvents+' issue updates':''}`;
     $('timeline-asof').textContent=(this.live?'Live · ':'As of · ')+display(this.playhead)+' · '+Intl.DateTimeFormat().resolvedOptions().timeZone;
     $('timeline-scrub').value=clamp((this.playhead-this.from)/Math.max(1,this.to-this.from)*1000,0,1000);
     const counts={};for(const lane of this.visibleLanes||[]){const status=stateAt(lane.issue,lane.events,this.playhead,this.live).status;counts[status]=(counts[status]||0)+1;}
-    $('timeline-counts').textContent=(!this.live&&Object.values(this.metadata||{}).some(Boolean)?'Historical metadata uses loaded snapshots only; missing or conflicting values are unknown, never copied from today. ':'')+'Visible lanes · '+Object.entries(counts).map(([s,n])=>n+' '+s).join(' · ');
+    const countsText='Visible lanes · '+Object.entries(counts).map(([s,n])=>n+' '+s).join(' · ');
+    const incomplete=!this.live&&Object.values(this.metadata||{}).some(Boolean);
+    $('timeline-counts').textContent=(incomplete?'Historical metadata: unknown values · ':'')+countsText;
+    $('timeline-counts').title=incomplete?'Historical metadata uses loaded snapshots only; missing or conflicting values are unknown, never copied from today. '+countsText:countsText;
     this.drawMinimap();
   }
   drawMinimap(){
@@ -632,6 +637,18 @@ export class Timeline {
     if(this.playing||this.transition||this.renderer.activeArrivals())this.invalidate();
   }
   bindControls(){
+    const options=document.querySelector('.view-options'),menu=options.querySelector('.view-options-content'),workspace=$('timeline-pane').closest('.workspace');
+    const positionOptions=()=>{
+      if(!options.open)return;
+      const anchor=options.getBoundingClientRect(),bounds=workspace.getBoundingClientRect(),width=menu.getBoundingClientRect().width;
+      let left=bounds.left+8,right=bounds.right-8;
+      if(right-left<width){left=16;right=innerWidth-16;}
+      menu.style.left=Math.min(Math.max(0,left-anchor.left),right-anchor.left-width)+'px';
+    };
+    options.addEventListener('toggle',positionOptions);
+    window.addEventListener('resize',positionOptions);
+    workspace.addEventListener('scroll',positionOptions,{passive:true});
+    new ResizeObserver(positionOptions).observe(workspace);
     $('timeline-maximize').addEventListener('click',()=>{this.panelMaximized=!this.panelMaximized;this.cancelRangeBrush();this.syncPanelSize();this.invalidate();});
     window.addEventListener('resize',()=>this.syncPanelSize());
     $('timeline-pane').addEventListener('keydown',e=>{if(e.key==='Escape'&&this.panelMaximized){this.panelMaximized=false;this.syncPanelSize();$('timeline-maximize').focus();this.invalidate();}});
@@ -697,7 +714,9 @@ export class Timeline {
     $('timeline-minimap').addEventListener('click',e=>{
       if(this.ignoreMinimapClick){this.ignoreMinimapClick=false;return;}
       const rect=e.currentTarget.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top;
-      let picked=null,distance=8;
+      // The compact displayed map is shorter than its backing canvas; keep its
+      // event hit area usable across the visible lane thickness.
+      let picked=null,distance=Math.max(8,rect.height*.4);
       for(const marker of this.minimapEvents||[]){const d=Math.hypot(x-marker.x*rect.width,y-marker.y*rect.height);if(d<distance){picked=marker;distance=d;}}
       this.playing=false;
       this.seek(picked?picked.event.time:this.from+(this.to-this.from)*clamp(x/rect.width,0,1));
@@ -712,13 +731,21 @@ export class Timeline {
       if(from===null||to===null||to<=from){$('timeline-renderer').textContent='Choose a valid increasing time range.';return;}
       this.applyRange(from,to);
     });
+    // Range shortcuts use all loaded lanes, not only the filtered/paged viewport.
+    const availableTimes=()=>{const now=this.now();return this.lanes.flatMap(l=>l.events.map(e=>e.time)).filter(t=>Number.isFinite(t)&&t<=now);};
     $('timeline-expand').addEventListener('click',()=>{
-      // All lanes, not only the filtered/paged viewport; discard old range padding.
-      const now=this.now(),times=this.lanes.flatMap(l=>l.events.map(e=>e.time)).filter(t=>Number.isFinite(t)&&t<=now);
+      const now=this.now(),times=availableTimes();
       if(!times.length){$('timeline-renderer').textContent='No dated events are available to set the range.';return;}
       this.from=times.reduce((min,t)=>Math.min(min,t),now);
       if(this.from>=now){$('timeline-renderer').textContent='The first event is at now; there is no elapsed range yet.';return;}
       this.liveHours=null;this.to=now;this.returnLive();this.fit();this.fadeFilteredScene();
+    });
+    $('timeline-event-span').addEventListener('click',()=>{
+      const times=availableTimes();
+      if(!times.length){$('timeline-renderer').textContent='No dated events are available to set the range.';return;}
+      const from=times.reduce((min,t)=>Math.min(min,t),Infinity),to=times.reduce((max,t)=>Math.max(max,t),-Infinity);
+      if(from>=to){$('timeline-renderer').textContent='Only one dated event time is available; choose a wider range.';return;}
+      this.applyRange(from,to);
     });
     $('timeline-fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('main').requestFullscreen();}catch{$('timeline-renderer').textContent='Fullscreen unavailable in this browser.';}});
     const stage=$('timeline-stage');let drag=null;const pointers=new Map();

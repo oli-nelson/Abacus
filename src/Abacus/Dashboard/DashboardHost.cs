@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Net;
 using System.Reflection;
 using System.Text;
 using Microsoft.AspNetCore.Builder;
@@ -70,9 +71,7 @@ internal sealed class DashboardHost : IAsyncDisposable
                     response.StatusCode = 413; return;
                 }
                 if (!request.HasJsonContentType() || request.Headers["X-Abacus-Request"] != "1") { response.StatusCode = 400; return; }
-                if (request.Headers.TryGetValue("Origin", out var origin) &&
-                    (origin.Count != 1 || !Uri.TryCreate(origin[0], UriKind.Absolute, out var uri) ||
-                     uri.Scheme != request.Scheme || !string.Equals(uri.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase)))
+                if (request.Headers.TryGetValue("Origin", out var origin) && !AllowsMutationOrigin(request, origin))
                 { response.StatusCode = 403; return; }
                 var actionPath = request.Path.Value ?? "";
                 if (request.Method == "POST" && actionPath == "/api/v1/run/actions")
@@ -359,6 +358,23 @@ internal sealed class DashboardHost : IAsyncDisposable
         try { await app.StartAsync(token); }
         catch { await app.DisposeAsync(); throw; }
         return new DashboardHost(app, stream, actions, runtime, git);
+    }
+
+    private static bool AllowsMutationOrigin(HttpRequest request, Microsoft.Extensions.Primitives.StringValues origin)
+    {
+        if (origin.Count != 1 || !Uri.TryCreate(origin[0], UriKind.Absolute, out var uri) ||
+            !string.Equals(uri.Scheme, request.Scheme, StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.Equals(uri.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase)) return true;
+
+        // Some local browser setups omit the non-default port from Origin even
+        // though Fetch Metadata marks this request as same-origin. Only trust
+        // that signal on loopback, where no remote site can claim this host.
+        var host = request.Host.Host.Trim('[', ']');
+        var loopback = string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+            (IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address));
+        return loopback && request.Host.Port is not null && uri.IsDefaultPort &&
+            string.Equals(uri.Host, host, StringComparison.OrdinalIgnoreCase) &&
+            request.Headers["Sec-Fetch-Site"] == "same-origin";
     }
 
     private static async Task<System.Text.Json.JsonDocument> ReadActionBodyAsync(HttpRequest request, CancellationToken token)

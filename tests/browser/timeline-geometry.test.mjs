@@ -6,7 +6,7 @@ function geometry(scale,paths,markers){
  const renderer=Object.create(TimelineRenderer.prototype);
  Object.assign(renderer,{geometryScale:scale,uploads:0,gl:{bindBuffer(){},bufferData(_target,value){data=value;}},buffer:{}});
  renderer.setScene({paths,markers,floor:-4,ceiling:4,nowX:100});
- return {data,vertices:renderer.counts[0]};
+ return {data,vertices:renderer.counts[0],counts:renderer.counts};
 }
 test('spherical markers retain equal world radii at 10x time and compressed vertical scale',()=>{
  const scale=[10,.6,1],{data,vertices}=geometry(scale,[],[{pos:[0,0,0],shape:'sphere',color:'#00ffff'}]);
@@ -24,6 +24,16 @@ test('stretched tubes retain their radius and perpendicular cross-sections',()=>
  for(let i=0;i<vertices;i++){
   const p=[0,1,2].map(k=>data[i*11+k]*scale[k]),along=p.reduce((sum,v,k)=>sum+v*tangent[k],0)/(length*length);
   const radial=p.map((v,k)=>v-along*tangent[k]);
-  assert.ok(Math.abs(Math.hypot(...radial)-.048)<1e-5);
+  assert.ok(Math.abs(Math.hypot(...radial)-.07)<1e-5);
  }
+});
+test('path tubes carry their radius for the screen-space minimum at distant zoom',()=>{
+ const {data,vertices,counts}=geometry([1,1,1],[{points:[[0,0,0],[1,0,0]],color:'#00ffff'}],[]);
+ assert.equal(vertices,48);
+ for(let i=0;i<vertices;i++)assert.ok(Math.abs(data[i*11+10]-(2+.07))<1e-6);
+ // Glow rings carry their own larger radii, so the shader need only expand
+ // whichever ring would otherwise fall below the minimum screen width.
+ const glowOffset=(counts[0]+counts[1]+counts[2])*11;
+ assert.ok(data.length>glowOffset);
+ assert.ok(Math.abs(data[glowOffset+10]-(2+.07*2.2))<1e-6);
 });

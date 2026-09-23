@@ -373,15 +373,17 @@ expose raw shell commands, SQL, arbitrary metadata editing, or filesystem browsi
 | Create issue | Validate title, description, type, priority, labels, and target; use `bd create`. Respect target/reasoning policy. With live dispatch, use the existing safe non-ready draft/publish workflow rather than exposing a half-configured ready task. |
 | Edit issue | Update title, description, priority, labels, and append notes; preserve unrelated fields and reserved Abacus metadata. |
 | Add comment | Append exact user text with `bd comment`; display verified stored author/time. No AI rewrite or automatic summarization. |
-| Change status | Offer valid supported states; label `closed` as Completed. Preview that leaving `in_progress` can end an agent session. Completion never performs or proves a Git merge. |
+| Change status | Offer valid supported states; label `closed` as Completed. Warn that changing an assigned or reserved issue can disrupt an agent, but allow the requested change; do not silently stop workers or release reservations. Completion never performs or proves a Git merge. |
 | Change assignment | Permit inactive issue assignment/unassignment with conflict checks; use atomic `--claim` for claiming, never simulate agent ownership with a display label. |
-| Request attention | Append explanation, then add `abacus:needs-user-attention`; no implicit blocked transition. |
+| Request attention | Append explanation, then add `abacus:needs-user-attention`; no implicit blocked transition. An explicit “Request attention & block” additionally sets blocked after the explanation is verified, warning about possible lifecycle ownership conflicts. |
 | Resolve attention | Reuse `ResolveUserAttentionAsync`: optional response first, label removal second; comment failure prevents resolution. “Resolve and reopen” explicitly sets open and clears assignee, separate from plain Resolve. |
+| Set reasoning level | Replace only `abacus:{high,medium,low}_reasoning` via label deltas; preserve unrelated labels and reject clearing under strict reasoning policy. |
 | Change target | Reuse target setter/checker semantics; no active retargeting, bound-destination changes, or browser-authored execution bindings. |
 | Edit dependencies | Typed add/remove dependency actions through `bd dep`; reject unsupported/cyclic relationships, recheck readiness, and preserve existing edges on failure. |
 
 Set `BEADS_ACTOR` to `--actor` (standalone) or `--dashboard-actor` (integrated),
-defaulting to `abacus-web`, for dashboard mutations. Preserve worker actors. It is audit
+defaulting to the repository's effective Git `user.name` (or `user.email` if no
+name is set), for dashboard mutations. Preserve worker actors. It is audit
 attribution only, shared by this server's clients, not an identity guarantee.
 Show the configured actor next to every composer/confirmation.
 
@@ -395,12 +397,14 @@ outcome-unknown. Never blindly retry an append after timeout/disconnect/restart.
 
 **This is not cross-process compare-and-swap.** Existing `bd` metadata updates
 cannot make read/check/write atomic against external agents. Use native atomic
-operations where available. Block ownership-sensitive changes when an issue has
-active or uncertain execution; require the owning run to be stopped/parked and
-its reservation explicitly reconciled before changing ownership, target, or
-terminal status. A stopped worker may still reserve its ticket. In standalone
-mode, require operators to stop competing writers for such repairs; if quiescence
-cannot be established, refuse the action. Ordinary comments remain available.
+operations where available. Warn before status and combined attention/status
+changes when an issue has active or uncertain execution; these changes do not
+stop workers or reconcile reservations. Require the owning run to be stopped/parked
+and its reservation explicitly reconciled before changing ownership or target.
+A stopped worker may still reserve its ticket. In standalone
+mode, require operators to stop competing writers for ownership or target repairs;
+if quiescence cannot be established, refuse those repairs. Ordinary comments
+and warned status changes remain available.
 
 Do not treat multi-command edits as transactions. If a response comment succeeds
 but label removal fails, report exactly that, refresh, and retry only the missing

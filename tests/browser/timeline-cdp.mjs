@@ -23,7 +23,7 @@ for(const issue of ['bd-a1f','bd-b7c','bd-c3e']){
 }
 await evaluate("document.querySelector('#activity .show-timeline-event').click()");
 assert.equal(await evaluate("document.getElementById('issue-form').hidden"),true);
-assert.match(await evaluate("document.getElementById('selected-event').textContent"),/snapshot/);
+assert.match(await evaluate("document.getElementById('selected-event').textContent"),/Status change/);
 assert.equal(await evaluate("document.activeElement.id"),'timeline-stage');
 await evaluate("document.getElementById('timeline-live').click()");
 await until("!document.getElementById('issue-form').hidden");
@@ -72,8 +72,8 @@ assert.equal(JSON.parse((await stats()).camera).perspective,0);
 await evaluate("document.getElementById('write-text').value='Draft survives playback';document.getElementById('write-text').dispatchEvent(new Event('input',{bubbles:true}));");
 await evaluate("document.getElementById('timeline-scrub').value=100;document.getElementById('timeline-scrub').dispatchEvent(new Event('input'))");
 assert.equal(await evaluate("document.getElementById('issue-form').hidden"),true);
-assert.match(await evaluate("document.getElementById('details').textContent"),/Unknown at this time/);
-assert.match(await evaluate("document.getElementById('timeline-counts').textContent"),/unknown/);
+assert.match(await evaluate("document.getElementById('historical-facts').textContent"),/no recorded state at this time/i);
+assert.match(await evaluate("document.getElementById('timeline-counts').textContent"),/in_progress/);
 assert.equal(apiCalls,beforeApi,'Camera and playback must not request source data');
 await evaluate("document.getElementById('timeline-live').click()");
 await until("!document.getElementById('issue-form').hidden");
